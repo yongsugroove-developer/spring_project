@@ -1,0 +1,17 @@
+{
+  "PROJECT_NAME": "sns ai 뉴스 수집기",
+  "FOLDER_NAME": "sns-ai-news-collector",
+  "OWNER": "yongsugroove",
+  "REQUIREMENT_ID": "RQ-001",
+  "STACK_PROFILE": "node-express",
+  "EMAIL_PROVIDER": "SMTP",
+  "BUILD_CMD": "npm run build",
+  "UNIT_TEST_CMD": "npm run test:unit",
+  "INTEGRATION_TEST_CMD": "npm run test:integration",
+  "LINT_CMD": "npm run lint",
+  "RUN_CMD": "npm run dev",
+  "TARGET_RELEASE_DATE": "2026-02-24",
+  "HARD_DEADLINE": "2026-02-24",
+  "SOURCE_MODE": "official API",
+  "SETTINGS_SCOPE": "per-user"
+}

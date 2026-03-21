@@ -1,0 +1,21 @@
+# QA Report
+
+## Metadata
+- Requirement ID: {{REQUIREMENT_ID}}
+- Reported by: Test Agent
+
+## Commands
+- Build: `{{BUILD_CMD}}`
+- Lint: `{{LINT_CMD}}`
+- Unit: `{{UNIT_TEST_CMD}}`
+- Integration: `{{INTEGRATION_TEST_CMD}}`
+
+## Result
+- Build: Pending
+- Lint: Pending
+- Unit: Pending
+- Integration: Pending
+
+## Verdict
+- Verdict: Pending
+- Recommendation:

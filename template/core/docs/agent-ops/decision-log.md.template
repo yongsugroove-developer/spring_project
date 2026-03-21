@@ -1,0 +1,16 @@
+# Decision Log
+
+## Rules
+- Do not guess when requirements are unclear.
+- Ask for explicit user instruction before dispatch.
+- Final completion requires explicit user approval.
+
+## Entries
+| Date | Decision ID | Topic | User Instruction | Leader Action | Status |
+|---|---|---|---|---|---|
+| {{TARGET_RELEASE_DATE}} | DEC-001 | Template bootstrap | "Initialize project from template." | Created project skeleton from template, applied profile `{{STACK_PROFILE}}`, and prepared agent rules and subagents. | In Progress |
+
+## Approval History
+| Date | Requirement ID | QA Verdict | UI Verdict | User Final Approval | Release Decision |
+|---|---|---|---|---|---|
+| {{TARGET_RELEASE_DATE}} | {{REQUIREMENT_ID}} | Pending | Pending | Pending | Pending |

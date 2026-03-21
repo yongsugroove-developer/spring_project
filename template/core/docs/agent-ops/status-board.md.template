@@ -1,0 +1,19 @@
+# Status Board (Lite)
+
+## todo
+- [ ] Define first implementation scope
+- [ ] Start frontend work
+- [ ] Start backend work
+- [ ] Run verification
+
+## in_progress
+- [x] Template bootstrap completed
+- [x] Project initialized from `cursor-agent-project-template`
+
+## done (user approved only)
+- [ ] 
+
+## Notes
+- Project: {{PROJECT_NAME}}
+- Requirement ID: {{REQUIREMENT_ID}}
+- Owner: {{OWNER}}

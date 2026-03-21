@@ -1,0 +1,27 @@
+{
+  "template_version": "1.0.0",
+  "template_name": "cursor-agent-project-template",
+  "recommended_mode": "lite",
+  "profiles": [
+    "node-express"
+  ],
+  "required_variables": [
+    "PROJECT_NAME",
+    "FOLDER_NAME",
+    "OWNER",
+    "REQUIREMENT_ID",
+    "STACK_PROFILE",
+    "EMAIL_PROVIDER",
+    "BUILD_CMD",
+    "UNIT_TEST_CMD",
+    "INTEGRATION_TEST_CMD",
+    "LINT_CMD",
+    "RUN_CMD"
+  ],
+  "optional_variables": [
+    "TARGET_RELEASE_DATE",
+    "HARD_DEADLINE",
+    "SOURCE_MODE",
+    "SETTINGS_SCOPE"
+  ]
+}

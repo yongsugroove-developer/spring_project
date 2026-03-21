@@ -1,0 +1,33 @@
+# Requirements (Lite)
+
+## Project
+- Name: {{PROJECT_NAME}}
+- Owner: {{OWNER}}
+- Requirement ID: {{REQUIREMENT_ID}}
+- Folder: {{FOLDER_NAME}}
+
+## Goal
+- Define the first executable scope for this project.
+- Keep requirements short, explicit, and testable.
+
+## Fixed Options
+- Stack profile: {{STACK_PROFILE}}
+- Email provider: {{EMAIL_PROVIDER}}
+- Source mode: {{SOURCE_MODE}}
+- Settings scope: {{SETTINGS_SCOPE}}
+
+## Acceptance Criteria
+- AC-01:
+- AC-02:
+- AC-03:
+
+## Runtime Commands
+- Build: `{{BUILD_CMD}}`
+- Unit: `{{UNIT_TEST_CMD}}`
+- Integration: `{{INTEGRATION_TEST_CMD}}`
+- Lint: `{{LINT_CMD}}`
+- Run: `{{RUN_CMD}}`
+
+## Schedule
+- Target release date: {{TARGET_RELEASE_DATE}}
+- Hard deadline: {{HARD_DEADLINE}}

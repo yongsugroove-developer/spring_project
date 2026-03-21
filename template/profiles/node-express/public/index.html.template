@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{PROJECT_NAME}}</title>
+  </head>
+  <body>
+    <main>
+      <h1>{{PROJECT_NAME}}</h1>
+      <p>Initialized from cursor-agent-project-template.</p>
+    </main>
+  </body>
+</html>

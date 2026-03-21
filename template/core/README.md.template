@@ -1,0 +1,29 @@
+# {{FOLDER_NAME}}
+
+{{PROJECT_NAME}} project bootstrapped from `cursor-agent-project-template`.
+
+## Owner
+
+- {{OWNER}}
+
+## Requirement
+
+- {{REQUIREMENT_ID}}
+
+## Stack Profile
+
+- {{STACK_PROFILE}}
+
+## Commands
+
+- Build: `{{BUILD_CMD}}`
+- Unit: `{{UNIT_TEST_CMD}}`
+- Integration: `{{INTEGRATION_TEST_CMD}}`
+- Lint: `{{LINT_CMD}}`
+- Run: `{{RUN_CMD}}`
+
+## Next Steps
+
+1. Fill environment variables and secrets outside the repository.
+2. Review `AGENTS.md`, `.cursor/rules/`, `.cursor/agents/`.
+3. Update `docs/agent-ops/requirements.md` and `status-board.md` as the project evolves.

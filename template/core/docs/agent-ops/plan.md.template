@@ -1,0 +1,24 @@
+# Execution Plan (Lite)
+
+## Requirement
+- ID: {{REQUIREMENT_ID}}
+- Project: {{PROJECT_NAME}}
+
+## Work Items
+| Task ID | Description | Owner | Status |
+|---|---|---|---|
+| FE-01 | Frontend implementation | Frontend Worker | todo |
+| BE-01 | Backend implementation | Backend Worker | todo |
+| QA-01 | Verification and test run | Test Agent | todo |
+
+## Run Commands
+- Build: `{{BUILD_CMD}}`
+- Unit: `{{UNIT_TEST_CMD}}`
+- Integration: `{{INTEGRATION_TEST_CMD}}`
+- Lint: `{{LINT_CMD}}`
+- Run: `{{RUN_CMD}}`
+
+## Minimum Policy
+- FE/BE parallel execution when safe
+- Verify before claiming completion
+- Final completion requires user approval

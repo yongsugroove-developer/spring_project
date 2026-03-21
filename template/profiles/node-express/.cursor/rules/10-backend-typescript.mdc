@@ -1,0 +1,17 @@
+---
+description: Backend TypeScript rules for Express services, validation, persistence, scheduler, and provider integrations
+globs: src/**/*.ts
+alwaysApply: false
+---
+
+# Backend TypeScript
+
+- Keep runtime code in `src/` modular and single-purpose.
+- Validate incoming payloads before persistence or execution.
+- Return explicit error messages for invalid input; do not leak secrets or stack traces in responses.
+- Fail safely when external credentials are missing.
+
+# Testing Expectations
+
+- Add or update unit tests for logic-heavy helpers.
+- Add or update integration tests when API behavior changes.

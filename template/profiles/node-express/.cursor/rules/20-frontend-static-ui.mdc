@@ -1,0 +1,12 @@
+---
+description: Frontend rules for static HTML, CSS, and JavaScript UI files
+globs: public/**/*
+alwaysApply: false
+---
+
+# Frontend Static UI
+
+- Keep the UI simple, direct, and easy to operate.
+- Prefer progressive enhancement over framework-like abstractions.
+- Do not expose plaintext secrets after save.
+- Keep user feedback clear for save, load, and run-now style actions.

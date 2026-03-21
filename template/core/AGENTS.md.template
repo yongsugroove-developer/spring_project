@@ -1,0 +1,51 @@
+# AGENTS.md
+
+## Project Identity
+- Project: `{{FOLDER_NAME}}`
+- Product name: `{{PROJECT_NAME}}`
+- Primary owner: `{{OWNER}}`
+- Requirement in focus: `{{REQUIREMENT_ID}}`
+
+## Purpose
+- Start new projects with a consistent multi-agent workflow in Cursor.
+- Use this file as the root briefing for the main agent and all delegated work.
+
+## Canonical Commands
+- Build: `{{BUILD_CMD}}`
+- Unit tests: `{{UNIT_TEST_CMD}}`
+- Integration tests: `{{INTEGRATION_TEST_CMD}}`
+- Lint: `{{LINT_CMD}}`
+- Run: `{{RUN_CMD}}`
+
+Before closing substantial work, run the relevant verification commands above.
+
+## Project Structure
+- `src/`: backend or runtime implementation
+- `public/` or `app/`: frontend implementation
+- `tests/`: automated verification
+- `docs/agent-ops/`: requirements, plan, status, QA, handoff, decisions
+- `.cursor/rules/`: project rules for Cursor
+- `.cursor/agents/`: project subagents for Cursor
+
+## Working Agreements
+- Prefer small, reversible changes over broad rewrites.
+- Keep docs truthful and lightweight.
+- Update the matching `docs/agent-ops/` file when scope, status, or risk changes materially.
+- Do not mark approval-sensitive work as complete without explicit user approval.
+
+## Security Boundaries
+- Never commit secrets, tokens, `.env`, or plaintext credentials.
+- Keep sensitive values server-side and masked in any browser-visible response.
+- Record security provisioning or reset evidence in `docs/agent-ops/security-reset-evidence.md`.
+
+## Agent Workflow
+- The main agent acts as the orchestrator.
+- Use focused subagents for frontend, backend, QA, and security work.
+- Prefer FE/BE parallel execution when dependencies are clear.
+- Use a verifier after implementation and a security reviewer for sensitive changes.
+
+## Expected Reporting
+- Changed files
+- Verification run
+- Remaining risks
+- Next action needed from the user, if any
