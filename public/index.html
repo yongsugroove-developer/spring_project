@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Planner</title>
+    <meta name="description" content="My Planner" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="hero panel">
+        <div>
+          <div class="hero-topline">
+            <p class="eyebrow">my planner</p>
+            <label class="language-box">
+              <span id="language-label">Language</span>
+              <select id="language-select" aria-label="language selector">
+                <option value="ko">Korean</option>
+                <option value="en">English</option>
+                <option value="ja">Japanese</option>
+              </select>
+            </label>
+          </div>
+          <h1 id="hero-title">Routine Assignment And Progress</h1>
+          <p id="hero-copy" class="hero-copy">
+            Manage routines, todos, calendar overrides, and statistics in one place.
+          </p>
+        </div>
+        <div class="hero-metrics">
+          <div class="metric-card">
+            <span id="hero-label-set">Today's Set</span>
+            <strong id="hero-set">-</strong>
+          </div>
+          <div class="metric-card">
+            <span id="hero-label-rate">Today's Rate</span>
+            <strong id="hero-rate">0%</strong>
+          </div>
+          <div class="metric-card">
+            <span id="hero-label-streak">Current Streak</span>
+            <strong id="hero-streak">0 days</strong>
+          </div>
+          <div class="metric-card">
+            <span id="hero-label-date">Base Date</span>
+            <strong id="hero-date">-</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="tabs panel">
+        <button id="tab-button-today" class="tab-button is-active" data-tab="today" type="button">Today</button>
+        <button id="tab-button-routines" class="tab-button" data-tab="routines" type="button">Routines</button>
+        <button id="tab-button-todos" class="tab-button" data-tab="todos" type="button">Todos</button>
+        <button id="tab-button-calendar" class="tab-button" data-tab="calendar" type="button">Calendar</button>
+        <button id="tab-button-stats" class="tab-button" data-tab="stats" type="button">Stats</button>
+      </section>
+
+      <p id="feedback" class="feedback" aria-live="polite"></p>
+
+      <section id="tab-today" class="tab-panel is-active"></section>
+      <section id="tab-routines" class="tab-panel"></section>
+      <section id="tab-todos" class="tab-panel"></section>
+      <section id="tab-calendar" class="tab-panel"></section>
+      <section id="tab-stats" class="tab-panel"></section>
+    </main>
+  </body>
+</html>

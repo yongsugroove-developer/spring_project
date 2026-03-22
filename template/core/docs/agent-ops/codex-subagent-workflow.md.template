@@ -1,0 +1,50 @@
+# Codex Subagent Workflow
+
+## Purpose
+
+This project already defines a Cursor-oriented multi-agent split under `.cursor/agents/`.
+This document adds the matching Codex dispatch contract so the same role model can be reused with Codex subagents.
+
+## Source Of Truth
+
+- Shared project briefing: `AGENTS.md`
+- Cursor role files: `.cursor/agents/`
+- Codex role files: `.codex/agents/`
+
+Cursor and Codex should keep the same role boundaries unless there is a documented reason to diverge.
+
+## Current Codex Behavior
+
+In the current Codex runtime used for this project, subagents are not spawned automatically from `.codex/agents/` files or from role names alone.
+
+What actually happens:
+
+1. The main Codex agent decides whether to call `spawn_agent`.
+2. If it does, the main agent must pass the relevant role instructions in the dispatch message.
+3. Without that explicit dispatch step, `.codex/agents/` remains reference material only.
+4. In the current Codex runtime for this session, the main agent should only use `spawn_agent` when the user explicitly asks for subagents, delegation, or parallel agent work.
+
+Operationally, this means the project can define backend, frontend, QA, and security roles, but Codex will only use them when the main agent deliberately delegates work.
+
+For this Codex environment, the current runtime policy is stricter than Cursor-style automatic role loading:
+
+- role files do not auto-activate
+- subagents are not created just because a matching file exists
+- delegation requires an explicit `spawn_agent` call by the main agent
+
+## Role Mapping
+
+| Responsibility | Cursor file | Codex file | Recommended Codex agent type |
+|---|---|---|---|
+| Backend implementation | `.cursor/agents/backend-worker.md` | `.codex/agents/backend-worker.md` | `worker` |
+| Frontend implementation | `.cursor/agents/frontend-worker.md` | `.codex/agents/frontend-worker.md` | `worker` |
+| QA verification | `.cursor/agents/qa-verifier.md` | `.codex/agents/qa-verifier.md` | `worker` |
+| Security review | `.cursor/agents/security-reviewer.md` | `.codex/agents/security-reviewer.md` | `explorer` by default |
+
+## Dispatch Contract
+
+1. The main Codex agent reads `AGENTS.md` and the matching file under `.codex/agents/`.
+2. The dispatch message must assign explicit ownership, such as `src/` or `public/`.
+3. Parallel frontend/backend dispatch is allowed only when write scopes are disjoint.
+4. Every dispatched worker must be told that it is not alone in the codebase and must not revert edits it did not make.
+5. The verifier runs after implementation. The security reviewer is used for sensitive changes or provider-related work.

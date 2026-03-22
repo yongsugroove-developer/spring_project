@@ -1,0 +1,17 @@
+﻿---
+description: Testing and verification rules for Node/Express projects
+globs: tests/**/*.ts
+alwaysApply: false
+---
+
+# Testing and Verification
+
+- Prefer focused tests that prove behavior, not implementation details.
+- Run the narrowest relevant verification first.
+- Report what was verified, what failed, and what remains unverified.
+
+# Node Profile Checks
+
+- API changes should have integration coverage.
+- Helper and transformation logic should have unit coverage.
+

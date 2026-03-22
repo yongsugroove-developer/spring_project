@@ -1,21 +1,21 @@
 # AGENTS.md
 
 ## Project Identity
-- Project: `{{FOLDER_NAME}}`
-- Product name: `{{PROJECT_NAME}}`
-- Primary owner: `{{OWNER}}`
-- Requirement in focus: `{{REQUIREMENT_ID}}`
+- Project: `my-planner`
+- Product name: `마이 플래너`
+- Primary owner: `yongsugroove`
+- Requirement in focus: `RQ-001`
 
 ## Purpose
-- Start new projects with a consistent multi-agent workflow in Cursor and Codex.
+- Build a single-user routine and todo planner as a responsive web MVP.
 - Use this file as the root briefing for the main agent and all delegated work.
 
 ## Canonical Commands
-- Build: `{{BUILD_CMD}}`
-- Unit tests: `{{UNIT_TEST_CMD}}`
-- Integration tests: `{{INTEGRATION_TEST_CMD}}`
-- Lint: `{{LINT_CMD}}`
-- Run: `{{RUN_CMD}}`
+- Build: `npm run build`
+- Unit tests: `npm run test:unit`
+- Integration tests: `npm run test:integration`
+- Lint: `npm run lint`
+- Run: `npm run dev`
 
 Before closing substantial work, run the relevant verification commands above.
 
@@ -58,3 +58,22 @@ Before closing substantial work, run the relevant verification commands above.
 - Verification run
 - Remaining risks
 - Next action needed from the user, if any
+
+## Stack Profile: Node Express
+
+### Tech Stack
+- Runtime: Node.js, TypeScript, Express
+- Frontend: static HTML/CSS/JS or lightweight server-rendered UI
+- Tests: Vitest + Supertest
+
+### File Structure
+- `src/`: backend runtime, handlers, services, persistence
+- `public/`: browser-facing static UI assets
+- `tests/unit/`: isolated logic tests
+- `tests/integration/`: route and flow verification
+
+### Profile Boundaries
+- Prefer simple server architecture over framework-heavy abstractions.
+- Keep frontend and backend loosely coupled through explicit API contracts.
+- Preserve deterministic validation and safe secret handling by default.
+- Keep persistence swappable so local JSON storage can later move to a service database.

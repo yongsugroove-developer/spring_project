@@ -22,8 +22,14 @@
 - Lint: `{{LINT_CMD}}`
 - Run: `{{RUN_CMD}}`
 
+## Agent Assets
+
+- `AGENTS.md`: shared briefing for the main agent and delegated work
+- `.cursor/rules/`, `.cursor/agents/`: Cursor multi-agent configuration
+- `.codex/agents/`: Codex subagent prompt files that mirror the Cursor role split
+
 ## Next Steps
 
 1. Fill environment variables and secrets outside the repository.
-2. Review `AGENTS.md`, `.cursor/rules/`, `.cursor/agents/`.
+2. Review `AGENTS.md`, `.cursor/rules/`, `.cursor/agents/`, and `.codex/agents/`.
 3. Update `docs/agent-ops/requirements.md` and `status-board.md` as the project evolves.
