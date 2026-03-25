@@ -78,6 +78,43 @@ describe("planner service", () => {
     expect(sunday.assignment.activeRoutineIds).toEqual(["routine-weekend"]);
   });
 
+  it("marks include-only overrides as override sources and rejects overlapping override routines", async () => {
+    const temp = await createTempPlannerFile(createDefaultPlannerData());
+    cleanups.push(temp.cleanup);
+    const service = new PlannerService(new JsonPlannerRepository(temp.filePath), {
+      now: () => new Date("2026-03-22T12:00:00+09:00"),
+    });
+
+    const saturday = await service.getCheckins("2026-03-22");
+
+    expect(saturday.assignment.source).toBe("override");
+    expect(saturday.assignment.activeRoutineIds).toEqual(["routine-weekend", "routine-focus"]);
+
+    await expect(
+      service.upsertOverride("2026-03-23", {
+        includeRoutineIds: ["routine-focus"],
+        excludeRoutineIds: ["routine-focus"],
+      }),
+    ).rejects.toThrow("same routine");
+  });
+
+  it("preserves completedAt when editing an already completed todo", async () => {
+    const temp = await createTempPlannerFile(createDefaultPlannerData());
+    cleanups.push(temp.cleanup);
+    const service = new PlannerService(new JsonPlannerRepository(temp.filePath), {
+      now: () => new Date("2026-03-25T09:00:00+09:00"),
+    });
+
+    const before = (await service.listTodos()).todos.find((todo) => todo.id === "todo-receipt")?.completedAt;
+    const updated = await service.updateTodo("todo-receipt", {
+      emoji: "✅",
+      status: "done",
+    });
+
+    expect(updated?.completedAt).toBe(before);
+    expect(updated?.emoji).toBe("✅");
+  });
+
   it("aggregates statistics using partial count progress", async () => {
     const temp = await createTempPlannerFile(createDefaultPlannerData());
     cleanups.push(temp.cleanup);

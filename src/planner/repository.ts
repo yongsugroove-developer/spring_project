@@ -89,6 +89,8 @@ function normalizePlannerData(
     !Array.isArray(raw.routineSets) ||
     !Array.isArray(raw.routineAssignmentRules) ||
     !Array.isArray(raw.routineDateOverrides) ||
+    getArray(raw, "routines").some((entry) => isRecord(entry) && !("emoji" in entry)) ||
+    getArray(raw, "todos").some((entry) => isRecord(entry) && !("emoji" in entry)) ||
     getArray(raw, "routines").some((entry) => isRecord(entry) && Array.isArray(entry.activeDays)) ||
     getArray(raw, "routineItems").some(
       (entry) =>
@@ -121,6 +123,7 @@ function normalizeRoutines(entries: unknown[]): Routine[] {
     .map((entry, index) => ({
       id: getString(entry, "id", `routine-${index + 1}`),
       name: getString(entry, "name", `Routine ${index + 1}`),
+      emoji: getNullableString(entry, "emoji"),
       color: normalizeRoutineColor(getString(entry, "color", "#f97316")),
       isArchived: getBoolean(entry, "isArchived", false),
       createdAt: getTimestamp(entry, "createdAt"),
@@ -300,6 +303,7 @@ function normalizeTodos(entries: unknown[]): Todo[] {
       return {
         id: getString(entry, "id", `todo-${index + 1}`),
         title: getString(entry, "title", `Todo ${index + 1}`),
+        emoji: getNullableString(entry, "emoji"),
         note: getNullableString(entry, "note"),
         dueDate: getNullableString(entry, "dueDate"),
         status,

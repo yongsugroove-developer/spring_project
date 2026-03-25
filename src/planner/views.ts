@@ -84,12 +84,17 @@ export function resolveAssignment(data: PlannerData, date: string): ResolvedAssi
   for (const routineId of excludeRoutineIds) {
     activeRoutineIds.delete(routineId);
   }
+  const hasOverride =
+    override !== undefined &&
+    (override.setId !== null ||
+      override.includeRoutineIds.length > 0 ||
+      override.excludeRoutineIds.length > 0);
 
   return {
     date,
     baseSetId: baseSet?.id ?? null,
     baseSetName: baseSet?.name ?? null,
-    source: override?.setId ? "override" : baseSet ? "rule" : "none",
+    source: hasOverride ? "override" : baseSet ? "rule" : "none",
     includeRoutineIds,
     excludeRoutineIds,
     activeRoutineIds: [...activeRoutineIds],
@@ -277,6 +282,7 @@ export function getTopRoutines(data: PlannerData, startDate: string, endDate: st
       return {
         routineId: routine.id,
         name: routine.name,
+        emoji: routine.emoji,
         color: routine.color,
         completionRate: targetUnits === 0 ? 0 : completedUnits / targetUnits,
         completedUnits,

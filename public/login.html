@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Planner</title>
+    <meta name="description" content="My Planner" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="module" src="/login.js"></script>
+  </head>
+  <body class="login-page">
+    <main class="login-shell">
+      <section class="panel section">
+        <div class="hero-topline">
+          <p class="eyebrow">my planner</p>
+          <details class="settings-panel">
+            <summary id="settings-summary" class="settings-summary">Settings</summary>
+            <div class="header-controls">
+              <label class="control-box">
+                <span id="language-label">Language</span>
+                <select id="language-select" aria-labelledby="language-label">
+                  <option value="ko">Korean</option>
+                  <option value="en">English</option>
+                  <option value="ja">Japanese</option>
+                </select>
+              </label>
+              <label class="control-box">
+                <span id="theme-label">Theme</span>
+                <select id="theme-select" aria-labelledby="theme-label">
+                  <option value="violet">Violet</option>
+                  <option value="sunset">Sunset</option>
+                  <option value="forest">Forest</option>
+                </select>
+              </label>
+              <label class="control-box">
+                <span id="density-label">Density</span>
+                <select id="density-select" aria-labelledby="density-label">
+                  <option value="comfy">Comfy</option>
+                  <option value="compact">Compact</option>
+                </select>
+              </label>
+            </div>
+          </details>
+        </div>
+        <div id="login-root"></div>
+      </section>
+    </main>
+  </body>
+</html>

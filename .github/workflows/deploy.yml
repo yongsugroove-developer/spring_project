@@ -1,0 +1,84 @@
+name: deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Integration tests
+        run: npm run test:integration
+
+      - name: Build
+        run: npm run build
+
+      - name: Create release bundle
+        run: |
+          mkdir -p bundle/scripts
+          cp -r dist public bundle/
+          cp package.json package-lock.json ecosystem.config.cjs bundle/
+          cp scripts/deploy-release.sh scripts/rollback-release.sh bundle/scripts/
+          tar -czf release.tar.gz -C bundle .
+
+      - name: Configure SSH
+        env:
+          PROD_SSH_PRIVATE_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+          PROD_SSH_HOST: ${{ secrets.PROD_SSH_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          printf "%s" "$PROD_SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "$PROD_SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload release bundle
+        env:
+          PROD_SSH_HOST: ${{ secrets.PROD_SSH_HOST }}
+          PROD_SSH_USER: ${{ secrets.PROD_SSH_USER }}
+          PROD_DEPLOY_PATH: ${{ secrets.PROD_DEPLOY_PATH }}
+        run: |
+          ssh "$PROD_SSH_USER@$PROD_SSH_HOST" "mkdir -p '$PROD_DEPLOY_PATH/releases/${GITHUB_SHA}' '$PROD_DEPLOY_PATH/shared'"
+          scp release.tar.gz "$PROD_SSH_USER@$PROD_SSH_HOST:$PROD_DEPLOY_PATH/releases/${GITHUB_SHA}/release.tar.gz"
+
+      - name: Activate release
+        env:
+          PROD_SSH_HOST: ${{ secrets.PROD_SSH_HOST }}
+          PROD_SSH_USER: ${{ secrets.PROD_SSH_USER }}
+          PROD_DEPLOY_PATH: ${{ secrets.PROD_DEPLOY_PATH }}
+        run: |
+          ssh "$PROD_SSH_USER@$PROD_SSH_HOST" "
+            set -euo pipefail
+            RELEASE_DIR='$PROD_DEPLOY_PATH/releases/${GITHUB_SHA}'
+            cd \"\$RELEASE_DIR\"
+            tar -xzf release.tar.gz
+            chmod +x scripts/deploy-release.sh scripts/rollback-release.sh
+            APP_ROOT='$PROD_DEPLOY_PATH' ./scripts/deploy-release.sh '${GITHUB_SHA}'
+          "
