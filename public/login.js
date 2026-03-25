@@ -160,6 +160,35 @@ function billingIntervalLabel(interval) {
   return interval === "year" ? t("billingYearly") : t("billingMonthly");
 }
 
+function localizedBillingPlan(plan) {
+  if (plan.code === "free") {
+    return {
+      name: t("billingPlanFreeName"),
+      description: t("billingPlanFreeDescription"),
+      intervalLabel: "",
+    };
+  }
+  if (plan.code === "pro-monthly") {
+    return {
+      name: t("billingPlanProName"),
+      description: t("billingPlanProMonthlyDescription"),
+      intervalLabel: billingIntervalLabel("month"),
+    };
+  }
+  if (plan.code === "pro-yearly") {
+    return {
+      name: t("billingPlanProName"),
+      description: t("billingPlanProYearlyDescription"),
+      intervalLabel: billingIntervalLabel("year"),
+    };
+  }
+  return {
+    name: plan.name,
+    description: plan.description,
+    intervalLabel: billingIntervalLabel(plan.interval),
+  };
+}
+
 function inlineFeedback(scope) {
   if (state.inlineFeedback?.scope !== scope) return "";
   return `<p class="inline-feedback ${state.inlineFeedback.error ? "is-error" : ""}">${esc(
@@ -189,13 +218,16 @@ function authModeButton(mode, label) {
 }
 
 function planCard(plan) {
+  const localized = localizedBillingPlan(plan);
   return `<article class="content-card content-card--stat billing-plan-card">
-    <div class="row-between">
+    <div class="billing-plan-head">
       <div>
-        <strong>${esc(plan.name)}</strong>
-        <div class="muted">${esc(plan.description)}</div>
+        <div class="billing-plan-title-line">
+          <strong>${esc(localized.name)}</strong>
+          ${localized.intervalLabel ? `<span class="state-pill">${esc(localized.intervalLabel)}</span>` : ""}
+        </div>
+        <div class="muted">${esc(localized.description)}</div>
       </div>
-      <span class="state-pill">${esc(billingIntervalLabel(plan.interval))}</span>
     </div>
     <div class="billing-price">${esc(moneyLabel(plan.priceMinor, plan.currency))}</div>
   </article>`;
@@ -209,9 +241,37 @@ function authCardCopy() {
   return state.authAvailable ? t("authRequiredCopy") : t("authUnavailableCopy");
 }
 
-function statusBadge() {
-  if (!state.authAvailable) return `<span class="state-pill">${t("system")}</span>`;
-  return `<span class="pill">${t("authRequiredBadge")}</span>`;
+function settingsPanel() {
+  return `<div class="login-settings-wrap">
+    <details class="settings-panel login-settings-panel">
+      <summary id="settings-summary" class="settings-summary">${t("displaySettings")}</summary>
+      <div class="header-controls login-settings-controls">
+        <label class="control-box">
+          <span id="language-label">${t("language")}</span>
+          <select id="language-select" aria-labelledby="language-label">
+            <option value="ko">Korean</option>
+            <option value="en">English</option>
+            <option value="ja">Japanese</option>
+          </select>
+        </label>
+        <label class="control-box">
+          <span id="theme-label">${t("theme")}</span>
+          <select id="theme-select" aria-labelledby="theme-label">
+            <option value="violet">Violet</option>
+            <option value="sunset">Sunset</option>
+            <option value="forest">Forest</option>
+          </select>
+        </label>
+        <label class="control-box">
+          <span id="density-label">${t("density")}</span>
+          <select id="density-select" aria-labelledby="density-label">
+            <option value="comfy">Comfy</option>
+            <option value="compact">Compact</option>
+          </select>
+        </label>
+      </div>
+    </details>
+  </div>`;
 }
 
 function renderRoot() {
@@ -231,7 +291,6 @@ function renderRoot() {
           <p class="section-label">${t("login")}</p>
           <h1>${esc(authCardTitle())}</h1>
         </div>
-        ${statusBadge()}
       </div>
       <p class="login-copy">${esc(authCardCopy())}</p>
       <p id="login-feedback" class="feedback" aria-live="polite"></p>
@@ -256,6 +315,7 @@ function renderRoot() {
           )}</button>
         </div>
       </form>
+      ${settingsPanel()}
     </section>
 
     <aside class="login-side-stack">
@@ -275,8 +335,8 @@ function renderRoot() {
 
 function render() {
   applyPreferences();
-  applyStaticText();
   renderRoot();
+  applyStaticText();
 }
 
 async function api(path, options = {}) {

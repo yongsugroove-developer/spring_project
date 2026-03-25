@@ -604,6 +604,27 @@ select {
   line-height: 1.7;
 }
 
+.login-settings-wrap {
+  margin-top: 16px;
+}
+
+.login-settings-panel {
+  width: 100%;
+}
+
+.login-settings-panel .settings-summary {
+  width: fit-content;
+}
+
+.login-settings-panel[open] {
+  display: grid;
+  gap: 12px;
+}
+
+.login-settings-controls {
+  justify-content: flex-start;
+}
+
 .login-side-stack {
   display: grid;
   gap: 18px;
@@ -710,6 +731,22 @@ select {
 
 .billing-plan-card {
   gap: 10px;
+}
+
+.billing-plan-head {
+  display: grid;
+  gap: 8px;
+}
+
+.billing-plan-title-line {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.billing-plan-title-line strong {
+  font-size: 1rem;
 }
 
 .billing-plan-card.is-current {
