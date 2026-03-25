@@ -229,4 +229,7 @@ export interface HealthResponse {
   ok: true;
   project: string;
   productName: string;
+  storageDriver?: "json" | "mysql";
+  authAvailable?: boolean;
+  authRequired?: boolean;
 }

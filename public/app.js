@@ -5,6 +5,8 @@ const LOCALE_KEY = "my-planner-locale";
 const RECENT_EMOJIS_KEY = "my-planner-recent-emojis";
 const THEME_KEY = "my-planner-theme";
 const DENSITY_KEY = "my-planner-density";
+const AUTH_TOKEN_KEY = "my-planner-auth-token";
+const LOGIN_PATH = "/login.html";
 const EMOJI_FALLBACK = "✨";
 
 const THEME_PRESET_OPTIONS = [
@@ -50,6 +52,23 @@ const state = {
     DENSITY_OPTIONS.map((option) => option.value),
     "comfy",
   ),
+  authToken: globalThis.localStorage?.getItem(AUTH_TOKEN_KEY) ?? "",
+  authUser: null,
+  authAvailable: false,
+  authRequired: false,
+  authMode: "login",
+  appNavOpen: false,
+  accountSection: "auth",
+  accountNavOpen: false,
+  adminSection: "overview",
+  adminNavOpen: false,
+  billingPlans: [],
+  billingOverview: null,
+  adminOverview: null,
+  adminUsers: [],
+  adminSubscriptions: [],
+  adminSessions: [],
+  adminLogs: [],
   today: null,
   routines: [],
   routineSets: [],
@@ -85,6 +104,68 @@ function setStoredOption(key, value) {
 function applyPreferences() {
   document.body.dataset.theme = state.themePreset;
   document.body.dataset.density = state.density;
+}
+
+function setAuthToken(token) {
+  state.authToken = token;
+  if (token) {
+    globalThis.localStorage?.setItem(AUTH_TOKEN_KEY, token);
+    return;
+  }
+  globalThis.localStorage?.removeItem(AUTH_TOKEN_KEY);
+}
+
+function clearPlannerState() {
+  state.today = null;
+  state.routines = [];
+  state.routineSets = [];
+  state.assignments = [];
+  state.override = null;
+  state.todos = [];
+  state.calendar = null;
+  state.stats = null;
+}
+
+function clearAuthState() {
+  setAuthToken("");
+  state.authUser = null;
+  state.billingOverview = null;
+  state.accountSection = "auth";
+  state.accountNavOpen = false;
+  clearAdminState();
+}
+
+function plannerLocked() {
+  return state.authAvailable && !state.authUser;
+}
+
+function redirectToLogin() {
+  if (globalThis.location?.pathname === LOGIN_PATH) return;
+  globalThis.location?.replace(LOGIN_PATH);
+}
+
+function clearAdminState() {
+  state.adminOverview = null;
+  state.adminUsers = [];
+  state.adminSubscriptions = [];
+  state.adminSessions = [];
+  state.adminLogs = [];
+  state.adminSection = "overview";
+  state.adminNavOpen = false;
+}
+
+function canAccessAdmin() {
+  return ["owner", "admin"].includes(state.authUser?.role ?? "");
+}
+
+function setAccountSection(section) {
+  const allowed = state.authUser ? ["profile", "billing"] : ["auth", "plans"];
+  state.accountSection = allowed.includes(section) ? section : allowed[0];
+}
+
+function setAdminSection(section) {
+  const allowed = ["overview", "accounts", "subscriptions", "sessions", "logs"];
+  state.adminSection = allowed.includes(section) ? section : "overview";
 }
 
 function toggleSetEntry(set, value) {
@@ -218,12 +299,16 @@ function emojiField(selectedEmoji = "", kind = "routine") {
   return `<label class="field field-wide emoji-field">
     <span>${t("emoji")}</span>
     <div class="emoji-input-shell">
-      <span class="emoji-preview" data-role="emoji-preview">${emoji ? esc(emoji) : EMOJI_FALLBACK}</span>
-      <input name="emoji" maxlength="16" value="${esc(emoji)}" placeholder="${t("emojiPlaceholder")}" autocomplete="off" />
+      <input class="emoji-input" name="emoji" maxlength="16" value="${esc(emoji)}" placeholder="${t("emojiPlaceholder")}" autocomplete="off" />
       <details class="emoji-picker">
         <summary class="emoji-trigger">
-          <span class="emoji-trigger-icon">${emoji ? esc(emoji) : EMOJI_FALLBACK}</span>
-          <span>${t("emojiPicker")}</span>
+          <span class="emoji-trigger-main">
+            <span class="emoji-trigger-badge" data-role="emoji-preview">
+              <span class="emoji-trigger-icon">${emoji ? esc(emoji) : EMOJI_FALLBACK}</span>
+            </span>
+            <span class="emoji-trigger-label">${t("emojiPicker")}</span>
+          </span>
+          <span class="emoji-trigger-caret" aria-hidden="true">⌄</span>
         </summary>
         <div class="emoji-picker-panel">
           ${recent.length ? emojiPickerSection(t("recentEmojis"), recent, emoji) : ""}
@@ -252,6 +337,33 @@ function timeLabel(value) {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function dateTimeLabel(value) {
+  if (!value) return t("notAvailable");
+  return new Intl.DateTimeFormat(state.locale, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function moneyLabel(priceMinor, currency) {
+  return new Intl.NumberFormat(state.locale, {
+    style: "currency",
+    currency: currency || "USD",
+    maximumFractionDigits: 2,
+  }).format((Number(priceMinor) || 0) / 100);
+}
+
+function billingIntervalLabel(interval) {
+  return interval === "year" ? t("billingYearly") : t("billingMonthly");
+}
+
+function subscriptionPlanCode() {
+  return state.billingOverview?.subscription?.plan?.code ?? "";
 }
 
 function remainingRoutineCount() {
@@ -403,6 +515,8 @@ function applyStaticText() {
   setDocumentMeta();
   text("language-label", t("language"));
   text("settings-summary", t("settings"));
+  text("app-nav-label", t("manageMenu"));
+  text("app-nav-title", t("appTitle"));
   text("hero-title", t("heroTitle"));
   text("hero-copy", t("heroCopy"));
   text("hero-label-set", t("heroSet"));
@@ -414,11 +528,12 @@ function applyStaticText() {
   textAll('[data-tab="todos"]', t("todos"));
   textAll('[data-tab="calendar"]', t("calendar"));
   textAll('[data-tab="stats"]', t("stats"));
+  textAll('[data-tab="admin"]', t("admin"));
   text("theme-label", t("theme"));
   text("density-label", t("density"));
-  const tabs = document.querySelector(".tabs");
-  if (tabs) {
-    tabs.setAttribute("aria-label", t("plannerSections"));
+  const drawer = document.querySelector(".app-nav-drawer");
+  if (drawer) {
+    drawer.setAttribute("aria-label", t("plannerSections"));
   }
   const select = document.getElementById("language-select");
   if (select instanceof HTMLSelectElement) {
@@ -478,13 +593,21 @@ function targetSummary(item) {
 }
 
 async function api(path, options = {}) {
+  const {
+    headers: customHeaders = {},
+    skipAuth = false,
+    preserveAuthOn401 = false,
+    ...fetchOptions
+  } = options;
   const res = await fetch(path, {
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
       "Accept-Language": state.locale,
+      ...(skipAuth || !state.authToken ? {} : { Authorization: `Bearer ${state.authToken}` }),
+      ...customHeaders,
     },
-    ...options,
+    ...fetchOptions,
   });
   if (res.status === 204) return null;
   const raw = await res.text();
@@ -494,11 +617,83 @@ async function api(path, options = {}) {
   } catch {
     throw new Error(t("invalidJson"));
   }
+  if (res.status === 401 && !preserveAuthOn401 && state.authToken) {
+    clearAuthState();
+    clearPlannerState();
+    render();
+    redirectToLogin();
+  }
   if (!res.ok) throw new Error(data?.message ?? t("actionFailed"));
   return data;
 }
 
+async function refreshHealth() {
+  const health = await api("/api/health", { skipAuth: true, preserveAuthOn401: true });
+  state.authAvailable = health?.authAvailable ?? health?.storageDriver === "mysql";
+  state.authRequired = Boolean(health?.authRequired);
+  return health;
+}
+
+async function refreshBillingPlans() {
+  if (!state.authAvailable) {
+    state.billingPlans = [];
+    return;
+  }
+  const result = await api("/api/billing/plans", { skipAuth: true, preserveAuthOn401: true });
+  state.billingPlans = result?.plans ?? [];
+}
+
+async function refreshSession({ silent = false } = {}) {
+  if (!state.authAvailable || !state.authToken) {
+    clearAuthState();
+    return null;
+  }
+  try {
+    const result = await api("/api/auth/me");
+    state.authUser = result?.user ?? null;
+    state.billingOverview = result?.billing ?? null;
+    if (state.authUser) {
+      setAccountSection(state.accountSection === "plans" ? "billing" : "profile");
+    }
+    return result;
+  } catch (error) {
+    clearAuthState();
+    if (!silent) {
+      feedback(error instanceof Error ? error.message : t("actionFailed"), true);
+    }
+    return null;
+  }
+}
+
+async function refreshAdminData() {
+  if (!canAccessAdmin()) {
+    clearAdminState();
+    if (state.activeTab === "admin") {
+      state.activeTab = "today";
+    }
+    return;
+  }
+  const [overview, users, subscriptions, sessions, logs] = await Promise.all([
+    api("/api/admin/overview"),
+    api("/api/admin/users"),
+    api("/api/admin/subscriptions"),
+    api("/api/admin/sessions"),
+    api("/api/admin/logs"),
+  ]);
+  state.adminOverview = overview;
+  state.adminUsers = users?.users ?? [];
+  state.adminSubscriptions = subscriptions?.subscriptions ?? [];
+  state.adminSessions = sessions?.sessions ?? [];
+  state.adminLogs = logs?.logs ?? [];
+}
+
 async function refreshAll(message = "") {
+  if (plannerLocked()) {
+    clearPlannerState();
+    clearAdminState();
+    redirectToLogin();
+    return;
+  }
   try {
     const statsQuery =
       state.statsRange === "custom" && state.customStatsStart && state.customStatsEnd
@@ -526,6 +721,7 @@ async function refreshAll(message = "") {
     }
     state.selectedDate ||= today.date;
     state.override = await api(`/api/overrides/${state.selectedDate}`);
+    await refreshAdminData();
     render();
     if (message) feedback(resolveMessage(message));
   } catch (error) {
@@ -533,17 +729,266 @@ async function refreshAll(message = "") {
   }
 }
 
+function setPlannerVisibility(isVisible) {
+  const accountVisible = state.authAvailable && Boolean(state.authUser);
+  const adminVisible = canAccessAdmin();
+  document.querySelectorAll('[data-tab="admin"]').forEach((button) => {
+    button.hidden = !adminVisible;
+  });
+  if (!accountVisible && state.activeTab === "account") {
+    state.activeTab = "today";
+  }
+  if (!adminVisible && state.activeTab === "admin") {
+    state.activeTab = "today";
+  }
+  document.querySelectorAll(".app-nav-button").forEach((button) => {
+    if (button.dataset.tab === "admin") {
+      button.hidden = !adminVisible;
+    }
+  });
+  document.querySelectorAll(".tab-panel").forEach((panel) => {
+    const isActive = panel.id === `tab-${state.activeTab}`;
+    panel.toggleAttribute("hidden", !isActive);
+    panel.classList.toggle("is-active", isActive);
+    if (!isActive) {
+      panel.innerHTML = "";
+    }
+  });
+}
+
+function authModeButton(mode, label) {
+  const selected = state.authMode === mode;
+  return `<button class="segment-button ${selected ? "is-selected" : ""}" type="button" data-action="auth-mode" data-mode="${mode}" aria-pressed="${String(selected)}">${esc(label)}</button>`;
+}
+
+function authPlanCard(plan, interactive = false) {
+  const currentPlan = subscriptionPlanCode();
+  const isCurrent = currentPlan === plan.code;
+  const disabled = interactive && (isCurrent || isPending(`billing-${plan.code}`));
+  return `<article class="content-card content-card--stat billing-plan-card ${isCurrent ? "is-current" : ""}">
+    <div class="row-between">
+      <div>
+        <strong>${esc(plan.name)}</strong>
+        <div class="muted">${esc(plan.description)}</div>
+      </div>
+      <span class="state-pill ${isCurrent ? "is-success" : ""}">${esc(billingIntervalLabel(plan.interval))}</span>
+    </div>
+    <div class="billing-price">${esc(moneyLabel(plan.priceMinor, plan.currency))}</div>
+    ${interactive ? `<div class="actions top-gap-sm"><button class="btn-soft compact-action" type="button" data-action="activate-plan" data-plan-code="${plan.code}"${disabled ? ' disabled aria-busy="true"' : ""}>${isCurrent ? t("billingCurrentPlan") : t("billingActivate")}</button></div>` : ""}
+  </article>`;
+}
+
+function sidebarNavButton({ section, activeSection, action, label, meta = "" }) {
+  const selected = section === activeSection;
+  return `<button class="secondary-tab ${selected ? "is-selected" : ""}" type="button" data-action="${action}" data-section="${section}" aria-pressed="${String(selected)}">
+    <strong>${esc(label)}</strong>
+    ${meta ? `<span>${esc(meta)}</span>` : ""}
+  </button>`;
+}
+
+function managementShell({
+  shellClass = "",
+  title,
+  items,
+  content,
+}) {
+  return `<div class="management-shell ${shellClass}">
+    <article class="panel section management-tabs-panel">
+      <div class="section-head section-head-tight">
+        <div>
+          <p class="section-label">${esc(t("manageMenu"))}</p>
+          <h2>${esc(title)}</h2>
+        </div>
+      </div>
+      <nav class="secondary-tabs" aria-label="${esc(title)}">${items.join("")}</nav>
+    </article>
+    <div class="management-content">
+      ${content}
+    </div>
+  </div>`;
+}
+
+function renderGuestShell() {
+  const plans = state.billingPlans.length
+    ? state.billingPlans.map((plan) => authPlanCard(plan)).join("")
+    : `<div class="content-card collapsed-summary"><strong>${t("billingTitle")}</strong><p class="muted">${t("billingLoading")}</p></div>`;
+  setAccountSection(state.accountSection);
+  const items = [
+    sidebarNavButton({
+      section: "auth",
+      activeSection: state.accountSection,
+      action: "select-account-section",
+      label: t("login"),
+      meta: t(state.authMode === "register" ? "register" : "login"),
+    }),
+    sidebarNavButton({
+      section: "plans",
+      activeSection: state.accountSection,
+      action: "select-account-section",
+      label: t("billingTitle"),
+      meta: t("billingPlanExplorer"),
+    }),
+  ];
+  const content =
+    state.accountSection === "plans"
+      ? `<article class="panel section management-panel">
+          <div class="section-head"><div><p class="section-label">${t("billingTitle")}</p><h2>${t("billingPlanExplorer")}</h2></div></div>
+          <p class="muted auth-copy">${t("billingGuestCopy")}</p>
+          <div class="stack">${plans}</div>
+        </article>`
+      : `<article class="panel section management-panel">
+          <div class="section-head auth-panel-head">
+            <div>
+              <p class="section-label">${t("account")}</p>
+              <h2>${t(state.authRequired ? "authRequiredTitle" : "authOptionalTitle")}</h2>
+            </div>
+            ${state.authRequired ? `<span class="pill">${t("authRequiredBadge")}</span>` : `<span class="state-pill">${t("authOptionalBadge")}</span>`}
+          </div>
+          <p class="muted auth-copy">${t(state.authRequired ? "authRequiredCopy" : "authOptionalCopy")}</p>
+          <div class="segmented auth-mode-toggle">
+            ${authModeButton("login", t("login"))}
+            ${authModeButton("register", t("register"))}
+          </div>
+          <form class="content-card content-card--form auth-form" data-form="${state.authMode === "register" ? "auth-register" : "auth-login"}">
+            <div class="form-grid">
+              ${state.authMode === "register" ? `<label class="field"><span>${t("displayName")}</span><input name="displayName" autocomplete="name" /></label>` : ""}
+              <label class="field"><span>${t("email")}</span><input name="email" type="email" autocomplete="${state.authMode === "register" ? "email" : "username"}" required /></label>
+              <label class="field"><span>${t("password")}</span><input name="password" type="password" autocomplete="${state.authMode === "register" ? "new-password" : "current-password"}" required minlength="8" /></label>
+            </div>
+            ${inlineFeedback(state.authMode === "register" ? "auth-register" : "auth-login")}
+            <div class="actions">
+              <button class="btn" type="submit"${disabledAttr(state.authMode === "register" ? "auth-register" : "auth-login")}>${t(state.authMode === "register" ? "registerAction" : "loginAction")}</button>
+            </div>
+          </form>
+        </article>`;
+  return managementShell({
+    shellClass: "management-shell--account",
+    title: t("accountWorkspace"),
+    items,
+    content,
+  });
+}
+
+function renderAccountShell() {
+  const subscription = state.billingOverview?.subscription ?? null;
+  const plans = state.billingOverview?.plans ?? state.billingPlans;
+  const periodEnd = subscription?.currentPeriodEnd ? dateLabel(subscription.currentPeriodEnd.slice(0, 10)) : t("notAvailable");
+  setAccountSection(state.accountSection);
+  const items = [
+    sidebarNavButton({
+      section: "profile",
+      activeSection: state.accountSection,
+      action: "select-account-section",
+      label: t("account"),
+      meta: state.authUser?.displayName ?? state.authUser?.email ?? "",
+    }),
+    sidebarNavButton({
+      section: "billing",
+      activeSection: state.accountSection,
+      action: "select-account-section",
+      label: t("billingTitle"),
+      meta: subscription?.plan?.name ?? t("billingNoPlan"),
+    }),
+  ];
+  const content =
+    state.accountSection === "billing"
+      ? `<article class="panel section management-panel">
+          <div class="section-head auth-panel-head">
+            <div>
+              <p class="section-label">${t("billingTitle")}</p>
+              <h2>${t("billingManageTitle")}</h2>
+            </div>
+            ${subscription ? `<span class="pill">${esc(subscription.status)}</span>` : `<span class="state-pill">${t("billingNoPlan")}</span>`}
+          </div>
+          <p class="muted auth-copy">${t("billingManageCopy")}</p>
+          ${inlineFeedback("billing")}
+          <div class="stack">${plans.map((plan) => authPlanCard(plan, true)).join("")}</div>
+        </article>`
+      : `<article class="panel section management-panel account-panel">
+          <div class="section-head auth-panel-head">
+            <div>
+              <p class="section-label">${t("account")}</p>
+              <h2>${esc(state.authUser?.displayName ?? state.authUser?.email ?? t("account"))}</h2>
+            </div>
+            <button class="btn-soft compact-action" type="button" data-action="logout"${disabledAttr("auth-logout")}>${t("logout")}</button>
+          </div>
+          <div class="summary-grid">
+            <div class="summary-card"><span>${t("email")}</span><strong class="summary-compact">${esc(state.authUser?.email ?? "-")}</strong></div>
+            <div class="summary-card"><span>${t("billingCurrentPlan")}</span><strong>${esc(subscription?.plan?.name ?? t("billingNoPlan"))}</strong></div>
+            <div class="summary-card"><span>${t("billingRenewal")}</span><strong>${esc(periodEnd)}</strong></div>
+          </div>
+        </article>`;
+  return managementShell({
+    shellClass: "management-shell--account",
+    title: t("accountWorkspace"),
+    items,
+    content,
+  });
+}
+
+function renderAuthShell() {
+  const target = document.getElementById("tab-account");
+  if (!target) return;
+  if (!state.authAvailable || !state.authUser) {
+    target.innerHTML = "";
+    return;
+  }
+  target.innerHTML = renderAccountShell();
+}
+
+function renderUserEntry() {
+  const entry = document.getElementById("tab-button-account");
+  if (!(entry instanceof HTMLButtonElement)) return;
+  if (!state.authAvailable || !state.authUser) {
+    entry.hidden = true;
+    entry.innerHTML = "";
+    entry.setAttribute("aria-expanded", "false");
+    return;
+  }
+  const label = state.authUser.displayName || state.authUser.email || t("account");
+  const meta = state.authUser.displayName ? state.authUser.email || "" : t("account");
+  const initial = Array.from(label.trim())[0] ?? "U";
+  entry.hidden = false;
+  entry.classList.toggle("is-active", state.activeTab === "account");
+  entry.setAttribute("aria-expanded", String(state.activeTab === "account"));
+  entry.setAttribute("aria-label", `${t("account")}: ${label}`);
+  entry.innerHTML = `
+    <span class="user-entry-avatar" aria-hidden="true">${esc(initial.toUpperCase())}</span>
+    <span class="user-entry-copy">
+      <strong>${esc(label)}</strong>
+      <span>${esc(meta)}</span>
+    </span>
+  `;
+}
+
 function render() {
   applyStaticText();
   applyPreferences();
+  renderUserEntry();
   renderHero();
+  if (plannerLocked()) {
+    redirectToLogin();
+    return;
+  }
+  renderAppNav();
+  renderAuthShell();
+  setPlannerVisibility(true);
   renderTabs();
-  renderToday();
-  renderRoutines();
-  renderTodos();
-  renderCalendar();
-  renderStats();
+  if (!plannerLocked()) {
+    renderToday();
+    renderRoutines();
+    renderTodos();
+    renderCalendar();
+    renderStats();
+    renderAdmin();
+  }
   syncInteractiveFields();
+}
+
+function renderAppNav() {
+  const shell = document.querySelector(".app-nav-shell");
+  if (!shell) return;
+  shell.classList.toggle("is-open", state.appNavOpen);
 }
 
 function renderHero() {
@@ -558,7 +1003,7 @@ function renderHero() {
 }
 
 function renderTabs() {
-  document.querySelectorAll(".tab-button").forEach((button) => {
+  document.querySelectorAll(".app-nav-button").forEach((button) => {
     const isActive = button.dataset.tab === state.activeTab;
     button.classList.toggle("is-active", isActive);
     button.setAttribute("aria-selected", String(isActive));
@@ -573,10 +1018,14 @@ function renderTabs() {
 
 function renderToday() {
   const target = document.getElementById("tab-today");
-  if (!target || !state.today) return;
+  if (!target) return;
+  if (!state.today) {
+    target.innerHTML = "";
+    return;
+  }
   const summary = state.today.summary;
-  target.innerHTML = `<div class="layout-2 layout-dashboard">
-    <article class="panel section section-elevated">
+  target.innerHTML = `<div class="today-layout">
+    <article class="panel section section-elevated today-overview-panel">
       <div class="section-head">
         <div>
           <p class="section-label">${t("today")}</p>
@@ -594,33 +1043,40 @@ function renderToday() {
         <div class="content-card content-card--stat"><span>${t("focusTodayTodos")}</span><strong>${summary.dueTodayCount}</strong></div>
         <div class="content-card content-card--stat"><span>${t("inbox")}</span><strong>${summary.inboxCount}</strong></div>
       </div>
-      <div class="stack stack-lg top-gap">${state.today.routines.length ? state.today.routines.map(todayRoutine).join("") : empty(t("noActiveRoutines"), { label: t("openCreateRoutine"), action: "open-routine-create" })}</div>
     </article>
-    <div class="stack side-stack">
-      <article class="panel section quick-entry-panel">
-        <div class="section-head"><div><p class="section-label">${t("quickAdd")}</p><h2>${t("todayQuickEntry")}</h2></div></div>
-        <form class="content-card content-card--form quick-form" data-form="todo-create-quick">
-          <div class="create-flow create-flow--compact">
-            <div class="stack">
-              <div class="form-grid">
-                ${emojiField("", "todo")}
-                <label class="field field-wide"><span>${t("title")}</span><input name="title" required /></label>
-                <label class="field"><span>${t("date")}</span><input name="dueDate" type="date" value="${esc(state.today.date)}" /></label>
-              </div>
-              ${inlineFeedback("today-quick")}
-              <div class="actions"><button class="btn" type="submit">${t("quickCreateTodo")}</button></div>
+
+    <article class="panel section quick-entry-panel today-quick-panel">
+      <div class="section-head section-head-tight"><div><p class="section-label">${t("quickAdd")}</p><h2>${t("todayQuickEntry")}</h2></div></div>
+      <form class="content-card content-card--form quick-form" data-form="todo-create-quick">
+        <div class="create-flow create-flow--compact">
+          <div class="stack">
+            <div class="form-grid">
+              ${emojiField("", "todo")}
+              <label class="field field-wide"><span>${t("title")}</span><input name="title" required /></label>
+              <label class="field"><span>${t("date")}</span><input name="dueDate" type="date" value="${esc(state.today.date)}" /></label>
             </div>
-            ${todoDraftPreview({ dueDate: state.today.date })}
+            ${inlineFeedback("today-quick")}
+            <div class="actions"><button class="btn" type="submit">${t("quickCreateTodo")}</button></div>
           </div>
-        </form>
+          ${todoDraftPreview({ dueDate: state.today.date })}
+        </div>
+      </form>
+    </article>
+
+    <article class="panel section today-routines-panel">
+      <div class="section-head section-head-tight"><div><p class="section-label">${t("today")}</p><h2>${t("routines")}</h2></div><span class="state-pill">${remainingRoutineCount()}</span></div>
+      <div class="stack stack-lg">${state.today.routines.length ? state.today.routines.map(todayRoutine).join("") : empty(t("noActiveRoutines"), { label: t("openCreateRoutine"), action: "open-routine-create" })}</div>
+    </article>
+
+    <div class="today-todo-grid">
+      <article class="panel section today-todo-panel">
+        <div class="section-head section-head-tight"><div><p class="section-label">${t("todayTodos")}</p><h2>${t("dueToday")}</h2></div><span class="state-pill">${summary.dueTodayCount}</span></div>
+        <div class="list-stack today-list-stack">${state.today.todos.dueToday.length ? state.today.todos.dueToday.map((todo) => todayTodoCard(todo, "due")).join("") : empty(t("noDueToday"), { label: t("openCreateTodo"), action: "open-todo-create" })}</div>
       </article>
-      <article class="panel section">
-        <div class="section-head"><div><p class="section-label">${t("todayTodos")}</p><h2>${t("dueToday")}</h2></div><span class="state-pill">${summary.dueTodayCount}</span></div>
-        <div class="list-stack">${state.today.todos.dueToday.length ? state.today.todos.dueToday.map((todo) => todayTodoCard(todo, "due")).join("") : empty(t("noDueToday"), { label: t("openCreateTodo"), action: "open-todo-create" })}</div>
-      </article>
-      <article class="panel section">
-        <div class="section-head"><div><p class="section-label">${t("inbox")}</p><h2>${t("inbox")}</h2></div><span class="state-pill">${summary.inboxCount}</span></div>
-        <div class="list-stack">${state.today.todos.inbox.length ? state.today.todos.inbox.map((todo) => todayTodoCard(todo, "inbox")).join("") : empty(t("emptyInbox"), { label: t("openCreateTodo"), action: "open-todo-create" })}</div>
+
+      <article class="panel section today-todo-panel">
+        <div class="section-head section-head-tight"><div><p class="section-label">${t("inbox")}</p><h2>${t("inbox")}</h2></div><span class="state-pill">${summary.inboxCount}</span></div>
+        <div class="list-stack today-list-stack">${state.today.todos.inbox.length ? state.today.todos.inbox.map((todo) => todayTodoCard(todo, "inbox")).join("") : empty(t("emptyInbox"), { label: t("openCreateTodo"), action: "open-todo-create" })}</div>
       </article>
     </div>
   </div>`;
@@ -683,9 +1139,9 @@ function todayItem(routineId, item) {
 function renderRoutines() {
   const target = document.getElementById("tab-routines");
   if (!target) return;
-  target.innerHTML = `<div class="layout-2 layout-workspace">
-    <div class="stack">
-      <article class="panel section section-elevated">
+  target.innerHTML = `<div class="layout-2 layout-workspace workspace-two-pane">
+    <div class="stack workspace-sidebar">
+      <article class="panel section section-elevated creator-panel">
         <div class="section-head"><div><p class="section-label">${t("createRoutine")}</p><h2>${t("createRoutineHeading")}</h2></div>${toggleButton("toggle-routine-create", state.isRoutineCreateOpen, state.isRoutineCreateOpen ? t("hideCreateRoutine") : t("openCreateRoutine"))}</div>
         ${state.isRoutineCreateOpen ? `<form class="content-card content-card--form" data-form="routine-create">
           <div class="create-flow">
@@ -698,17 +1154,17 @@ function renderRoutines() {
           </div>
         </form>` : `<div class="content-card collapsed-summary"><strong>${t("createRoutinePrompt")}</strong><p class="muted">${t("createRoutineHint")}</p></div>`}
       </article>
-      <article class="panel section">
+      <article class="panel section creator-panel">
         <div class="section-head"><div><p class="section-label">${t("createSet")}</p><h2>${t("routineSetsHeading")}</h2></div>${toggleButton("toggle-routine-set-create", state.isRoutineSetCreateOpen, state.isRoutineSetCreateOpen ? t("hideCreateSet") : t("openCreateSet"))}</div>
         ${state.isRoutineSetCreateOpen ? `<form class="content-card content-card--form" data-form="routine-set-create">${routineSetFields()}${inlineFeedback("routine-set-create")}<div class="actions"><button class="btn" type="submit">${t("createSet")}</button></div></form>` : `<div class="content-card collapsed-summary"><strong>${t("createSetPrompt")}</strong><p class="muted">${t("createSetHint")}</p></div>`}
       </article>
     </div>
-    <div class="stack">
-      <article class="panel section">
+    <div class="stack workspace-main">
+      <article class="panel section workspace-panel">
         <div class="section-head"><div><p class="section-label">${t("routineEditor")}</p><h2>${t("routineEditor")}</h2></div></div>
         <div class="stack">${state.routines.length ? state.routines.map(routineEditor).join("") : empty(t("noRoutines"), { label: t("openCreateRoutine"), action: "open-routine-create" })}</div>
       </article>
-      <article class="panel section">
+      <article class="panel section workspace-panel">
         <div class="section-head"><div><p class="section-label">${t("routineSetsHeading")}</p><h2>${t("routineSetsHeading")}</h2></div></div>
         <div class="stack">${state.routineSets.length ? state.routineSets.map(routineSetEditor).join("") : empty(t("noRoutineSets"), { label: t("openCreateSet"), action: "open-routine-set-create" })}</div>
       </article>
@@ -824,8 +1280,8 @@ function renderTodos() {
       todoMatchesSearch(todo) &&
       todoMatchesDueFilter(todo),
   );
-  target.innerHTML = `<div class="layout-2-equal layout-workspace">
-    <article class="panel section section-elevated">
+  target.innerHTML = `<div class="layout-2-equal layout-workspace workspace-two-pane">
+    <article class="panel section section-elevated workspace-sidebar creator-panel">
       <div class="section-head"><div><p class="section-label">${t("createTodo")}</p><h2>${t("createTodoHeading")}</h2></div>${toggleButton("toggle-todo-create", state.isTodoCreateOpen, state.isTodoCreateOpen ? t("hideCreateTodo") : t("openCreateTodo"))}</div>
       ${state.isTodoCreateOpen ? `<form class="content-card content-card--form" data-form="todo-create">
         <div class="create-flow">
@@ -843,7 +1299,7 @@ function renderTodos() {
         </div>
       </form>` : `<div class="content-card collapsed-summary"><strong>${t("createTodoPrompt")}</strong><p class="muted">${t("createTodoHint")}</p></div>`}
     </article>
-    <article class="panel section">
+    <article class="panel section workspace-main workspace-panel">
       <div class="section-head"><div><p class="section-label">${t("todoList")}</p><h2>${t("todoList")}</h2></div><div class="segmented"><button class="segment-button ${state.todoFilter === "all" ? "is-selected" : ""}" type="button" data-action="todo-filter" data-filter="all" aria-pressed="${state.todoFilter === "all"}">${t("all")}</button><button class="segment-button ${state.todoFilter === "pending" ? "is-selected" : ""}" type="button" data-action="todo-filter" data-filter="pending" aria-pressed="${state.todoFilter === "pending"}">${t("pending")}</button><button class="segment-button ${state.todoFilter === "done" ? "is-selected" : ""}" type="button" data-action="todo-filter" data-filter="done" aria-pressed="${state.todoFilter === "done"}">${t("done")}</button></div></div>
       <div class="content-card content-card--form filter-card">
         <div class="form-grid">
@@ -904,7 +1360,11 @@ function todoEditor(todo) {
 
 function renderCalendar() {
   const target = document.getElementById("tab-calendar");
-  if (!target || !state.calendar || !state.override) return;
+  if (!target) return;
+  if (!state.calendar || !state.override) {
+    target.innerHTML = "";
+    return;
+  }
   const [year, month] = state.selectedMonth.split("-");
   const weekday = state.assignments.find((entry) => entry.ruleType === "weekday");
   const weekend = state.assignments.find((entry) => entry.ruleType === "weekend");
@@ -912,8 +1372,8 @@ function renderCalendar() {
   const selectedDay =
     state.calendar.days.find((day) => day.date === state.selectedDate) ?? state.calendar.days[0] ?? null;
   const firstDay = state.calendar.days[0] ? new Date(`${state.calendar.days[0].date}T00:00:00Z`).getUTCDay() : 0;
-  target.innerHTML = `<div class="layout-2 layout-workspace">
-    <article class="panel section section-elevated">
+  target.innerHTML = `<div class="layout-2 layout-workspace workspace-two-pane calendar-layout">
+    <article class="panel section section-elevated workspace-main calendar-board-panel">
       <div class="section-head"><div><p class="section-label">${t("calendar")}</p><h2>${t("assignmentCalendar", { year, month })}</h2></div><div class="inline-actions"><button class="btn-soft compact-action" type="button" data-action="change-month" data-direction="-1">${t("prev")}</button><button class="btn-soft compact-action" type="button" data-action="go-to-current-month">${t("goToToday")}</button><button class="btn-soft compact-action" type="button" data-action="change-month" data-direction="1">${t("next")}</button></div></div>
       <div class="calendar-legend">
         <span class="legend-item"><span class="legend-swatch is-progress"></span>${t("calendarRoutineRate")}</span>
@@ -921,8 +1381,8 @@ function renderCalendar() {
       </div>
       <div class="calendar-grid">${weekdayLabels().map((label) => `<div class="weekday">${label}</div>`).join("")}${new Array(firstDay).fill("").map(() => '<div class="day-card is-empty"></div>').join("")}${state.calendar.days.map(calendarDay).join("")}</div>
     </article>
-    <div class="stack">
-      ${selectedDay ? `<article class="panel section calendar-focus-card">
+    <div class="stack workspace-sidebar calendar-sidebar">
+      ${selectedDay ? `<article class="panel section calendar-focus-card workspace-panel">
         <div class="section-head"><div><p class="section-label">${t("calendarFocusTitle")}</p><h2>${dateLabel(selectedDay.date)}</h2></div><span class="pill">${esc(selectedDay.setName ?? t("noSet"))}</span></div>
         <div class="summary-grid">
           <div class="summary-card"><span>${t("calendarRoutineRate")}</span><strong>${percent(selectedDay.routineProgressRate)}</strong></div>
@@ -930,11 +1390,11 @@ function renderCalendar() {
           <div class="summary-card"><span>${t("calendarOverrideState")}</span><strong>${selectedDay.overrideApplied ? t("calendarOverrideOn") : t("calendarOverrideOff")}</strong></div>
         </div>
       </article>` : ""}
-      <article class="panel section">
+      <article class="panel section creator-panel">
         <div class="section-head"><div><p class="section-label">${t("assignmentsHeading")}</p><h2>${t("weekdayWeekend")}</h2></div>${toggleButton("toggle-assignments", state.isAssignmentsOpen, state.isAssignmentsOpen ? t("hideAssignmentsEditor") : t("editBaseAssignments"))}</div>
         ${state.isAssignmentsOpen ? `<form class="content-card content-card--form" data-form="assignments-save"><div class="form-grid"><label class="field"><span>${t("weekdaySet")}</span><select name="weekdaySetId">${setOptions(weekday?.setId ?? "", true)}</select></label><label class="field"><span>${t("weekendSet")}</span><select name="weekendSetId">${setOptions(weekend?.setId ?? "", true)}</select></label></div>${inlineFeedback("assignments")}<div class="actions"><button class="btn" type="submit">${t("saveAssignments")}</button></div></form>` : `<div class="content-card collapsed-summary"><strong>${t("baseAssignmentSummary")}</strong><p class="muted">${t("weekdaySet")}: ${esc(weekday ? state.routineSets.find((set) => set.id === weekday.setId)?.name ?? t("none") : t("none"))} · ${t("weekendSet")}: ${esc(weekend ? state.routineSets.find((set) => set.id === weekend.setId)?.name ?? t("none") : t("none"))}</p></div>`}
       </article>
-      <article class="panel section">
+      <article class="panel section creator-panel">
         <div class="section-head"><div><p class="section-label">${t("overrideHeading")}</p><h2>${t("overrideForDate", { date: dateLabel(state.selectedDate) })}</h2></div>${toggleButton("toggle-override-editor", state.isOverrideEditorOpen, state.isOverrideEditorOpen ? t("hideOverrideEditor") : t("editOverride"))}</div>
         ${state.isOverrideEditorOpen ? `<form class="override-card content-card--form" data-form="override-save" data-date="${state.selectedDate}"><div class="form-grid"><label class="field-wide"><span>${t("forcedSet")}</span><select name="setId">${setOptions(override.setId ?? "", true)}</select></label><div class="field-wide"><span>${t("includeRoutines")}</span><div class="choice-list">${state.routines.map((routine) => routineChoiceItem(routine, "includeRoutineIds", override.includeRoutineIds.includes(routine.id))).join("")}</div></div><div class="field-wide"><span>${t("excludeRoutines")}</span><div class="choice-list">${state.routines.map((routine) => routineChoiceItem(routine, "excludeRoutineIds", override.excludeRoutineIds.includes(routine.id))).join("")}</div></div></div>${inlineFeedback("override")}<div class="actions"><button class="btn" type="submit">${t("saveOverride")}</button></div></form>` : `<div class="content-card collapsed-summary"><strong>${t("calendarOverrideState")}</strong><p class="muted">${override.setId ? `${t("forcedSet")}: ${esc(state.routineSets.find((set) => set.id === override.setId)?.name ?? t("none"))}` : t("calendarOverrideOff")}</p><p class="muted">${t("includeRoutines")}: ${override.includeRoutineIds.length} · ${t("excludeRoutines")}: ${override.excludeRoutineIds.length}</p></div>`}
       </article>
@@ -954,7 +1414,11 @@ function setOptions(selectedId, blank = false) {
 
 function renderStats() {
   const target = document.getElementById("tab-stats");
-  if (!target || !state.stats) return;
+  if (!target) return;
+  if (!state.stats) {
+    target.innerHTML = "";
+    return;
+  }
   const summary = state.stats.summary;
   target.innerHTML = `<div class="layout-2-equal layout-workspace">
     <article class="panel section section-elevated">
@@ -974,6 +1438,205 @@ function renderStats() {
       <div class="stack">${summary.topRoutines.length ? summary.topRoutines.map((routine) => `<div class="content-card content-card--stat"${accentStyle(routine.color)}><div class="routine-name">${emojiBadge(routine.emoji)}<div><strong>${esc(routine.name)}</strong><div class="muted">${routine.completedUnits}/${routine.targetUnits}</div></div></div><div class="top-gap-sm pill tag-teal">${percent(routine.completionRate)}</div></div>`).join("") : empty(t("noRoutineStats"))}</div>
     </article>
   </div>`;
+}
+
+function roleOptions(selectedRole) {
+  return ["member", "admin", "owner"]
+    .map((role) => `<option value="${role}" ${role === selectedRole ? "selected" : ""}>${esc(t(`role${role.slice(0, 1).toUpperCase()}${role.slice(1)}`))}</option>`)
+    .join("");
+}
+
+function statusOptions(selectedStatus) {
+  return ["active", "suspended"]
+    .map((status) => `<option value="${status}" ${status === selectedStatus ? "selected" : ""}>${esc(t(`accountStatus${status.slice(0, 1).toUpperCase()}${status.slice(1)}`))}</option>`)
+    .join("");
+}
+
+function billingPlanOptions(selectedCode) {
+  return state.billingPlans
+    .map((plan) => `<option value="${plan.code}" ${plan.code === selectedCode ? "selected" : ""}>${esc(`${plan.name} · ${moneyLabel(plan.priceMinor, plan.currency)}`)}</option>`)
+    .join("");
+}
+
+function adminUserCard(user) {
+  const accessScope = `admin-user-${user.id}`;
+  const billingScope = `admin-billing-${user.id}`;
+  return `<article class="content-card content-card--form admin-user-card">
+    <div class="row-between">
+      <div>
+        <strong>${esc(user.displayName)}</strong>
+        <div class="muted">${esc(user.email)}</div>
+      </div>
+      <div class="inline-actions">
+        <span class="state-pill">${esc(t(`role${user.role.slice(0, 1).toUpperCase()}${user.role.slice(1)}`))}</span>
+        <span class="state-pill ${user.status === "active" ? "is-success" : ""}">${esc(t(`accountStatus${user.status.slice(0, 1).toUpperCase()}${user.status.slice(1)}`))}</span>
+      </div>
+    </div>
+    <div class="summary-grid top-gap-sm">
+      <div class="summary-card"><span>${t("billingCurrentPlan")}</span><strong>${esc(user.billing.planName ?? t("billingNoPlan"))}</strong></div>
+      <div class="summary-card"><span>${t("adminLastSession")}</span><strong>${esc(user.lastSessionAt ? dateTimeLabel(user.lastSessionAt) : t("notAvailable"))}</strong></div>
+      <div class="summary-card"><span>${t("adminActiveSessions")}</span><strong>${user.activeSessionCount}</strong></div>
+    </div>
+    <form class="top-gap-sm" data-form="admin-user-update" data-user-id="${user.id}">
+      <div class="form-grid">
+        <label class="field"><span>${t("adminRole")}</span><select name="role">${roleOptions(user.role)}</select></label>
+        <label class="field"><span>${t("status")}</span><select name="status">${statusOptions(user.status)}</select></label>
+      </div>
+      ${inlineFeedback(accessScope)}
+      <div class="actions"><button class="btn-soft" type="submit"${disabledAttr(accessScope)}>${t("adminSaveAccount")}</button></div>
+    </form>
+    <form class="top-gap-sm" data-form="admin-subscription-assign" data-user-id="${user.id}">
+      <div class="form-grid">
+        <label class="field field-wide"><span>${t("adminAssignPlan")}</span><select name="planCode">${billingPlanOptions(user.billing.planCode)}</select></label>
+      </div>
+      ${inlineFeedback(billingScope)}
+      <div class="actions"><button class="btn-soft" type="submit"${disabledAttr(billingScope)}>${t("adminApplyPlan")}</button></div>
+    </form>
+  </article>`;
+}
+
+function adminSubscriptionCard(subscription) {
+  return `<article class="content-card admin-entry-card">
+    <div class="row-between">
+      <div>
+        <strong>${esc(subscription.displayName)}</strong>
+        <div class="muted">${esc(subscription.email)}</div>
+      </div>
+      <span class="state-pill ${subscription.status === "active" ? "is-success" : ""}">${esc(subscription.status)}</span>
+    </div>
+    <div class="top-gap-sm muted">${esc(subscription.plan.name)} · ${esc(moneyLabel(subscription.plan.priceMinor, subscription.plan.currency))} · ${esc(billingIntervalLabel(subscription.plan.interval))}</div>
+    <div class="top-gap-sm admin-meta-grid">
+      <span>${t("start")}: ${esc(dateLabel(subscription.currentPeriodStart.slice(0, 10)))}</span>
+      <span>${t("billingRenewal")}: ${esc(dateLabel(subscription.currentPeriodEnd.slice(0, 10)))}</span>
+    </div>
+  </article>`;
+}
+
+function adminSessionCard(session) {
+  return `<article class="content-card admin-entry-card">
+    <div class="row-between">
+      <div>
+        <strong>${esc(session.displayName)}</strong>
+        <div class="muted">${esc(session.email)}</div>
+      </div>
+      <span class="state-pill ${session.status === "active" ? "is-success" : ""}">${esc(session.status)}</span>
+    </div>
+    <div class="top-gap-sm admin-meta-grid">
+      <span>${t("adminLastSession")}: ${esc(dateTimeLabel(session.lastUsedAt))}</span>
+      <span>${t("adminSessionExpires")}: ${esc(dateTimeLabel(session.expiresAt))}</span>
+    </div>
+  </article>`;
+}
+
+function adminLogCard(log) {
+  const actorName = log.actor?.displayName ?? log.actor?.email ?? t("system");
+  const targetName = log.target?.displayName ?? log.target?.email ?? t("none");
+  return `<article class="content-card admin-entry-card">
+    <div class="row-between">
+      <div>
+        <strong>${esc(log.message)}</strong>
+        <div class="muted">${esc(log.scope)} · ${esc(log.eventType)}</div>
+      </div>
+      <span class="state-pill">${esc(dateTimeLabel(log.createdAt))}</span>
+    </div>
+    <div class="top-gap-sm admin-meta-grid">
+      <span>${t("adminActor")}: ${esc(actorName)}</span>
+      <span>${t("adminTarget")}: ${esc(targetName)}</span>
+    </div>
+  </article>`;
+}
+
+function renderAdmin() {
+  const target = document.getElementById("tab-admin");
+  if (!target) return;
+  if (!canAccessAdmin()) {
+    target.innerHTML = "";
+    return;
+  }
+  setAdminSection(state.adminSection);
+  const summary = state.adminOverview?.summary;
+  const items = [
+    sidebarNavButton({
+      section: "overview",
+      activeSection: state.adminSection,
+      action: "select-admin-section",
+      label: t("adminOverviewTitle"),
+      meta: t("admin"),
+    }),
+    sidebarNavButton({
+      section: "accounts",
+      activeSection: state.adminSection,
+      action: "select-admin-section",
+      label: t("adminAccountsTitle"),
+      meta: String(state.adminUsers.length),
+    }),
+    sidebarNavButton({
+      section: "subscriptions",
+      activeSection: state.adminSection,
+      action: "select-admin-section",
+      label: t("adminSubscriptionsTitle"),
+      meta: String(state.adminSubscriptions.length),
+    }),
+    sidebarNavButton({
+      section: "sessions",
+      activeSection: state.adminSection,
+      action: "select-admin-section",
+      label: t("adminSessionsTitle"),
+      meta: String(state.adminSessions.length),
+    }),
+    sidebarNavButton({
+      section: "logs",
+      activeSection: state.adminSection,
+      action: "select-admin-section",
+      label: t("adminLogsTitle"),
+      meta: String(state.adminLogs.length),
+    }),
+  ];
+  let content = "";
+  if (state.adminSection === "accounts") {
+    content = `<article class="panel section management-panel">
+      <div class="section-head"><div><p class="section-label">${t("account")}</p><h2>${t("adminAccountsTitle")}</h2></div></div>
+      <div class="stack">${state.adminUsers.length ? state.adminUsers.map(adminUserCard).join("") : empty(t("adminEmptyUsers"))}</div>
+    </article>`;
+  } else if (state.adminSection === "subscriptions") {
+    content = `<article class="panel section management-panel">
+      <div class="section-head"><div><p class="section-label">${t("billingTitle")}</p><h2>${t("adminSubscriptionsTitle")}</h2></div></div>
+      <div class="stack">${state.adminSubscriptions.length ? state.adminSubscriptions.map(adminSubscriptionCard).join("") : empty(t("adminEmptySubscriptions"))}</div>
+    </article>`;
+  } else if (state.adminSection === "sessions") {
+    content = `<article class="panel section management-panel">
+      <div class="section-head"><div><p class="section-label">${t("adminSessionsTitle")}</p><h2>${t("adminSessionsTitle")}</h2></div></div>
+      <div class="stack">${state.adminSessions.length ? state.adminSessions.map(adminSessionCard).join("") : empty(t("adminEmptySessions"))}</div>
+    </article>`;
+  } else if (state.adminSection === "logs") {
+    content = `<article class="panel section management-panel">
+      <div class="section-head"><div><p class="section-label">${t("adminLogsTitle")}</p><h2>${t("adminLogsTitle")}</h2></div></div>
+      <div class="stack">${state.adminLogs.length ? state.adminLogs.map(adminLogCard).join("") : empty(t("adminEmptyLogs"))}</div>
+    </article>`;
+  } else {
+    content = `<article class="panel section section-elevated management-panel">
+      <div class="section-head">
+        <div>
+          <p class="section-label">${t("admin")}</p>
+          <h2>${t("adminOverviewTitle")}</h2>
+        </div>
+      </div>
+      <div class="summary-grid">
+        <div class="summary-card"><span>${t("adminTotalUsers")}</span><strong>${summary?.totalUsers ?? 0}</strong></div>
+        <div class="summary-card"><span>${t("adminActiveUsers")}</span><strong>${summary?.activeUsers ?? 0}</strong></div>
+        <div class="summary-card"><span>${t("adminAdminUsers")}</span><strong>${summary?.adminUsers ?? 0}</strong></div>
+        <div class="summary-card"><span>${t("adminActiveSubscriptions")}</span><strong>${summary?.activeSubscriptions ?? 0}</strong></div>
+        <div class="summary-card"><span>${t("adminActiveSessions")}</span><strong>${summary?.activeSessions ?? 0}</strong></div>
+        <div class="summary-card"><span>${t("adminMrr")}</span><strong>${esc(moneyLabel(summary?.monthlyRecurringRevenueMinor ?? 0, state.billingPlans[0]?.currency ?? "KRW"))}</strong></div>
+      </div>
+    </article>`;
+  }
+  target.innerHTML = managementShell({
+    shellClass: "management-shell--admin",
+    title: t("adminWorkspace"),
+    items,
+    content,
+  });
 }
 
 function empty(message, action = null) {
@@ -1117,6 +1780,10 @@ async function onSubmit(event) {
   event.preventDefault();
   const data = new FormData(form);
   const inlineScopes = {
+    "auth-login": "auth-login",
+    "auth-register": "auth-register",
+    "admin-user-update": `admin-user-${form.dataset.userId ?? ""}`,
+    "admin-subscription-assign": `admin-billing-${form.dataset.userId ?? ""}`,
     "routine-create": "routine-create",
     "routine-update": `routine-editor-${form.dataset.id ?? ""}`,
     "routine-item-create": `routine-editor-${form.dataset.routineId ?? ""}`,
@@ -1130,6 +1797,66 @@ async function onSubmit(event) {
     "stats-custom": "stats-custom",
   };
   try {
+    if (form.dataset.form === "auth-login") {
+      return runPending("auth-login", async () => {
+        const result = await api("/api/auth/login", {
+          method: "POST",
+          skipAuth: true,
+          preserveAuthOn401: true,
+          body: JSON.stringify({
+            email: data.get("email"),
+            password: data.get("password"),
+          }),
+        });
+        setAuthToken(result?.session?.token ?? "");
+        state.authUser = result?.user ?? null;
+        state.billingOverview = result?.billing ?? null;
+        setAccountSection("profile");
+        await finishSuccess("loginDone", { inlineScope: "auth-login" });
+      });
+    }
+    if (form.dataset.form === "auth-register") {
+      return runPending("auth-register", async () => {
+        const result = await api("/api/auth/register", {
+          method: "POST",
+          skipAuth: true,
+          preserveAuthOn401: true,
+          body: JSON.stringify({
+            displayName: data.get("displayName") || null,
+            email: data.get("email"),
+            password: data.get("password"),
+          }),
+        });
+        setAuthToken(result?.session?.token ?? "");
+        state.authUser = result?.user ?? null;
+        state.billingOverview = result?.billing ?? null;
+        setAccountSection("profile");
+        await finishSuccess("registerDone", { inlineScope: "auth-register" });
+      });
+    }
+    if (form.dataset.form === "admin-user-update") {
+      return runPending(`admin-user-${form.dataset.userId}`, async () => {
+        await api(`/api/admin/users/${form.dataset.userId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            role: data.get("role"),
+            status: data.get("status"),
+          }),
+        });
+        await finishSuccess("adminUserUpdated", { inlineScope: `admin-user-${form.dataset.userId}` });
+      });
+    }
+    if (form.dataset.form === "admin-subscription-assign") {
+      return runPending(`admin-billing-${form.dataset.userId}`, async () => {
+        await api(`/api/admin/users/${form.dataset.userId}/subscription`, {
+          method: "POST",
+          body: JSON.stringify({
+            planCode: data.get("planCode"),
+          }),
+        });
+        await finishSuccess("adminPlanAssigned", { inlineScope: `admin-billing-${form.dataset.userId}` });
+      });
+    }
     if (form.dataset.form === "routine-create") {
       return runPending("routine-create", async () => {
         await api("/api/routines", {
@@ -1319,10 +2046,42 @@ async function onClick(event) {
   if (!button) return;
   if (button.dataset.tab) {
     state.activeTab = button.dataset.tab;
-    renderTabs();
+    state.appNavOpen = false;
+    render();
     return;
   }
   try {
+    if (button.dataset.action === "open-account") {
+      state.activeTab = "account";
+      state.appNavOpen = false;
+      render();
+      return;
+    }
+    if (button.dataset.action === "toggle-app-nav") {
+      state.appNavOpen = !state.appNavOpen;
+      renderAppNav();
+      return;
+    }
+    if (button.dataset.action === "close-app-nav") {
+      state.appNavOpen = false;
+      renderAppNav();
+      return;
+    }
+    if (button.dataset.action === "select-account-section") {
+      setAccountSection(button.dataset.section ?? "auth");
+      renderAuthShell();
+      return;
+    }
+    if (button.dataset.action === "select-admin-section") {
+      setAdminSection(button.dataset.section ?? "overview");
+      renderAdmin();
+      return;
+    }
+    if (button.dataset.action === "auth-mode") {
+      state.authMode = button.dataset.mode === "register" ? "register" : "login";
+      renderAuthShell();
+      return;
+    }
     if (button.dataset.action === "pick-emoji") {
       const field = button.closest(".emoji-field");
       const input = field?.querySelector('input[name="emoji"]');
@@ -1413,6 +2172,27 @@ async function onClick(event) {
       state.isTodoCreateOpen = true;
       render();
       return;
+    }
+    if (button.dataset.action === "logout") {
+      return runPending("auth-logout", async () => {
+        await api("/api/auth/logout", { method: "POST" });
+        clearAuthState();
+        clearPlannerState();
+        feedback(resolveMessage("logoutDone"));
+        redirectToLogin();
+      });
+    }
+    if (button.dataset.action === "activate-plan") {
+      return runPending(`billing-${button.dataset.planCode}`, async () => {
+        const result = await api("/api/billing/subscription", {
+          method: "POST",
+          body: JSON.stringify({ planCode: button.dataset.planCode }),
+        });
+        state.billingOverview = result;
+        setInlineFeedback("billing", "billingUpdated");
+        renderAuthShell();
+        feedback(resolveMessage("billingUpdated"));
+      });
     }
     if (button.dataset.action === "delete-routine") {
       if (!globalThis.confirm(t("confirmDeleteRoutine"))) return;
@@ -1613,4 +2393,20 @@ document.addEventListener("click", (event) => void onClick(event));
 document.addEventListener("change", (event) => void onChange(event));
 document.addEventListener("input", (event) => void onInput(event));
 
-void refreshAll("loaded");
+async function initializeApp() {
+  render();
+  try {
+    await refreshHealth();
+    await refreshBillingPlans();
+    await refreshSession({ silent: true });
+    if (plannerLocked()) {
+      redirectToLogin();
+      return;
+    }
+    await refreshAll("loaded");
+  } catch (error) {
+    feedback(error instanceof Error ? error.message : t("loadFailed"), true);
+  }
+}
+
+void initializeApp();

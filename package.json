@@ -6,19 +6,25 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/server.ts",
+    "db:mysql:start": "powershell -ExecutionPolicy Bypass -File scripts/start-local-mysql.ps1",
+    "db:mysql:stop": "powershell -ExecutionPolicy Bypass -File scripts/stop-local-mysql.ps1",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
     "lint": "eslint src tests --ext .ts"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
     "dotenv": "^16.6.1",
     "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.3",
+    "mysql2": "^3.20.0",
     "node-cron": "^4.2.1",
     "nodemailer": "^7.0.10"
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",
     "@types/express": "^5.0.3",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.3.0",
     "@types/node-cron": "^3.0.11",
     "@types/nodemailer": "^7.0.3",
