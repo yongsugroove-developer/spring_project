@@ -20,6 +20,8 @@ const DENSITY_OPTIONS = [
   { value: "compact", labelKey: "densityCompact" },
 ];
 
+const MOBILE_VIEWPORT_QUERY = globalThis.matchMedia?.("(max-width: 820px)") ?? null;
+
 const state = {
   activeTab: "today",
   selectedMonth: monthKey(new Date()),
@@ -28,15 +30,18 @@ const state = {
   todoFilter: "all",
   todoDueFilter: "all",
   todoSearchQuery: "",
+  todayTodoSection: "due",
   customStatsStart: "",
   customStatsEnd: "",
   isRoutineCreateOpen: false,
   isRoutineSetCreateOpen: false,
   isTodoCreateOpen: false,
+  isTodayQuickOpen: !(MOBILE_VIEWPORT_QUERY?.matches ?? false),
   isAssignmentsOpen: false,
   isOverrideEditorOpen: false,
   expandedRoutineIds: new Set(),
   collapsedRoutineCompletedIds: new Set(),
+  revealedCompletedRoutineIds: new Set(),
   pendingActionId: "",
   inlineFeedback: null,
   highlightTodoId: "",
@@ -99,6 +104,10 @@ function detectStoredOption(key, allowedValues, fallback) {
 
 function setStoredOption(key, value) {
   globalThis.localStorage?.setItem(key, value);
+}
+
+function isMobileViewport() {
+  return MOBILE_VIEWPORT_QUERY?.matches ?? false;
 }
 
 function applyPreferences() {
@@ -546,6 +555,7 @@ function applyStaticText() {
   text("settings-summary", t("settings"));
   text("app-nav-label", t("manageMenu"));
   text("app-nav-title", t("appTitle"));
+  text("app-utility-title", t("appTitle"));
   text("hero-title", t("heroTitle"));
   text("hero-copy", t("heroCopy"));
   text("hero-label-set", t("heroSet"));
@@ -563,6 +573,10 @@ function applyStaticText() {
   const drawer = document.querySelector(".app-nav-drawer");
   if (drawer) {
     drawer.setAttribute("aria-label", t("plannerSections"));
+  }
+  const mobileTabBar = document.querySelector('[data-role="mobile-tab-bar"]');
+  if (mobileTabBar) {
+    mobileTabBar.setAttribute("aria-label", t("plannerSections"));
   }
   const select = document.getElementById("language-select");
   if (select instanceof HTMLSelectElement) {
@@ -949,6 +963,17 @@ function renderAccountShell() {
             <div class="summary-card"><span>${t("billingCurrentPlan")}</span><strong>${esc(subscription?.plan?.name ?? t("billingNoPlan"))}</strong></div>
             <div class="summary-card"><span>${t("billingRenewal")}</span><strong>${esc(periodEnd)}</strong></div>
           </div>
+          ${canAccessAdmin() ? `<div class="top-gap account-admin-shortcut">
+            <div class="content-card content-card--stat">
+              <div class="row-between">
+                <div>
+                  <span class="section-label">${t("admin")}</span>
+                  <strong class="summary-compact">${t("adminWorkspace")}</strong>
+                </div>
+                <button class="btn-soft compact-action" type="button" data-action="open-admin-workspace">${t("adminOverviewTitle")}</button>
+              </div>
+            </div>
+          </div>` : ""}
         </article>`;
   return managementShell({
     shellClass: "management-shell--account",
@@ -1020,6 +1045,11 @@ function render() {
 function renderAppNav() {
   const shell = document.querySelector(".app-nav-shell");
   if (!shell) return;
+  if (isMobileViewport()) {
+    state.appNavOpen = false;
+    shell.classList.remove("is-open");
+    return;
+  }
   shell.classList.toggle("is-open", state.appNavOpen);
 }
 
@@ -1035,10 +1065,15 @@ function renderHero() {
 }
 
 function renderTabs() {
-  document.querySelectorAll(".app-nav-button").forEach((button) => {
+  document.querySelectorAll("[data-tab]").forEach((button) => {
     const isActive = button.dataset.tab === state.activeTab;
     button.classList.toggle("is-active", isActive);
-    button.setAttribute("aria-selected", String(isActive));
+    if (button.classList.contains("app-nav-button")) {
+      button.setAttribute("aria-selected", String(isActive));
+    }
+    if (button.classList.contains("mobile-tab-button")) {
+      button.setAttribute("aria-pressed", String(isActive));
+    }
     button.tabIndex = isActive ? 0 : -1;
   });
   document.querySelectorAll(".tab-panel").forEach((panel) => {
@@ -1055,7 +1090,52 @@ function renderToday() {
     target.innerHTML = "";
     return;
   }
+  const isMobile = isMobileViewport();
   const summary = state.today.summary;
+  const quickToggleLabel = state.isTodayQuickOpen ? t("hideCreateTodo") : t("quickAdd");
+  const activeTodoSection = state.todayTodoSection === "inbox" ? "inbox" : "due";
+  const activeTodoItems =
+    activeTodoSection === "inbox" ? state.today.todos.inbox : state.today.todos.dueToday;
+  const activeTodoEmptyMessage = activeTodoSection === "inbox" ? t("emptyInbox") : t("noDueToday");
+  const activeTodoCount = activeTodoSection === "inbox" ? summary.inboxCount : summary.dueTodayCount;
+  const overviewMarkup = isMobile
+    ? `<div class="summary-grid today-summary-grid">
+        <div class="summary-card"><span>${t("rate")}</span><strong>${percent(summary.routineRate)}</strong></div>
+        <div class="summary-card"><span>${t("focusRemainingRoutines")}</span><strong>${remainingRoutineCount()}</strong></div>
+        <div class="summary-card"><span>${t("focusTodayTodos")}</span><strong>${summary.dueTodayCount}</strong></div>
+      </div>`
+    : `<div class="summary-grid">
+        <div class="summary-card"><span>${t("rate")}</span><strong>${percent(summary.routineRate)}</strong></div>
+        <div class="summary-card"><span>${t("units")}</span><strong>${summary.completedUnits}/${summary.targetUnits}</strong></div>
+        <div class="summary-card"><span>${t("items")}</span><strong>${summary.completedItemCount}/${summary.totalItemCount}</strong></div>
+      </div>
+      <div class="today-strip top-gap">
+        <div class="content-card content-card--stat"><span>${t("focusRemainingRoutines")}</span><strong>${remainingRoutineCount()}</strong></div>
+        <div class="content-card content-card--stat"><span>${t("focusTodayTodos")}</span><strong>${summary.dueTodayCount}</strong></div>
+        <div class="content-card content-card--stat"><span>${t("inbox")}</span><strong>${summary.inboxCount}</strong></div>
+      </div>`;
+  const todoMarkup = isMobile
+    ? `<article class="panel section today-todo-panel today-todo-panel--merged">
+        <div class="section-head section-head-tight">
+          <div><p class="section-label">${t("todayTodos")}</p><h2>${t("todayTodos")}</h2></div>
+          <span class="state-pill">${activeTodoCount}</span>
+        </div>
+        <div class="segmented today-todo-switch" aria-label="${esc(t("todayTodos"))}">
+          <button class="segment-button ${activeTodoSection === "due" ? "is-selected" : ""}" type="button" data-action="today-todo-section" data-section="due" aria-pressed="${String(activeTodoSection === "due")}">${t("dueToday")} · ${summary.dueTodayCount}</button>
+          <button class="segment-button ${activeTodoSection === "inbox" ? "is-selected" : ""}" type="button" data-action="today-todo-section" data-section="inbox" aria-pressed="${String(activeTodoSection === "inbox")}">${t("inbox")} · ${summary.inboxCount}</button>
+        </div>
+        <div class="list-stack today-list-stack top-gap-sm">${activeTodoItems.length ? activeTodoItems.map((todo) => todayTodoCard(todo, activeTodoSection)).join("") : empty(activeTodoEmptyMessage, { label: t("openCreateTodo"), action: "open-todo-create" })}</div>
+      </article>`
+    : `<div class="today-todo-grid">
+        <article class="panel section today-todo-panel">
+          <div class="section-head section-head-tight"><div><p class="section-label">${t("todayTodos")}</p><h2>${t("dueToday")}</h2></div><span class="state-pill">${summary.dueTodayCount}</span></div>
+          <div class="list-stack today-list-stack">${state.today.todos.dueToday.length ? state.today.todos.dueToday.map((todo) => todayTodoCard(todo, "due")).join("") : empty(t("noDueToday"), { label: t("openCreateTodo"), action: "open-todo-create" })}</div>
+        </article>
+        <article class="panel section today-todo-panel">
+          <div class="section-head section-head-tight"><div><p class="section-label">${t("inbox")}</p><h2>${t("inbox")}</h2></div><span class="state-pill">${summary.inboxCount}</span></div>
+          <div class="list-stack today-list-stack">${state.today.todos.inbox.length ? state.today.todos.inbox.map((todo) => todayTodoCard(todo, "inbox")).join("") : empty(t("emptyInbox"), { label: t("openCreateTodo"), action: "open-todo-create" })}</div>
+        </article>
+      </div>`;
   target.innerHTML = `<div class="today-layout">
     <article class="panel section section-elevated today-overview-panel">
       <div class="section-head">
@@ -1065,34 +1145,7 @@ function renderToday() {
         </div>
         <span class="pill">${esc(state.today.assignment.baseSetName ?? t("noSet"))}</span>
       </div>
-      <div class="summary-grid">
-        <div class="summary-card"><span>${t("rate")}</span><strong>${percent(summary.routineRate)}</strong></div>
-        <div class="summary-card"><span>${t("units")}</span><strong>${summary.completedUnits}/${summary.targetUnits}</strong></div>
-        <div class="summary-card"><span>${t("items")}</span><strong>${summary.completedItemCount}/${summary.totalItemCount}</strong></div>
-      </div>
-      <div class="today-strip top-gap">
-        <div class="content-card content-card--stat"><span>${t("focusRemainingRoutines")}</span><strong>${remainingRoutineCount()}</strong></div>
-        <div class="content-card content-card--stat"><span>${t("focusTodayTodos")}</span><strong>${summary.dueTodayCount}</strong></div>
-        <div class="content-card content-card--stat"><span>${t("inbox")}</span><strong>${summary.inboxCount}</strong></div>
-      </div>
-    </article>
-
-    <article class="panel section quick-entry-panel today-quick-panel">
-      <div class="section-head section-head-tight"><div><p class="section-label">${t("quickAdd")}</p><h2>${t("todayQuickEntry")}</h2></div></div>
-      <form class="content-card content-card--form quick-form" data-form="todo-create-quick">
-        <div class="create-flow create-flow--compact">
-          <div class="stack">
-            <div class="form-grid">
-              ${emojiField("", "todo")}
-              <label class="field field-wide"><span>${t("title")}</span><input name="title" required /></label>
-              <label class="field"><span>${t("date")}</span><input name="dueDate" type="date" value="${esc(state.today.date)}" /></label>
-            </div>
-            ${inlineFeedback("today-quick")}
-            <div class="actions"><button class="btn" type="submit">${t("quickCreateTodo")}</button></div>
-          </div>
-          ${todoDraftPreview({ dueDate: state.today.date })}
-        </div>
-      </form>
+      ${overviewMarkup}
     </article>
 
     <article class="panel section today-routines-panel">
@@ -1100,22 +1153,38 @@ function renderToday() {
       <div class="stack stack-lg">${state.today.routines.length ? state.today.routines.map(todayRoutine).join("") : empty(t("noActiveRoutines"), { label: t("openCreateRoutine"), action: "open-routine-create" })}</div>
     </article>
 
-    <div class="today-todo-grid">
-      <article class="panel section today-todo-panel">
-        <div class="section-head section-head-tight"><div><p class="section-label">${t("todayTodos")}</p><h2>${t("dueToday")}</h2></div><span class="state-pill">${summary.dueTodayCount}</span></div>
-        <div class="list-stack today-list-stack">${state.today.todos.dueToday.length ? state.today.todos.dueToday.map((todo) => todayTodoCard(todo, "due")).join("") : empty(t("noDueToday"), { label: t("openCreateTodo"), action: "open-todo-create" })}</div>
-      </article>
+    ${todoMarkup}
 
-      <article class="panel section today-todo-panel">
-        <div class="section-head section-head-tight"><div><p class="section-label">${t("inbox")}</p><h2>${t("inbox")}</h2></div><span class="state-pill">${summary.inboxCount}</span></div>
-        <div class="list-stack today-list-stack">${state.today.todos.inbox.length ? state.today.todos.inbox.map((todo) => todayTodoCard(todo, "inbox")).join("") : empty(t("emptyInbox"), { label: t("openCreateTodo"), action: "open-todo-create" })}</div>
-      </article>
-    </div>
+    <article class="panel section quick-entry-panel today-quick-panel">
+      <div class="section-head section-head-tight">
+        <div>
+          <p class="section-label">${t("quickAdd")}</p>
+          <h2>${t("todayQuickEntry")}</h2>
+        </div>
+        ${toggleButton("toggle-today-quick", state.isTodayQuickOpen, quickToggleLabel)}
+      </div>
+      ${state.isTodayQuickOpen ? `<form class="content-card content-card--form quick-form" data-form="todo-create-quick">
+        <div class="create-flow create-flow--compact">
+          <div class="stack">
+            <div class="form-grid">
+              <label class="field field-wide"><span>${t("title")}</span><input name="title" required /></label>
+              <label class="field"><span>${t("date")}</span><input name="dueDate" type="date" value="${esc(state.today.date)}" /></label>
+              ${emojiField("", "todo")}
+            </div>
+            ${inlineFeedback("today-quick")}
+            <div class="actions"><button class="btn" type="submit">${t("quickCreateTodo")}</button></div>
+          </div>
+          ${todoDraftPreview({ dueDate: state.today.date })}
+        </div>
+      </form>` : `<div class="content-card collapsed-summary today-quick-summary"><strong>${t("quickAdd")}</strong><p class="muted">${t("createTodoHint")}</p></div>`}
+    </article>
   </div>`;
 }
 
 function todayRoutine(routine) {
-  const hideCompleted = state.collapsedRoutineCompletedIds.has(routine.id);
+  const hideCompleted = isMobileViewport()
+    ? !state.revealedCompletedRoutineIds.has(routine.id)
+    : state.collapsedRoutineCompletedIds.has(routine.id);
   const completedCount = routine.items.filter((item) => item.isComplete).length;
   const visibleItems = hideCompleted ? routine.items.filter((item) => !item.isComplete) : routine.items;
   return `<article class="routine-card routine-card--today ${isPending(`routine-${routine.id}`) ? "is-pending" : ""}"${accentStyle(routine.color)}>
@@ -1397,6 +1466,7 @@ function renderCalendar() {
     target.innerHTML = "";
     return;
   }
+  const isMobile = isMobileViewport();
   const [year, month] = state.selectedMonth.split("-");
   const weekday = state.assignments.find((entry) => entry.ruleType === "weekday");
   const weekend = state.assignments.find((entry) => entry.ruleType === "weekend");
@@ -1404,6 +1474,20 @@ function renderCalendar() {
   const selectedDay =
     state.calendar.days.find((day) => day.date === state.selectedDate) ?? state.calendar.days[0] ?? null;
   const firstDay = state.calendar.days[0] ? new Date(`${state.calendar.days[0].date}T00:00:00Z`).getUTCDay() : 0;
+  const selectedDayMarkup = selectedDay
+    ? `<article class="panel section calendar-focus-card workspace-panel">
+        <div class="section-head"><div><p class="section-label">${t("calendarFocusTitle")}</p><h2>${dateLabel(selectedDay.date)}</h2></div><span class="pill">${esc(selectedDay.setName ?? t("noSet"))}</span></div>
+        ${isMobile ? `<div class="calendar-focus-inline">
+          <span class="calendar-focus-stat">${t("calendarRoutineRate")}: <strong>${percent(selectedDay.routineProgressRate)}</strong></span>
+          <span class="calendar-focus-stat">${t("calendarTodoCount")}: <strong>${selectedDay.completedTodoCount}/${selectedDay.todoCount}</strong></span>
+          <span class="calendar-focus-stat">${t("calendarOverrideState")}: <strong>${selectedDay.overrideApplied ? t("calendarOverrideOn") : t("calendarOverrideOff")}</strong></span>
+        </div>` : `<div class="summary-grid">
+          <div class="summary-card"><span>${t("calendarRoutineRate")}</span><strong>${percent(selectedDay.routineProgressRate)}</strong></div>
+          <div class="summary-card"><span>${t("calendarTodoCount")}</span><strong>${selectedDay.completedTodoCount}/${selectedDay.todoCount}</strong></div>
+          <div class="summary-card"><span>${t("calendarOverrideState")}</span><strong>${selectedDay.overrideApplied ? t("calendarOverrideOn") : t("calendarOverrideOff")}</strong></div>
+        </div>`}
+      </article>`
+    : "";
   target.innerHTML = `<div class="layout-2 layout-workspace workspace-two-pane calendar-layout">
     <article class="panel section section-elevated workspace-main calendar-board-panel">
       <div class="section-head"><div><p class="section-label">${t("calendar")}</p><h2>${t("assignmentCalendar", { year, month })}</h2></div><div class="inline-actions"><button class="btn-soft compact-action" type="button" data-action="change-month" data-direction="-1">${t("prev")}</button><button class="btn-soft compact-action" type="button" data-action="go-to-current-month">${t("goToToday")}</button><button class="btn-soft compact-action" type="button" data-action="change-month" data-direction="1">${t("next")}</button></div></div>
@@ -1414,14 +1498,7 @@ function renderCalendar() {
       <div class="calendar-grid">${weekdayLabels().map((label) => `<div class="weekday">${label}</div>`).join("")}${new Array(firstDay).fill("").map(() => '<div class="day-card is-empty"></div>').join("")}${state.calendar.days.map(calendarDay).join("")}</div>
     </article>
     <div class="stack workspace-sidebar calendar-sidebar">
-      ${selectedDay ? `<article class="panel section calendar-focus-card workspace-panel">
-        <div class="section-head"><div><p class="section-label">${t("calendarFocusTitle")}</p><h2>${dateLabel(selectedDay.date)}</h2></div><span class="pill">${esc(selectedDay.setName ?? t("noSet"))}</span></div>
-        <div class="summary-grid">
-          <div class="summary-card"><span>${t("calendarRoutineRate")}</span><strong>${percent(selectedDay.routineProgressRate)}</strong></div>
-          <div class="summary-card"><span>${t("calendarTodoCount")}</span><strong>${selectedDay.completedTodoCount}/${selectedDay.todoCount}</strong></div>
-          <div class="summary-card"><span>${t("calendarOverrideState")}</span><strong>${selectedDay.overrideApplied ? t("calendarOverrideOn") : t("calendarOverrideOff")}</strong></div>
-        </div>
-      </article>` : ""}
+      ${selectedDayMarkup}
       <article class="panel section creator-panel">
         <div class="section-head"><div><p class="section-label">${t("assignmentsHeading")}</p><h2>${t("weekdayWeekend")}</h2></div>${toggleButton("toggle-assignments", state.isAssignmentsOpen, state.isAssignmentsOpen ? t("hideAssignmentsEditor") : t("editBaseAssignments"))}</div>
         ${state.isAssignmentsOpen ? `<form class="content-card content-card--form" data-form="assignments-save"><div class="form-grid"><label class="field"><span>${t("weekdaySet")}</span><select name="weekdaySetId">${setOptions(weekday?.setId ?? "", true)}</select></label><label class="field"><span>${t("weekendSet")}</span><select name="weekendSetId">${setOptions(weekend?.setId ?? "", true)}</select></label></div>${inlineFeedback("assignments")}<div class="actions"><button class="btn" type="submit">${t("saveAssignments")}</button></div></form>` : `<div class="content-card collapsed-summary"><strong>${t("baseAssignmentSummary")}</strong><p class="muted">${t("weekdaySet")}: ${esc(weekday ? state.routineSets.find((set) => set.id === weekday.setId)?.name ?? t("none") : t("none"))} · ${t("weekendSet")}: ${esc(weekend ? state.routineSets.find((set) => set.id === weekend.setId)?.name ?? t("none") : t("none"))}</p></div>`}
@@ -1435,7 +1512,7 @@ function renderCalendar() {
 }
 
 function calendarDay(day) {
-  return `<button class="day-card ${state.selectedDate === day.date ? "is-selected" : ""} ${day.overrideApplied ? "has-override" : ""}"${progressStyle(day.routineProgressRate)} type="button" data-action="select-date" data-date="${day.date}"><div class="day-card-head"><strong>${Number(day.date.slice(-2))}</strong>${day.overrideApplied ? `<span class="calendar-flag">${t("calendarOverrideOn")}</span>` : ""}</div><div class="calendar-meta"><span class="calendar-set">${esc(day.setName ?? t("noSet"))}</span><span>${percent(day.routineProgressRate)}</span><span>${day.completedUnits}/${day.targetUnits}</span></div></button>`;
+  return `<button class="day-card ${state.selectedDate === day.date ? "is-selected" : ""} ${day.overrideApplied ? "has-override" : ""}"${progressStyle(day.routineProgressRate)} type="button" data-action="select-date" data-date="${day.date}"><div class="day-card-head"><strong>${Number(day.date.slice(-2))}</strong>${day.overrideApplied ? `<span class="calendar-flag"><span class="calendar-flag-text">${t("calendarOverrideOn")}</span></span>` : ""}</div><div class="calendar-meta"><span class="calendar-set">${esc(day.setName ?? t("noSet"))}</span><span class="calendar-rate">${percent(day.routineProgressRate)}</span><span class="calendar-units">${day.completedUnits}/${day.targetUnits}</span></div></button>`;
 }
 
 function setOptions(selectedId, blank = false) {
@@ -2109,6 +2186,12 @@ async function onClick(event) {
       renderAdmin();
       return;
     }
+    if (button.dataset.action === "open-admin-workspace") {
+      state.activeTab = "admin";
+      state.appNavOpen = false;
+      render();
+      return;
+    }
     if (button.dataset.action === "auth-mode") {
       state.authMode = button.dataset.mode === "register" ? "register" : "login";
       renderAuthShell();
@@ -2160,6 +2243,12 @@ async function onClick(event) {
       renderRoutines();
       return;
     }
+    if (button.dataset.action === "toggle-today-quick") {
+      state.isTodayQuickOpen = !state.isTodayQuickOpen;
+      renderToday();
+      syncInteractiveFields();
+      return;
+    }
     if (button.dataset.action === "toggle-todo-create") {
       state.isTodoCreateOpen = !state.isTodoCreateOpen;
       renderTodos();
@@ -2173,17 +2262,32 @@ async function onClick(event) {
       return;
     }
     if (button.dataset.action === "toggle-completed-items") {
-      toggleSetEntry(state.collapsedRoutineCompletedIds, button.dataset.routineId);
+      if (isMobileViewport()) {
+        toggleSetEntry(state.revealedCompletedRoutineIds, button.dataset.routineId);
+      } else {
+        toggleSetEntry(state.collapsedRoutineCompletedIds, button.dataset.routineId);
+      }
+      renderToday();
+      return;
+    }
+    if (button.dataset.action === "today-todo-section") {
+      state.todayTodoSection = button.dataset.section === "inbox" ? "inbox" : "due";
       renderToday();
       return;
     }
     if (button.dataset.action === "toggle-assignments") {
       state.isAssignmentsOpen = !state.isAssignmentsOpen;
+      if (isMobileViewport() && state.isAssignmentsOpen) {
+        state.isOverrideEditorOpen = false;
+      }
       renderCalendar();
       return;
     }
     if (button.dataset.action === "toggle-override-editor") {
       state.isOverrideEditorOpen = !state.isOverrideEditorOpen;
+      if (isMobileViewport() && state.isOverrideEditorOpen) {
+        state.isAssignmentsOpen = false;
+      }
       renderCalendar();
       return;
     }
@@ -2424,6 +2528,18 @@ document.addEventListener("submit", (event) => void onSubmit(event));
 document.addEventListener("click", (event) => void onClick(event));
 document.addEventListener("change", (event) => void onChange(event));
 document.addEventListener("input", (event) => void onInput(event));
+
+if (MOBILE_VIEWPORT_QUERY) {
+  const onViewportChange = () => {
+    state.appNavOpen = false;
+    render();
+  };
+  if (typeof MOBILE_VIEWPORT_QUERY.addEventListener === "function") {
+    MOBILE_VIEWPORT_QUERY.addEventListener("change", onViewportChange);
+  } else if (typeof MOBILE_VIEWPORT_QUERY.addListener === "function") {
+    MOBILE_VIEWPORT_QUERY.addListener(onViewportChange);
+  }
+}
 
 async function initializeApp() {
   render();

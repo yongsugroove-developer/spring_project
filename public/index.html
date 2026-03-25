@@ -18,18 +18,51 @@
     <main class="app-shell">
       <div class="app-nav-shell">
         <div class="app-nav-bar">
-          <button class="app-nav-toggle" type="button" data-action="toggle-app-nav" aria-label="Open menu">
-            <span></span><span></span><span></span>
-          </button>
-          <button
-            id="tab-button-account"
-            class="user-entry user-entry--nav"
-            type="button"
-            data-action="open-account"
-            aria-controls="tab-account"
-            aria-expanded="false"
-            hidden
-          ></button>
+          <div class="app-utility-start">
+            <button class="app-nav-toggle" type="button" data-action="toggle-app-nav" aria-label="Open menu">
+              <span></span><span></span><span></span>
+            </button>
+            <strong id="app-utility-title" class="app-utility-title">My Planner</strong>
+          </div>
+          <div class="app-utility-actions">
+            <details class="settings-panel settings-panel--utility">
+              <summary id="settings-summary" class="settings-summary">Settings</summary>
+              <div class="header-controls">
+                <label class="control-box">
+                  <span id="language-label">Language</span>
+                  <select id="language-select" aria-labelledby="language-label">
+                    <option value="ko">Korean</option>
+                    <option value="en">English</option>
+                    <option value="ja">Japanese</option>
+                  </select>
+                </label>
+                <label class="control-box">
+                  <span id="theme-label">Theme</span>
+                  <select id="theme-select" aria-labelledby="theme-label">
+                    <option value="violet">Violet</option>
+                    <option value="sunset">Sunset</option>
+                    <option value="forest">Forest</option>
+                  </select>
+                </label>
+                <label class="control-box">
+                  <span id="density-label">Density</span>
+                  <select id="density-select" aria-labelledby="density-label">
+                    <option value="comfy">Comfy</option>
+                    <option value="compact">Compact</option>
+                  </select>
+                </label>
+              </div>
+            </details>
+            <button
+              id="tab-button-account"
+              class="user-entry user-entry--nav"
+              type="button"
+              data-action="open-account"
+              aria-controls="tab-account"
+              aria-expanded="false"
+              hidden
+            ></button>
+          </div>
         </div>
         <button class="app-nav-backdrop" type="button" data-action="close-app-nav" aria-label="Close menu"></button>
         <aside class="app-nav-drawer" aria-label="Planner sections">
@@ -58,36 +91,6 @@
           <div class="hero-copy-block">
             <div class="hero-topline">
               <p class="eyebrow">my planner</p>
-              <div class="hero-tools">
-                <details class="settings-panel">
-                  <summary id="settings-summary" class="settings-summary">Settings</summary>
-                  <div class="header-controls">
-                    <label class="control-box">
-                      <span id="language-label">Language</span>
-                      <select id="language-select" aria-labelledby="language-label">
-                        <option value="ko">Korean</option>
-                        <option value="en">English</option>
-                        <option value="ja">Japanese</option>
-                      </select>
-                    </label>
-                    <label class="control-box">
-                      <span id="theme-label">Theme</span>
-                      <select id="theme-select" aria-labelledby="theme-label">
-                        <option value="violet">Violet</option>
-                        <option value="sunset">Sunset</option>
-                        <option value="forest">Forest</option>
-                      </select>
-                    </label>
-                    <label class="control-box">
-                      <span id="density-label">Density</span>
-                      <select id="density-select" aria-labelledby="density-label">
-                        <option value="comfy">Comfy</option>
-                        <option value="compact">Compact</option>
-                      </select>
-                    </label>
-                  </div>
-                </details>
-              </div>
             </div>
             <h1 id="hero-title">Routine Assignment And Progress</h1>
             <p id="hero-copy" class="hero-copy">
@@ -96,19 +99,19 @@
             <div id="hero-focus" class="hero-focus" aria-live="polite"></div>
           </div>
           <div class="hero-metrics">
-            <div class="metric-card">
+            <div class="metric-card hero-metric-card hero-metric-card--set">
               <span id="hero-label-set">Today's Set</span>
               <strong id="hero-set">-</strong>
             </div>
-            <div class="metric-card">
+            <div class="metric-card hero-metric-card hero-metric-card--rate">
               <span id="hero-label-rate">Today's Rate</span>
               <strong id="hero-rate">0%</strong>
             </div>
-            <div class="metric-card">
+            <div class="metric-card hero-metric-card hero-metric-card--streak">
               <span id="hero-label-streak">Current Streak</span>
               <strong id="hero-streak">0 days</strong>
             </div>
-            <div class="metric-card">
+            <div class="metric-card hero-metric-card hero-metric-card--date">
               <span id="hero-label-date">Base Date</span>
               <strong id="hero-date">-</strong>
             </div>
@@ -125,6 +128,14 @@
       <section id="tab-stats" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-stats" hidden></section>
       <section id="tab-account" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-account" hidden></section>
       <section id="tab-admin" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-admin" hidden></section>
+
+      <nav class="mobile-tab-bar" data-role="mobile-tab-bar">
+        <button class="mobile-tab-button is-active" type="button" data-tab="today" aria-pressed="true">Today</button>
+        <button class="mobile-tab-button" type="button" data-tab="routines" aria-pressed="false">Routines</button>
+        <button class="mobile-tab-button" type="button" data-tab="todos" aria-pressed="false">Todos</button>
+        <button class="mobile-tab-button" type="button" data-tab="calendar" aria-pressed="false">Calendar</button>
+        <button class="mobile-tab-button" type="button" data-tab="stats" aria-pressed="false">Stats</button>
+      </nav>
     </main>
   </body>
 </html>

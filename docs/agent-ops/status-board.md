@@ -2,7 +2,7 @@
 
 ## todo
 - [ ] Add browser-level regression coverage for emoji picker and personalization flows
-- [ ] Run browser validation for the reordered mobile-first Today flow, compact creator panels, and calendar editor toggles
+- [ ] Run browser validation for the hamburger-free mobile utility bar, merged Today todo panel, and compact month calendar at phone widths
 - [ ] Replace manual billing placeholders with a real provider checkout/subscription flow
 - [ ] Decide app packaging path for web-to-mobile release
 
@@ -11,8 +11,9 @@
 - [x] JSON-backed planner API now persists routine/todo emoji fields with migration support
 - [x] Responsive planner UI now supports emoji picker, live preview, today quick add, calendar focus cards, and theme/density personalization
 - [x] Build, lint, unit, and integration verification completed for the emoji UX slice
-- [x] Mobile-first UI refinement added contextual Today actions, collapsible create/edit panels, calendar summary-first editing, and a bottom quick nav
-- [x] Second-pass layout tuning now prioritizes quick entry and list content on mobile while reducing draft/box density in Today, Routines, Todos, and Calendar
+- [x] Mobile-first UI refinement now uses a phone bottom tab bar, reordered Today scan flow, and compact calendar detail stacking
+- [x] Third-pass mobile tightening now removes planner hamburger navigation on phones, hides hero chrome, and routes admin entry through Account
+- [x] Second-pass layout tuning now reduces mobile draft/form density and shrinks hero, routine, todo, and calendar surfaces for faster scanning
 - [x] Local MySQL runtime now exists with app schema, MySQL-backed planner repository, auth session APIs, and billing plan/subscription scaffolding
 - [x] Browser UI now supports login/register/logout, token-backed session restore, and manual plan activation against the MySQL auth/billing APIs
 - [x] Owner/admin backoffice now exists for account access control, manual plan assignment, session visibility, and audit log review
