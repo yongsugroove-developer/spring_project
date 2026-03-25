@@ -5,6 +5,7 @@ import {
   buildRoutineCollection,
   buildRoutineSetCollection,
   buildRoutineSetWithMeta,
+  buildTodayRoutine,
   buildTodayRoutines,
   buildTodayResponse,
   createEmptyOverride,
@@ -448,8 +449,7 @@ export class PlannerService {
     }
 
     await this.repository.write(data);
-    const assignment = resolveAssignment(data, date);
-    return buildTodayRoutines(data, date, assignment).find((entry) => entry.id === routineId) ?? null;
+    return buildTodayRoutine(data, routine, date);
   }
 
   async listTodos(): Promise<TodosResponse> {
