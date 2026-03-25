@@ -16,59 +16,115 @@
   </head>
   <body>
     <main class="app-shell">
-      <section class="hero panel">
-        <div>
-          <div class="hero-topline">
-            <p class="eyebrow">my planner</p>
-            <label class="language-box">
-              <span id="language-label">Language</span>
-              <select id="language-select" aria-label="language selector">
-                <option value="ko">Korean</option>
-                <option value="en">English</option>
-                <option value="ja">Japanese</option>
-              </select>
-            </label>
-          </div>
-          <h1 id="hero-title">Routine Assignment And Progress</h1>
-          <p id="hero-copy" class="hero-copy">
-            Manage routines, todos, calendar overrides, and statistics in one place.
-          </p>
+      <div class="app-nav-shell">
+        <div class="app-nav-bar">
+          <button class="app-nav-toggle" type="button" data-action="toggle-app-nav" aria-label="Open menu">
+            <span></span><span></span><span></span>
+          </button>
+          <button
+            id="tab-button-account"
+            class="user-entry user-entry--nav"
+            type="button"
+            data-action="open-account"
+            aria-controls="tab-account"
+            aria-expanded="false"
+            hidden
+          ></button>
         </div>
-        <div class="hero-metrics">
-          <div class="metric-card">
-            <span id="hero-label-set">Today's Set</span>
-            <strong id="hero-set">-</strong>
+        <button class="app-nav-backdrop" type="button" data-action="close-app-nav" aria-label="Close menu"></button>
+        <aside class="app-nav-drawer" aria-label="Planner sections">
+          <div class="app-nav-head">
+            <button class="app-nav-toggle" type="button" data-action="close-app-nav" aria-label="Close menu">
+              <span></span><span></span><span></span>
+            </button>
+            <div class="app-nav-title">
+              <span id="app-nav-label">Menu</span>
+              <strong id="app-nav-title">My Planner</strong>
+            </div>
           </div>
-          <div class="metric-card">
-            <span id="hero-label-rate">Today's Rate</span>
-            <strong id="hero-rate">0%</strong>
-          </div>
-          <div class="metric-card">
-            <span id="hero-label-streak">Current Streak</span>
-            <strong id="hero-streak">0 days</strong>
-          </div>
-          <div class="metric-card">
-            <span id="hero-label-date">Base Date</span>
-            <strong id="hero-date">-</strong>
-          </div>
-        </div>
-      </section>
+          <nav class="app-nav-list" role="tablist">
+            <button id="tab-button-today" class="app-nav-button is-active" data-tab="today" type="button" role="tab" aria-controls="tab-today" aria-selected="true">Today</button>
+            <button id="tab-button-routines" class="app-nav-button" data-tab="routines" type="button" role="tab" aria-controls="tab-routines" aria-selected="false">Routines</button>
+            <button id="tab-button-todos" class="app-nav-button" data-tab="todos" type="button" role="tab" aria-controls="tab-todos" aria-selected="false">Todos</button>
+            <button id="tab-button-calendar" class="app-nav-button" data-tab="calendar" type="button" role="tab" aria-controls="tab-calendar" aria-selected="false">Calendar</button>
+            <button id="tab-button-stats" class="app-nav-button" data-tab="stats" type="button" role="tab" aria-controls="tab-stats" aria-selected="false">Stats</button>
+            <button id="tab-button-admin" class="app-nav-button" data-tab="admin" type="button" role="tab" aria-controls="tab-admin" aria-selected="false" hidden>Admin</button>
+          </nav>
+        </aside>
+      </div>
 
-      <section class="tabs panel">
-        <button id="tab-button-today" class="tab-button is-active" data-tab="today" type="button">Today</button>
-        <button id="tab-button-routines" class="tab-button" data-tab="routines" type="button">Routines</button>
-        <button id="tab-button-todos" class="tab-button" data-tab="todos" type="button">Todos</button>
-        <button id="tab-button-calendar" class="tab-button" data-tab="calendar" type="button">Calendar</button>
-        <button id="tab-button-stats" class="tab-button" data-tab="stats" type="button">Stats</button>
-      </section>
+      <header class="app-header">
+        <section class="hero panel">
+          <div class="hero-copy-block">
+            <div class="hero-topline">
+              <p class="eyebrow">my planner</p>
+              <div class="hero-tools">
+                <details class="settings-panel">
+                  <summary id="settings-summary" class="settings-summary">Settings</summary>
+                  <div class="header-controls">
+                    <label class="control-box">
+                      <span id="language-label">Language</span>
+                      <select id="language-select" aria-labelledby="language-label">
+                        <option value="ko">Korean</option>
+                        <option value="en">English</option>
+                        <option value="ja">Japanese</option>
+                      </select>
+                    </label>
+                    <label class="control-box">
+                      <span id="theme-label">Theme</span>
+                      <select id="theme-select" aria-labelledby="theme-label">
+                        <option value="violet">Violet</option>
+                        <option value="sunset">Sunset</option>
+                        <option value="forest">Forest</option>
+                      </select>
+                    </label>
+                    <label class="control-box">
+                      <span id="density-label">Density</span>
+                      <select id="density-select" aria-labelledby="density-label">
+                        <option value="comfy">Comfy</option>
+                        <option value="compact">Compact</option>
+                      </select>
+                    </label>
+                  </div>
+                </details>
+              </div>
+            </div>
+            <h1 id="hero-title">Routine Assignment And Progress</h1>
+            <p id="hero-copy" class="hero-copy">
+              Manage routines, todos, calendar overrides, and statistics in one place.
+            </p>
+            <div id="hero-focus" class="hero-focus" aria-live="polite"></div>
+          </div>
+          <div class="hero-metrics">
+            <div class="metric-card">
+              <span id="hero-label-set">Today's Set</span>
+              <strong id="hero-set">-</strong>
+            </div>
+            <div class="metric-card">
+              <span id="hero-label-rate">Today's Rate</span>
+              <strong id="hero-rate">0%</strong>
+            </div>
+            <div class="metric-card">
+              <span id="hero-label-streak">Current Streak</span>
+              <strong id="hero-streak">0 days</strong>
+            </div>
+            <div class="metric-card">
+              <span id="hero-label-date">Base Date</span>
+              <strong id="hero-date">-</strong>
+            </div>
+          </div>
+        </section>
 
+      </header>
       <p id="feedback" class="feedback" aria-live="polite"></p>
 
-      <section id="tab-today" class="tab-panel is-active"></section>
-      <section id="tab-routines" class="tab-panel"></section>
-      <section id="tab-todos" class="tab-panel"></section>
-      <section id="tab-calendar" class="tab-panel"></section>
-      <section id="tab-stats" class="tab-panel"></section>
+      <section id="tab-today" class="tab-panel is-active" role="tabpanel" aria-labelledby="tab-button-today"></section>
+      <section id="tab-routines" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-routines" hidden></section>
+      <section id="tab-todos" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-todos" hidden></section>
+      <section id="tab-calendar" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-calendar" hidden></section>
+      <section id="tab-stats" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-stats" hidden></section>
+      <section id="tab-account" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-account" hidden></section>
+      <section id="tab-admin" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-admin" hidden></section>
     </main>
   </body>
 </html>

@@ -10,6 +10,7 @@ export function createDefaultPlannerData(): PlannerData {
       {
         id: "routine-weekday",
         name: "Weekday Launch",
+        emoji: "🌅",
         color: "#f97316",
         isArchived: false,
         createdAt: timestamp("2026-03-20T07:00:00.000Z"),
@@ -18,6 +19,7 @@ export function createDefaultPlannerData(): PlannerData {
       {
         id: "routine-weekend",
         name: "Weekend Reset",
+        emoji: "🌿",
         color: "#0f766e",
         isArchived: false,
         createdAt: timestamp("2026-03-20T12:00:00.000Z"),
@@ -26,6 +28,7 @@ export function createDefaultPlannerData(): PlannerData {
       {
         id: "routine-focus",
         name: "Focus Sprint",
+        emoji: "🎯",
         color: "#2563eb",
         isArchived: false,
         createdAt: timestamp("2026-03-21T08:00:00.000Z"),
@@ -174,6 +177,7 @@ export function createDefaultPlannerData(): PlannerData {
       {
         id: "todo-groceries",
         title: "Buy groceries",
+        emoji: "🛒",
         note: "Fruit and yogurt",
         dueDate: "2026-03-22",
         status: "pending",
@@ -184,6 +188,7 @@ export function createDefaultPlannerData(): PlannerData {
       {
         id: "todo-booking",
         title: "Book dentist visit",
+        emoji: "📅",
         note: null,
         dueDate: null,
         status: "pending",
@@ -194,6 +199,7 @@ export function createDefaultPlannerData(): PlannerData {
       {
         id: "todo-receipt",
         title: "Upload expense receipt",
+        emoji: "🧾",
         note: null,
         dueDate: "2026-03-21",
         status: "done",

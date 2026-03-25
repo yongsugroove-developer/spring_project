@@ -8,7 +8,7 @@
 
 ## Goal
 - Deliver a usable single-user web MVP for routine formation and schedule management.
-- Cover routines, routine-set assignment, todos, calendar feedback, statistics, time-based routine items, and localized UI behind stable local APIs.
+- Cover routines, routine-set assignment, todos, calendar feedback, statistics, time-based routine items, emoji decoration, and localized UI behind stable local APIs.
 
 ## Fixed Options
 - Stack profile: node-express
@@ -23,6 +23,8 @@
 - AC-04: Users can create, edit, complete, and delete one-off todos with optional date assignment and inbox behavior.
 - AC-05: The web UI exposes separate tabs for today, routines, todos, calendar, and statistics, and those tabs reflect routine assignment, overrides, daily progress, calendar fill, and aggregate stats from stored data.
 - AC-06: System UI text supports Korean, English, and Japanese, defaults to Korean, and switches based on browser language while still allowing manual override in the browser.
+- AC-07: Routines and todos support an optional representative `emoji` field that round-trips through persistence, local APIs, and the browser UI.
+- AC-08: The browser UI provides lightweight emoji picking, live preview, a quick-add flow on the today screen, and client-side personalization for theme preset and density.
 
 ## Runtime Commands
 - Build: `npm run build`

@@ -39,6 +39,7 @@ describe("json planner repository", () => {
     data.todos.push({
       id: "todo-new",
       title: "Write release note",
+      emoji: "📝",
       note: null,
       dueDate: "2026-03-25",
       status: "pending",
@@ -90,7 +91,15 @@ describe("json planner repository", () => {
               updatedAt: "2026-03-22T08:00:00.000Z",
             },
           ],
-          todos: [],
+          todos: [
+            {
+              id: "todo-legacy",
+              title: "Legacy todo",
+              status: "pending",
+              createdAt: "2026-03-22T08:00:00.000Z",
+              updatedAt: "2026-03-22T08:00:00.000Z",
+            },
+          ],
         },
         null,
         2,
@@ -105,8 +114,14 @@ describe("json planner repository", () => {
     expect(data.routineAssignmentRules).toHaveLength(2);
     expect(data.routineDateOverrides).toEqual([]);
     expect(data.routines[0]).not.toHaveProperty("startTime");
+    expect(data.routines[0].emoji).toBeNull();
     expect(data.routineItems[0].trackingType).toBe("binary");
     expect(data.routineItems[0].targetCount).toBe(1);
     expect(data.routineCheckins[0].itemProgress).toEqual({ "item-legacy": 1 });
+    expect(data.todos[0]).toMatchObject({
+      title: "Legacy todo",
+      emoji: null,
+      status: "pending",
+    });
   });
 });

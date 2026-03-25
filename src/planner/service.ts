@@ -20,6 +20,7 @@ import {
   PlannerValidationError,
   normalizeCheckinsForRoutineItems,
   normalizeColor,
+  normalizeOptionalEmoji,
   normalizeExistingSetIdOrNull,
   normalizeOptionalDate,
   normalizeOptionalText,
@@ -63,6 +64,7 @@ export interface PlannerServiceOptions {
 
 interface RoutineInput {
   name: string;
+  emoji?: string | null;
   color: string;
 }
 
@@ -97,6 +99,7 @@ interface CheckinInput {
 
 interface TodoInput {
   title: string;
+  emoji?: string | null;
   note?: string | null;
   dueDate?: string | null;
   status?: "pending" | "done";
@@ -129,6 +132,7 @@ export class PlannerService {
     const routine: Routine = {
       id: randomUUID(),
       name: requireText(input.name, "Routine name"),
+      emoji: normalizeOptionalEmoji(input.emoji ?? null),
       color: normalizeColor(input.color),
       isArchived: false,
       createdAt: timestamp,
@@ -152,6 +156,9 @@ export class PlannerService {
 
     if (input.name !== undefined) {
       routine.name = requireText(input.name, "Routine name");
+    }
+    if (input.emoji !== undefined) {
+      routine.emoji = normalizeOptionalEmoji(input.emoji);
     }
     if (input.color !== undefined) {
       routine.color = normalizeColor(input.color);
@@ -376,6 +383,11 @@ export class PlannerService {
       excludeRoutineIds: normalizeRoutineIds(input.excludeRoutineIds ?? [], data),
       updatedAt: this.now().toISOString(),
     };
+    assertNoOverlap(
+      normalizedOverride.includeRoutineIds,
+      normalizedOverride.excludeRoutineIds,
+      "Override routines",
+    );
 
     const isEmpty =
       normalizedOverride.setId === null &&
@@ -452,6 +464,7 @@ export class PlannerService {
     const todo: Todo = {
       id: randomUUID(),
       title: requireText(input.title, "Todo title"),
+      emoji: normalizeOptionalEmoji(input.emoji ?? null),
       note: normalizeOptionalText(input.note ?? null),
       dueDate: normalizeOptionalDate(input.dueDate ?? null, "Todo dueDate"),
       status,
@@ -475,6 +488,9 @@ export class PlannerService {
     if (input.title !== undefined) {
       todo.title = requireText(input.title, "Todo title");
     }
+    if (input.emoji !== undefined) {
+      todo.emoji = normalizeOptionalEmoji(input.emoji);
+    }
     if (input.note !== undefined) {
       todo.note = normalizeOptionalText(input.note);
     }
@@ -482,8 +498,13 @@ export class PlannerService {
       todo.dueDate = normalizeOptionalDate(input.dueDate, "Todo dueDate");
     }
     if (input.status !== undefined) {
-      todo.status = normalizeTodoStatus(input.status);
-      todo.completedAt = todo.status === "done" ? this.now().toISOString() : null;
+      const nextStatus = normalizeTodoStatus(input.status);
+      if (nextStatus === "done") {
+        todo.completedAt = todo.status === "done" ? (todo.completedAt ?? this.now().toISOString()) : this.now().toISOString();
+      } else {
+        todo.completedAt = null;
+      }
+      todo.status = nextStatus;
     }
 
     todo.updatedAt = this.now().toISOString();
@@ -577,4 +598,12 @@ function getCustomBounds(startDate?: string, endDate?: string) {
     throw new PlannerValidationError("start must be on or before end");
   }
   return { startDate, endDate };
+}
+
+function assertNoOverlap(leftIds: string[], rightIds: string[], label: string) {
+  const right = new Set(rightIds);
+  const overlap = leftIds.filter((entry) => right.has(entry));
+  if (overlap.length > 0) {
+    throw new PlannerValidationError(`${label} cannot include the same routine in includeRoutineIds and excludeRoutineIds`);
+  }
 }

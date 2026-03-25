@@ -1,6 +1,13 @@
 import express, { type Request } from "express";
+import { AdminService } from "./admin/service.js";
+import { AuditLogService } from "./audit/service.js";
 import path from "node:path";
+import { AuthService, type AuthUser } from "./auth/service.js";
+import { BillingService } from "./billing/service.js";
+import { loadConfig, type StorageDriver } from "./config.js";
+import { DEFAULT_BILLING_PLANS, createMySqlPool, ensureDatabase, ensureMySqlSchema } from "./db/mysql.js";
 import { JsonPlannerRepository } from "./planner/repository.js";
+import { MySqlPlannerRepository } from "./planner/mysqlRepository.js";
 import { PlannerService, PlannerValidationError } from "./planner/service.js";
 import type { HealthResponse } from "./planner/types.js";
 
@@ -16,17 +23,21 @@ type ServerMessageKey =
   | "todoNotFound"
   | "monthRequired"
   | "apiRouteNotFound"
-  | "internalServerError";
+  | "internalServerError"
+  | "authenticationRequired"
+  | "authUnavailable";
 
 const SERVER_MESSAGES: Record<ServerLocale, Record<ServerMessageKey, string>> = {
   ko: {
-    routineNotFound: "\ub8e8\ud2f4\uc744 \ucc3e\uc744 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.",
-    routineItemNotFound: "\ub8e8\ud2f4 \ud56d\ubaa9\uc744 \ucc3e\uc744 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.",
-    routineSetNotFound: "\ub8e8\ud2f4 \uc138\ud2b8\ub97c \ucc3e\uc744 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.",
-    todoNotFound: "\ud22c\ub450\ub97c \ucc3e\uc744 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.",
-    monthRequired: "month \ucffc\ub9ac\uac00 \ud544\uc694\ud569\ub2c8\ub2e4.",
-    apiRouteNotFound: "API \uacbd\ub85c\ub97c \ucc3e\uc744 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.",
-    internalServerError: "\uc11c\ubc84 \ub0b4\ubd80 \uc624\ub958\uac00 \ubc1c\uc0dd\ud588\uc2b5\ub2c8\ub2e4.",
+    routineNotFound: "루틴을 찾을 수 없습니다.",
+    routineItemNotFound: "루틴 항목을 찾을 수 없습니다.",
+    routineSetNotFound: "루틴 세트를 찾을 수 없습니다.",
+    todoNotFound: "투두를 찾을 수 없습니다.",
+    monthRequired: "month 쿼리가 필요합니다.",
+    apiRouteNotFound: "API 경로를 찾을 수 없습니다.",
+    internalServerError: "서버 내부 오류가 발생했습니다.",
+    authenticationRequired: "로그인이 필요합니다.",
+    authUnavailable: "인증 기능을 아직 사용할 수 없습니다.",
   },
   en: {
     routineNotFound: "Routine not found",
@@ -36,15 +47,19 @@ const SERVER_MESSAGES: Record<ServerLocale, Record<ServerMessageKey, string>> = 
     monthRequired: "month query is required",
     apiRouteNotFound: "API route not found",
     internalServerError: "Internal server error",
+    authenticationRequired: "Authentication required",
+    authUnavailable: "Authentication is not available",
   },
   ja: {
-    routineNotFound: "\u30eb\u30fc\u30c6\u30a3\u30f3\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3002",
-    routineItemNotFound: "\u30eb\u30fc\u30c6\u30a3\u30f3\u9805\u76ee\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3002",
-    routineSetNotFound: "\u30eb\u30fc\u30c6\u30a3\u30f3\u30bb\u30c3\u30c8\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3002",
-    todoNotFound: "Todo\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3002",
-    monthRequired: "month \u30af\u30a8\u30ea\u304c\u5fc5\u8981\u3067\u3059\u3002",
-    apiRouteNotFound: "API \u30eb\u30fc\u30c8\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3002",
-    internalServerError: "\u30b5\u30fc\u30d0\u30fc\u5185\u90e8\u30a8\u30e9\u30fc\u304c\u767a\u751f\u3057\u307e\u3057\u305f\u3002",
+    routineNotFound: "ルーティンが見つかりません。",
+    routineItemNotFound: "ルーティン項目が見つかりません。",
+    routineSetNotFound: "ルーティンセットが見つかりません。",
+    todoNotFound: "Todoが見つかりません。",
+    monthRequired: "month クエリが必要です。",
+    apiRouteNotFound: "API ルートが見つかりません。",
+    internalServerError: "サーバー内部エラーが発生しました。",
+    authenticationRequired: "ログインが必要です。",
+    authUnavailable: "認証機能はまだ利用できません。",
   },
 };
 
@@ -59,43 +74,424 @@ function messageFor(req: Request, key: ServerMessageKey) {
   return SERVER_MESSAGES[resolveLocale(req)][key];
 }
 
+class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 interface AppOptions {
   dataFile?: string;
   now?: () => Date;
+  storageDriver?: StorageDriver;
+  authRequired?: boolean;
+}
+
+interface RequestActor {
+  userId: string;
+  user: AuthUser | null;
+  token: string | null;
+  usedDefault: boolean;
+}
+
+function isAdminRole(role: string | null | undefined) {
+  return role === "owner" || role === "admin";
 }
 
 export function createApp(options: AppOptions = {}) {
+  const isTestEnv = process.env.NODE_ENV === "test" || process.env.VITEST === "true";
+  const inferredStorageDriver = options.storageDriver ?? (options.dataFile || isTestEnv ? "json" : undefined);
+  const config = loadConfig(options.dataFile ?? defaultDataFile);
+  config.storageDriver = inferredStorageDriver ?? config.storageDriver;
+  if (options.dataFile) {
+    config.dataFile = options.dataFile;
+  }
+  if (typeof options.authRequired === "boolean") {
+    config.auth.required = options.authRequired;
+  }
+
   const app = express();
-  const repository = new JsonPlannerRepository(options.dataFile ?? defaultDataFile);
-  const planner = new PlannerService(repository, { now: options.now });
+  const jsonPlanner = new PlannerService(new JsonPlannerRepository(config.dataFile), { now: options.now });
+
+  let authService: AuthService | null = null;
+  let billingService: BillingService | null = null;
+  let adminService: AdminService | null = null;
+  let auditLogService: AuditLogService | null = null;
+  const createPlannerForUser = (userId: string) =>
+    new PlannerService(new MySqlPlannerRepository(mysqlPool!, userId), { now: options.now });
+  let defaultUserId: string | null = null;
+  let mysqlPool: ReturnType<typeof createMySqlPool> | null = null;
+
+  const ready =
+    config.storageDriver === "mysql"
+      ? (async () => {
+          await ensureDatabase(config);
+          mysqlPool = createMySqlPool(config);
+          await ensureMySqlSchema(mysqlPool);
+          authService = new AuthService(mysqlPool, config.auth.sessionTtlHours);
+          billingService = new BillingService(mysqlPool);
+          adminService = new AdminService(mysqlPool);
+          auditLogService = new AuditLogService(mysqlPool);
+          await billingService.seedPlans(
+            DEFAULT_BILLING_PLANS.map((plan) => ({ ...plan, currency: config.billing.currency })),
+          );
+          const bootstrapUser = await authService.ensureBootstrapUser({
+            email: config.auth.bootstrapEmail,
+            password: config.auth.bootstrapPassword,
+            displayName: config.auth.bootstrapDisplayName,
+          });
+          await billingService.ensureCustomer(bootstrapUser.id);
+          defaultUserId = bootstrapUser.id;
+        })()
+      : Promise.resolve();
 
   app.use(express.json());
   app.use(express.static(publicDir));
+
+  async function ensureReady() {
+    await ready;
+  }
+
+  async function resolveActor(req: Request, requireUser = false): Promise<RequestActor> {
+    await ensureReady();
+
+    if (config.storageDriver === "json") {
+      return {
+        userId: "local-json",
+        user: null,
+        token: null,
+        usedDefault: true,
+      };
+    }
+
+    if (!authService) {
+      throw new HttpError(503, messageFor(req, "authUnavailable"));
+    }
+
+    const header = req.get("authorization") ?? "";
+    const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+    if (token) {
+      const user = await authService.resolveSession(token);
+      if (user) {
+        return { userId: user.id, user, token, usedDefault: false };
+      }
+    }
+
+    if (!config.auth.required && defaultUserId) {
+      const user = await authService.getUserById(defaultUserId);
+      return {
+        userId: defaultUserId,
+        user,
+        token: null,
+        usedDefault: true,
+      };
+    }
+
+    if (requireUser || config.auth.required) {
+      throw new HttpError(401, messageFor(req, "authenticationRequired"));
+    }
+
+    throw new HttpError(401, messageFor(req, "authenticationRequired"));
+  }
+
+  function plannerFor(userId: string) {
+    if (config.storageDriver === "json") {
+      return jsonPlanner;
+    }
+    return createPlannerForUser(userId);
+  }
+
+  async function requireServices(req: Request) {
+    await ensureReady();
+    if (!authService || !billingService || !adminService || !auditLogService) {
+      throw new HttpError(503, messageFor(req, "authUnavailable"));
+    }
+    return { authService, billingService, adminService, auditLogService };
+  }
+
+  async function requireAdminActor(req: Request) {
+    await ensureReady();
+    if (config.storageDriver === "json") {
+      throw new HttpError(503, messageFor(req, "authUnavailable"));
+    }
+    const actor = await resolveActor(req, true);
+    if (actor.usedDefault || !actor.token) {
+      throw new HttpError(401, messageFor(req, "authenticationRequired"));
+    }
+    if (!isAdminRole(actor.user?.role)) {
+      throw new HttpError(403, "Admin access is required");
+    }
+    return actor;
+  }
 
   app.get("/favicon.ico", (_req, res) => {
     res.status(204).end();
   });
 
-  app.get("/api/health", (_req, res) => {
-    const payload: HealthResponse = {
-      ok: true,
-      project: "my-planner",
-      productName: "\ub9c8\uc774 \ud50c\ub798\ub108",
-    };
-    res.json(payload);
-  });
-
-  app.get("/api/today", async (_req, res, next) => {
+  app.get("/api/health", async (_req, res, next) => {
     try {
-      res.json(await planner.getToday());
+      await ensureReady();
+      const payload: HealthResponse & { storageDriver: StorageDriver } = {
+        ok: true,
+        project: "my-planner",
+        productName: "마이 플래너",
+        storageDriver: config.storageDriver,
+        authAvailable: config.storageDriver === "mysql",
+        authRequired: config.auth.required,
+      };
+      res.json(payload);
     } catch (error) {
       next(error);
     }
   });
 
-  app.get("/api/routines", async (_req, res, next) => {
+  app.post("/api/auth/register", async (req, res, next) => {
     try {
-      res.json(await planner.listRoutines());
+      const { authService, billingService, auditLogService } = await requireServices(req);
+      const result = await authService.register(req.body ?? {});
+      await billingService.ensureCustomer(result.user.id);
+      await auditLogService.record({
+        actorUserId: result.user.id,
+        actorRole: result.user.role,
+        targetUserId: result.user.id,
+        scope: "auth",
+        eventType: "register",
+        message: "User account registered",
+        details: { email: result.user.email },
+      });
+      res.status(201).json({
+        ok: true,
+        user: result.user,
+        session: result.session,
+        billing: await billingService.getOverview(result.user.id),
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/auth/login", async (req, res, next) => {
+    try {
+      const { authService, billingService, auditLogService } = await requireServices(req);
+      const result = await authService.login(req.body ?? {});
+      await billingService.ensureCustomer(result.user.id);
+      await auditLogService.record({
+        actorUserId: result.user.id,
+        actorRole: result.user.role,
+        targetUserId: result.user.id,
+        scope: "auth",
+        eventType: "login",
+        message: "User logged in",
+      });
+      res.json({
+        ok: true,
+        user: result.user,
+        session: result.session,
+        billing: await billingService.getOverview(result.user.id),
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/auth/logout", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req, true);
+      const { authService, auditLogService } = await requireServices(req);
+      const token = actor.token ?? "";
+      if (token) {
+        await authService.logout(token);
+      }
+      await auditLogService.record({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "auth",
+        eventType: "logout",
+        message: "User logged out",
+      });
+      res.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/auth/me", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req, true);
+      const { billingService } = await requireServices(req);
+      res.json({
+        ok: true,
+        user: actor.user,
+        usedDefault: actor.usedDefault,
+        billing: await billingService.getOverview(actor.userId),
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/billing/plans", async (req, res, next) => {
+    try {
+      const { billingService } = await requireServices(req);
+      res.json({ ok: true, plans: await billingService.listPlans() });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/billing/overview", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req, true);
+      const { billingService } = await requireServices(req);
+      res.json(await billingService.getOverview(actor.userId));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/billing/subscription", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req, true);
+      const { billingService, auditLogService } = await requireServices(req);
+      const planCode = String(req.body?.planCode || "");
+      const result = await billingService.activateManualSubscription(actor.userId, planCode);
+      await auditLogService.record({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "billing",
+        eventType: "activate-manual-subscription",
+        message: "User activated a billing plan",
+        details: { planCode },
+      });
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/admin/overview", async (req, res, next) => {
+    try {
+      await requireAdminActor(req);
+      const { adminService } = await requireServices(req);
+      res.json(await adminService.getOverview());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/admin/users", async (req, res, next) => {
+    try {
+      await requireAdminActor(req);
+      const { adminService } = await requireServices(req);
+      res.json(await adminService.listUsers());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/admin/users/:id", async (req, res, next) => {
+    try {
+      const actor = await requireAdminActor(req);
+      const { adminService, auditLogService } = await requireServices(req);
+      const updated = await adminService.updateUserAccess(
+        req.params.id,
+        {
+          role: typeof req.body?.role === "string" ? req.body.role : undefined,
+          status: typeof req.body?.status === "string" ? req.body.status : undefined,
+        },
+        {
+          userId: actor.userId,
+          role: actor.user?.role ?? "member",
+        },
+      );
+      if (!updated) {
+        res.status(404).json({ ok: false, message: "User not found" });
+        return;
+      }
+      await auditLogService.record({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: updated.id,
+        scope: "admin.accounts",
+        eventType: "update-user-access",
+        message: "Admin updated a user account",
+        details: { role: updated.role, status: updated.status },
+      });
+      res.json({ ok: true, user: updated });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/admin/users/:id/subscription", async (req, res, next) => {
+    try {
+      const actor = await requireAdminActor(req);
+      const { billingService, auditLogService } = await requireServices(req);
+      const planCode = String(req.body?.planCode || "");
+      const result = await billingService.activateManualSubscription(req.params.id, planCode);
+      await auditLogService.record({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: req.params.id,
+        scope: "admin.billing",
+        eventType: "assign-user-plan",
+        message: "Admin assigned a billing plan",
+        details: { planCode },
+      });
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/admin/subscriptions", async (req, res, next) => {
+    try {
+      await requireAdminActor(req);
+      const { adminService } = await requireServices(req);
+      res.json(await adminService.listSubscriptions());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/admin/sessions", async (req, res, next) => {
+    try {
+      await requireAdminActor(req);
+      const { adminService } = await requireServices(req);
+      res.json(await adminService.listSessions());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/admin/logs", async (req, res, next) => {
+    try {
+      await requireAdminActor(req);
+      const { auditLogService } = await requireServices(req);
+      res.json({ ok: true, logs: await auditLogService.listRecent() });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/today", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req);
+      res.json(await plannerFor(actor.userId).getToday());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/routines", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req);
+      res.json(await plannerFor(actor.userId).listRoutines());
     } catch (error) {
       next(error);
     }
@@ -103,7 +499,8 @@ export function createApp(options: AppOptions = {}) {
 
   app.post("/api/routines", async (req, res, next) => {
     try {
-      const routine = await planner.createRoutine(req.body);
+      const actor = await resolveActor(req);
+      const routine = await plannerFor(actor.userId).createRoutine(req.body);
       res.status(201).json({ ok: true, routine });
     } catch (error) {
       next(error);
@@ -112,7 +509,8 @@ export function createApp(options: AppOptions = {}) {
 
   app.patch("/api/routines/:id", async (req, res, next) => {
     try {
-      const routine = await planner.updateRoutine(req.params.id, req.body);
+      const actor = await resolveActor(req);
+      const routine = await plannerFor(actor.userId).updateRoutine(req.params.id, req.body);
       if (!routine) {
         res.status(404).json({ ok: false, message: messageFor(req, "routineNotFound") });
         return;
@@ -125,7 +523,8 @@ export function createApp(options: AppOptions = {}) {
 
   app.delete("/api/routines/:id", async (req, res, next) => {
     try {
-      const deleted = await planner.deleteRoutine(req.params.id);
+      const actor = await resolveActor(req);
+      const deleted = await plannerFor(actor.userId).deleteRoutine(req.params.id);
       if (!deleted) {
         res.status(404).json({ ok: false, message: messageFor(req, "routineNotFound") });
         return;
@@ -138,7 +537,8 @@ export function createApp(options: AppOptions = {}) {
 
   app.post("/api/routines/:id/items", async (req, res, next) => {
     try {
-      const item = await planner.addRoutineItem(req.params.id, req.body);
+      const actor = await resolveActor(req);
+      const item = await plannerFor(actor.userId).addRoutineItem(req.params.id, req.body);
       if (!item) {
         res.status(404).json({ ok: false, message: messageFor(req, "routineNotFound") });
         return;
@@ -151,7 +551,8 @@ export function createApp(options: AppOptions = {}) {
 
   app.patch("/api/routines/:id/items/:itemId", async (req, res, next) => {
     try {
-      const item = await planner.updateRoutineItem(req.params.id, req.params.itemId, req.body);
+      const actor = await resolveActor(req);
+      const item = await plannerFor(actor.userId).updateRoutineItem(req.params.id, req.params.itemId, req.body);
       if (!item) {
         res.status(404).json({ ok: false, message: messageFor(req, "routineItemNotFound") });
         return;
@@ -164,7 +565,8 @@ export function createApp(options: AppOptions = {}) {
 
   app.delete("/api/routines/:id/items/:itemId", async (req, res, next) => {
     try {
-      const deleted = await planner.deleteRoutineItem(req.params.id, req.params.itemId);
+      const actor = await resolveActor(req);
+      const deleted = await plannerFor(actor.userId).deleteRoutineItem(req.params.id, req.params.itemId);
       if (!deleted) {
         res.status(404).json({ ok: false, message: messageFor(req, "routineItemNotFound") });
         return;
@@ -175,9 +577,10 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.get("/api/routine-sets", async (_req, res, next) => {
+  app.get("/api/routine-sets", async (req, res, next) => {
     try {
-      res.json(await planner.listRoutineSets());
+      const actor = await resolveActor(req);
+      res.json(await plannerFor(actor.userId).listRoutineSets());
     } catch (error) {
       next(error);
     }
@@ -185,7 +588,8 @@ export function createApp(options: AppOptions = {}) {
 
   app.post("/api/routine-sets", async (req, res, next) => {
     try {
-      const routineSet = await planner.createRoutineSet(req.body);
+      const actor = await resolveActor(req);
+      const routineSet = await plannerFor(actor.userId).createRoutineSet(req.body);
       res.status(201).json({ ok: true, routineSet });
     } catch (error) {
       next(error);
@@ -194,7 +598,8 @@ export function createApp(options: AppOptions = {}) {
 
   app.patch("/api/routine-sets/:id", async (req, res, next) => {
     try {
-      const routineSet = await planner.updateRoutineSet(req.params.id, req.body);
+      const actor = await resolveActor(req);
+      const routineSet = await plannerFor(actor.userId).updateRoutineSet(req.params.id, req.body);
       if (!routineSet) {
         res.status(404).json({ ok: false, message: messageFor(req, "routineSetNotFound") });
         return;
@@ -207,7 +612,8 @@ export function createApp(options: AppOptions = {}) {
 
   app.delete("/api/routine-sets/:id", async (req, res, next) => {
     try {
-      const deleted = await planner.deleteRoutineSet(req.params.id);
+      const actor = await resolveActor(req);
+      const deleted = await plannerFor(actor.userId).deleteRoutineSet(req.params.id);
       if (!deleted) {
         res.status(404).json({ ok: false, message: messageFor(req, "routineSetNotFound") });
         return;
@@ -218,9 +624,10 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.get("/api/assignments", async (_req, res, next) => {
+  app.get("/api/assignments", async (req, res, next) => {
     try {
-      res.json(await planner.getAssignments());
+      const actor = await resolveActor(req);
+      res.json(await plannerFor(actor.userId).getAssignments());
     } catch (error) {
       next(error);
     }
@@ -228,8 +635,9 @@ export function createApp(options: AppOptions = {}) {
 
   app.put("/api/assignments", async (req, res, next) => {
     try {
+      const actor = await resolveActor(req);
       const assignments = Array.isArray(req.body?.assignments) ? req.body.assignments : [];
-      res.json(await planner.replaceAssignments(assignments));
+      res.json(await plannerFor(actor.userId).replaceAssignments(assignments));
     } catch (error) {
       next(error);
     }
@@ -237,7 +645,8 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/api/overrides/:date", async (req, res, next) => {
     try {
-      res.json(await planner.getOverride(req.params.date));
+      const actor = await resolveActor(req);
+      res.json(await plannerFor(actor.userId).getOverride(req.params.date));
     } catch (error) {
       next(error);
     }
@@ -245,7 +654,8 @@ export function createApp(options: AppOptions = {}) {
 
   app.put("/api/overrides/:date", async (req, res, next) => {
     try {
-      res.json(await planner.upsertOverride(req.params.date, req.body));
+      const actor = await resolveActor(req);
+      res.json(await plannerFor(actor.userId).upsertOverride(req.params.date, req.body));
     } catch (error) {
       next(error);
     }
@@ -253,7 +663,8 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/api/checkins/:date", async (req, res, next) => {
     try {
-      res.json(await planner.getCheckins(req.params.date));
+      const actor = await resolveActor(req);
+      res.json(await plannerFor(actor.userId).getCheckins(req.params.date));
     } catch (error) {
       next(error);
     }
@@ -261,7 +672,8 @@ export function createApp(options: AppOptions = {}) {
 
   app.put("/api/checkins/:date/routines/:routineId", async (req, res, next) => {
     try {
-      const routine = await planner.upsertCheckin(req.params.date, req.params.routineId, {
+      const actor = await resolveActor(req);
+      const routine = await plannerFor(actor.userId).upsertCheckin(req.params.date, req.params.routineId, {
         itemProgress:
           req.body?.itemProgress && typeof req.body.itemProgress === "object"
             ? (req.body.itemProgress as Record<string, number>)
@@ -280,9 +692,10 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.get("/api/todos", async (_req, res, next) => {
+  app.get("/api/todos", async (req, res, next) => {
     try {
-      res.json(await planner.listTodos());
+      const actor = await resolveActor(req);
+      res.json(await plannerFor(actor.userId).listTodos());
     } catch (error) {
       next(error);
     }
@@ -290,7 +703,8 @@ export function createApp(options: AppOptions = {}) {
 
   app.post("/api/todos", async (req, res, next) => {
     try {
-      const todo = await planner.createTodo(req.body);
+      const actor = await resolveActor(req);
+      const todo = await plannerFor(actor.userId).createTodo(req.body);
       res.status(201).json({ ok: true, todo });
     } catch (error) {
       next(error);
@@ -299,7 +713,8 @@ export function createApp(options: AppOptions = {}) {
 
   app.patch("/api/todos/:id", async (req, res, next) => {
     try {
-      const todo = await planner.updateTodo(req.params.id, req.body);
+      const actor = await resolveActor(req);
+      const todo = await plannerFor(actor.userId).updateTodo(req.params.id, req.body);
       if (!todo) {
         res.status(404).json({ ok: false, message: messageFor(req, "todoNotFound") });
         return;
@@ -312,7 +727,8 @@ export function createApp(options: AppOptions = {}) {
 
   app.delete("/api/todos/:id", async (req, res, next) => {
     try {
-      const deleted = await planner.deleteTodo(req.params.id);
+      const actor = await resolveActor(req);
+      const deleted = await plannerFor(actor.userId).deleteTodo(req.params.id);
       if (!deleted) {
         res.status(404).json({ ok: false, message: messageFor(req, "todoNotFound") });
         return;
@@ -330,7 +746,8 @@ export function createApp(options: AppOptions = {}) {
         res.status(400).json({ ok: false, message: messageFor(req, "monthRequired") });
         return;
       }
-      res.json(await planner.getCalendar(month));
+      const actor = await resolveActor(req);
+      res.json(await plannerFor(actor.userId).getCalendar(month));
     } catch (error) {
       next(error);
     }
@@ -344,7 +761,8 @@ export function createApp(options: AppOptions = {}) {
           : "week";
       const start = typeof req.query.start === "string" ? req.query.start : undefined;
       const end = typeof req.query.end === "string" ? req.query.end : undefined;
-      res.json(await planner.getStats(range, start, end));
+      const actor = await resolveActor(req);
+      res.json(await plannerFor(actor.userId).getStats(range, start, end));
     } catch (error) {
       next(error);
     }
@@ -352,6 +770,10 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/", (_req, res) => {
     res.sendFile(path.resolve(publicDir, "index.html"));
+  });
+
+  app.get("/login", (_req, res) => {
+    res.sendFile(path.resolve(publicDir, "login.html"));
   });
 
   app.use("/api", (req, res) => {
@@ -366,6 +788,10 @@ export function createApp(options: AppOptions = {}) {
       next: express.NextFunction,
     ) => {
       void next;
+      if (error instanceof HttpError) {
+        res.status(error.status).json({ ok: false, message: error.message });
+        return;
+      }
       if (error instanceof PlannerValidationError) {
         res.status(400).json({ ok: false, message: error.message });
         return;
