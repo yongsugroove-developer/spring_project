@@ -25,9 +25,11 @@ describe("planner API", () => {
 
     const createRoutine = await request(app).post("/api/routines").send({
       name: "Sunday Special",
+      emoji: "☀️",
       color: "#7c3aed",
     });
     expect(createRoutine.status).toBe(201);
+    expect(createRoutine.body.routine.emoji).toBe("☀️");
     const routineId = createRoutine.body.routine.id as string;
 
     const createSet = await request(app).post("/api/routine-sets").send({
@@ -95,6 +97,77 @@ describe("planner API", () => {
 
     expect(timeItem.status).toBe(201);
     expect(timeItem.body.item.trackingType).toBe("time");
+  });
+
+  it("rejects overlapping include and exclude overrides", async () => {
+    const temp = await createTempPlannerFile();
+    cleanups.push(temp.cleanup);
+    const app = createApp({
+      dataFile: temp.filePath,
+      now: () => new Date("2026-03-22T09:00:00+09:00"),
+    });
+
+    const response = await request(app).put("/api/overrides/2026-03-22").send({
+      includeRoutineIds: ["routine-focus"],
+      excludeRoutineIds: ["routine-focus"],
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.ok).toBe(false);
+  });
+
+  it("round-trips emoji fields for routines and todos", async () => {
+    const temp = await createTempPlannerFile();
+    cleanups.push(temp.cleanup);
+    const app = createApp({
+      dataFile: temp.filePath,
+      now: () => new Date("2026-03-22T09:00:00+09:00"),
+    });
+
+    const createRoutine = await request(app).post("/api/routines").send({
+      name: "Inbox Zero",
+      emoji: "📥",
+      color: "#4f46e5",
+    });
+    expect(createRoutine.status).toBe(201);
+    expect(createRoutine.body.routine).toMatchObject({
+      name: "Inbox Zero",
+      emoji: "📥",
+    });
+
+    const routineId = createRoutine.body.routine.id as string;
+    const updateRoutine = await request(app).patch(`/api/routines/${routineId}`).send({
+      emoji: "⚡",
+    });
+    expect(updateRoutine.status).toBe(200);
+    expect(updateRoutine.body.routine.emoji).toBe("⚡");
+
+    const createTodo = await request(app).post("/api/todos").send({
+      title: "Plan next sprint",
+      emoji: "📝",
+      dueDate: "2026-03-23",
+    });
+    expect(createTodo.status).toBe(201);
+    expect(createTodo.body.todo.emoji).toBe("📝");
+
+    const todoId = createTodo.body.todo.id as string;
+    const updateTodo = await request(app).patch(`/api/todos/${todoId}`).send({
+      emoji: "✅",
+      status: "done",
+    });
+    expect(updateTodo.status).toBe(200);
+    expect(updateTodo.body.todo).toMatchObject({
+      emoji: "✅",
+      status: "done",
+    });
+    const completedAt = updateTodo.body.todo.completedAt as string;
+
+    const updateTodoAgain = await request(app).patch(`/api/todos/${todoId}`).send({
+      emoji: "🎉",
+      status: "done",
+    });
+    expect(updateTodoAgain.status).toBe(200);
+    expect(updateTodoAgain.body.todo.completedAt).toBe(completedAt);
   });
 
   it("returns localized JSON for unknown API routes", async () => {

@@ -5,6 +5,7 @@ export type TrackingType = "binary" | "count" | "time";
 export interface Routine {
   id: string;
   name: string;
+  emoji: string | null;
   color: string;
   isArchived: boolean;
   createdAt: string;
@@ -60,6 +61,7 @@ export type TodoStatus = "pending" | "done";
 export interface Todo {
   id: string;
   title: string;
+  emoji: string | null;
   note: string | null;
   dueDate: string | null;
   status: TodoStatus;
@@ -131,6 +133,7 @@ export interface CalendarDaySummary {
 export interface RankedRoutineStat {
   routineId: string;
   name: string;
+  emoji: string | null;
   color: string;
   completionRate: number;
   completedUnits: number;

@@ -33,6 +33,17 @@ export function normalizeOptionalText(value: string | null): string | null {
   return text === "" ? null : text;
 }
 
+export function normalizeOptionalEmoji(value: string | null): string | null {
+  const text = normalizeOptionalText(value);
+  if (text === null) {
+    return null;
+  }
+  if (Array.from(text).length > 16) {
+    throw new PlannerValidationError("emoji must be 16 characters or fewer");
+  }
+  return text;
+}
+
 export function normalizeColor(value: string): string {
   const color = requireText(value, "Routine color");
   if (!/^#[0-9a-fA-F]{6}$/.test(color)) {

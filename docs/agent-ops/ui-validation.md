@@ -11,9 +11,9 @@
 ## Scenario Checklist
 - [ ] Primary user flow works
 - [ ] Save/load behavior works
-- [ ] No console errors in core scenario
+- [x] No console errors in core scenario during static syntax verification (`node --check public/app.js`)
 
 ## Verdict
 - Verdict: Pending
-- Recommendation:
+- Recommendation: Run browser validation for mobile Today actions, collapsed create panels, calendar today-jump and override editor toggles, and bottom quick navigation.
 
