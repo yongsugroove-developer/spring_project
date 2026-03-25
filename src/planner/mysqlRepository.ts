@@ -363,9 +363,9 @@ function normalizeRecord(value: unknown): Record<string, number> {
   }
 }
 
-function normalizeDays(value: unknown): ActiveDay[] {
+export function normalizeDays(value: unknown): ActiveDay[] {
   try {
-    const parsed = typeof value === "string" ? (JSON.parse(value) as number[]) : [];
+    const parsed = typeof value === "string" ? (JSON.parse(value) as number[]) : Array.isArray(value) ? value : [];
     return parsed.filter((entry): entry is ActiveDay => Number.isInteger(entry) && entry >= 0 && entry <= 6);
   } catch {
     return [];
