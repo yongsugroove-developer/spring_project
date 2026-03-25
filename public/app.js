@@ -362,6 +362,35 @@ function billingIntervalLabel(interval) {
   return interval === "year" ? t("billingYearly") : t("billingMonthly");
 }
 
+function localizedBillingPlan(plan) {
+  if (plan.code === "free") {
+    return {
+      name: t("billingPlanFreeName"),
+      description: t("billingPlanFreeDescription"),
+      intervalLabel: "",
+    };
+  }
+  if (plan.code === "pro-monthly") {
+    return {
+      name: t("billingPlanProName"),
+      description: t("billingPlanProMonthlyDescription"),
+      intervalLabel: billingIntervalLabel("month"),
+    };
+  }
+  if (plan.code === "pro-yearly") {
+    return {
+      name: t("billingPlanProName"),
+      description: t("billingPlanProYearlyDescription"),
+      intervalLabel: billingIntervalLabel("year"),
+    };
+  }
+  return {
+    name: plan.name,
+    description: plan.description,
+    intervalLabel: billingIntervalLabel(plan.interval),
+  };
+}
+
 function subscriptionPlanCode() {
   return state.billingOverview?.subscription?.plan?.code ?? "";
 }
@@ -765,13 +794,16 @@ function authPlanCard(plan, interactive = false) {
   const currentPlan = subscriptionPlanCode();
   const isCurrent = currentPlan === plan.code;
   const disabled = interactive && (isCurrent || isPending(`billing-${plan.code}`));
+  const localized = localizedBillingPlan(plan);
   return `<article class="content-card content-card--stat billing-plan-card ${isCurrent ? "is-current" : ""}">
-    <div class="row-between">
+    <div class="billing-plan-head">
       <div>
-        <strong>${esc(plan.name)}</strong>
-        <div class="muted">${esc(plan.description)}</div>
+        <div class="billing-plan-title-line">
+          <strong>${esc(localized.name)}</strong>
+          ${localized.intervalLabel ? `<span class="state-pill ${isCurrent ? "is-success" : ""}">${esc(localized.intervalLabel)}</span>` : ""}
+        </div>
+        <div class="muted">${esc(localized.description)}</div>
       </div>
-      <span class="state-pill ${isCurrent ? "is-success" : ""}">${esc(billingIntervalLabel(plan.interval))}</span>
     </div>
     <div class="billing-price">${esc(moneyLabel(plan.priceMinor, plan.currency))}</div>
     ${interactive ? `<div class="actions top-gap-sm"><button class="btn-soft compact-action" type="button" data-action="activate-plan" data-plan-code="${plan.code}"${disabled ? ' disabled aria-busy="true"' : ""}>${isCurrent ? t("billingCurrentPlan") : t("billingActivate")}</button></div>` : ""}
