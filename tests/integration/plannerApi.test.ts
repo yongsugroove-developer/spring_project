@@ -99,6 +99,30 @@ describe("planner API", () => {
     expect(timeItem.body.item.trackingType).toBe("time");
   });
 
+  it("accepts checkins for an existing routine even when it is not in the resolved set for that date", async () => {
+    const temp = await createTempPlannerFile();
+    cleanups.push(temp.cleanup);
+    const app = createApp({
+      dataFile: temp.filePath,
+      now: () => new Date("2026-03-22T09:00:00+09:00"),
+    });
+
+    const response = await request(app)
+      .put("/api/checkins/2026-03-22/routines/routine-weekday")
+      .send({
+        itemProgress: {
+          "item-plan": 1,
+          "item-water": 2,
+          "item-inbox": 1,
+        },
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.ok).toBe(true);
+    expect(response.body.routine.id).toBe("routine-weekday");
+    expect(response.body.routine.progress.completedItemCount).toBe(2);
+  });
+
   it("rejects overlapping include and exclude overrides", async () => {
     const temp = await createTempPlannerFile();
     cleanups.push(temp.cleanup);
