@@ -104,7 +104,7 @@ function feedback(message, error = false) {
   const node = document.getElementById("login-feedback");
   if (!node) return;
   node.textContent = message;
-  node.style.color = error ? "var(--danger)" : "var(--accent)";
+  node.style.color = message ? (error ? "var(--danger)" : "var(--accent)") : "";
 }
 
 function setDocumentMeta() {
@@ -439,14 +439,15 @@ async function onSubmit(event) {
         body: JSON.stringify(payload),
       });
       setAuthToken(result?.session?.token ?? "");
-      feedback(resolveMessage(form.dataset.form === "auth-register" ? "registerDone" : "loginDone"));
+      state.inlineFeedback = null;
+      feedback("");
       redirectToHome();
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : t("actionFailed");
     setInlineFeedback("auth", message, true);
     render();
-    feedback(message, true);
+    feedback("");
   }
 }
 

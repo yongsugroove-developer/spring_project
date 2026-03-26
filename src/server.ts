@@ -1,6 +1,6 @@
 import express, { type Request } from "express";
 import { AdminService } from "./admin/service.js";
-import { AuditLogService } from "./audit/service.js";
+import { AuditLogService, type AuditLogInput } from "./audit/service.js";
 import path from "node:path";
 import { AuthService, type AuthUser } from "./auth/service.js";
 import { BillingService } from "./billing/service.js";
@@ -210,6 +210,26 @@ export function createApp(options: AppOptions = {}) {
       throw new HttpError(503, messageFor(req, "authUnavailable"));
     }
     return { authService, billingService, adminService, auditLogService };
+  }
+
+  async function recordServerActivity(entry: AuditLogInput) {
+    console.info("[activity]", {
+      scope: entry.scope,
+      eventType: entry.eventType,
+      actorUserId: entry.actorUserId ?? null,
+      actorRole: entry.actorRole ?? null,
+      targetUserId: entry.targetUserId ?? null,
+      message: entry.message,
+      details: entry.details ?? null,
+    });
+    if (!auditLogService) {
+      return;
+    }
+    try {
+      await auditLogService.record(entry);
+    } catch (error) {
+      console.error("Failed to record activity log", error);
+    }
   }
 
   async function requireAdminActor(req: Request) {
@@ -501,6 +521,18 @@ export function createApp(options: AppOptions = {}) {
     try {
       const actor = await resolveActor(req);
       const routine = await plannerFor(actor.userId).createRoutine(req.body);
+      if (!routine) {
+        throw new Error("Failed to create routine");
+      }
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.routines",
+        eventType: "create-routine",
+        message: "User created a routine",
+        details: { routineId: routine.id },
+      });
       res.status(201).json({ ok: true, routine });
     } catch (error) {
       next(error);
@@ -515,6 +547,15 @@ export function createApp(options: AppOptions = {}) {
         res.status(404).json({ ok: false, message: messageFor(req, "routineNotFound") });
         return;
       }
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.routines",
+        eventType: "update-routine",
+        message: "User updated a routine",
+        details: { routineId: routine.id, isArchived: routine.isArchived },
+      });
       res.json({ ok: true, routine });
     } catch (error) {
       next(error);
@@ -529,6 +570,15 @@ export function createApp(options: AppOptions = {}) {
         res.status(404).json({ ok: false, message: messageFor(req, "routineNotFound") });
         return;
       }
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.routines",
+        eventType: "delete-routine",
+        message: "User deleted a routine",
+        details: { routineId: req.params.id },
+      });
       res.status(204).send();
     } catch (error) {
       next(error);
@@ -543,6 +593,15 @@ export function createApp(options: AppOptions = {}) {
         res.status(404).json({ ok: false, message: messageFor(req, "routineNotFound") });
         return;
       }
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.routine-items",
+        eventType: "create-routine-item",
+        message: "User created a routine item",
+        details: { routineId: req.params.id, itemId: item.id, trackingType: item.trackingType },
+      });
       res.status(201).json({ ok: true, item });
     } catch (error) {
       next(error);
@@ -557,6 +616,20 @@ export function createApp(options: AppOptions = {}) {
         res.status(404).json({ ok: false, message: messageFor(req, "routineItemNotFound") });
         return;
       }
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.routine-items",
+        eventType: "update-routine-item",
+        message: "User updated a routine item",
+        details: {
+          routineId: req.params.id,
+          itemId: item.id,
+          trackingType: item.trackingType,
+          isActive: item.isActive,
+        },
+      });
       res.json({ ok: true, item });
     } catch (error) {
       next(error);
@@ -571,6 +644,15 @@ export function createApp(options: AppOptions = {}) {
         res.status(404).json({ ok: false, message: messageFor(req, "routineItemNotFound") });
         return;
       }
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.routine-items",
+        eventType: "delete-routine-item",
+        message: "User deleted a routine item",
+        details: { routineId: req.params.id, itemId: req.params.itemId },
+      });
       res.status(204).send();
     } catch (error) {
       next(error);
@@ -590,6 +672,15 @@ export function createApp(options: AppOptions = {}) {
     try {
       const actor = await resolveActor(req);
       const routineSet = await plannerFor(actor.userId).createRoutineSet(req.body);
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.routine-sets",
+        eventType: "create-routine-set",
+        message: "User created a routine set",
+        details: { routineSetId: routineSet.id, routineCount: routineSet.routines.length },
+      });
       res.status(201).json({ ok: true, routineSet });
     } catch (error) {
       next(error);
@@ -604,6 +695,15 @@ export function createApp(options: AppOptions = {}) {
         res.status(404).json({ ok: false, message: messageFor(req, "routineSetNotFound") });
         return;
       }
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.routine-sets",
+        eventType: "update-routine-set",
+        message: "User updated a routine set",
+        details: { routineSetId: routineSet.id, routineCount: routineSet.routines.length },
+      });
       res.json({ ok: true, routineSet });
     } catch (error) {
       next(error);
@@ -618,6 +718,15 @@ export function createApp(options: AppOptions = {}) {
         res.status(404).json({ ok: false, message: messageFor(req, "routineSetNotFound") });
         return;
       }
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.routine-sets",
+        eventType: "delete-routine-set",
+        message: "User deleted a routine set",
+        details: { routineSetId: req.params.id },
+      });
       res.status(204).send();
     } catch (error) {
       next(error);
@@ -637,7 +746,17 @@ export function createApp(options: AppOptions = {}) {
     try {
       const actor = await resolveActor(req);
       const assignments = Array.isArray(req.body?.assignments) ? req.body.assignments : [];
-      res.json(await plannerFor(actor.userId).replaceAssignments(assignments));
+      const result = await plannerFor(actor.userId).replaceAssignments(assignments);
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.assignments",
+        eventType: "replace-assignments",
+        message: "User replaced routine assignments",
+        details: { assignmentCount: result.assignments.length },
+      });
+      res.json(result);
     } catch (error) {
       next(error);
     }
@@ -655,7 +774,22 @@ export function createApp(options: AppOptions = {}) {
   app.put("/api/overrides/:date", async (req, res, next) => {
     try {
       const actor = await resolveActor(req);
-      res.json(await plannerFor(actor.userId).upsertOverride(req.params.date, req.body));
+      const result = await plannerFor(actor.userId).upsertOverride(req.params.date, req.body);
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.overrides",
+        eventType: "upsert-override",
+        message: "User updated a date override",
+        details: {
+          date: req.params.date,
+          setId: result.override.setId,
+          includeCount: result.override.includeRoutineIds.length,
+          excludeCount: result.override.excludeRoutineIds.length,
+        },
+      });
+      res.json(result);
     } catch (error) {
       next(error);
     }
@@ -686,6 +820,20 @@ export function createApp(options: AppOptions = {}) {
         res.status(404).json({ ok: false, message: messageFor(req, "routineNotFound") });
         return;
       }
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.checkins",
+        eventType: "upsert-checkin",
+        message: "User updated routine progress",
+        details: {
+          date: req.params.date,
+          routineId: routine.id,
+          completedUnits: routine.progress.completedUnits,
+          targetUnits: routine.progress.targetUnits,
+        },
+      });
       res.json({ ok: true, routine });
     } catch (error) {
       next(error);
@@ -705,6 +853,15 @@ export function createApp(options: AppOptions = {}) {
     try {
       const actor = await resolveActor(req);
       const todo = await plannerFor(actor.userId).createTodo(req.body);
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.todos",
+        eventType: "create-todo",
+        message: "User created a todo",
+        details: { todoId: todo.id, dueDate: todo.dueDate, status: todo.status },
+      });
       res.status(201).json({ ok: true, todo });
     } catch (error) {
       next(error);
@@ -719,6 +876,15 @@ export function createApp(options: AppOptions = {}) {
         res.status(404).json({ ok: false, message: messageFor(req, "todoNotFound") });
         return;
       }
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.todos",
+        eventType: "update-todo",
+        message: "User updated a todo",
+        details: { todoId: todo.id, dueDate: todo.dueDate, status: todo.status },
+      });
       res.json({ ok: true, todo });
     } catch (error) {
       next(error);
@@ -733,6 +899,15 @@ export function createApp(options: AppOptions = {}) {
         res.status(404).json({ ok: false, message: messageFor(req, "todoNotFound") });
         return;
       }
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.todos",
+        eventType: "delete-todo",
+        message: "User deleted a todo",
+        details: { todoId: req.params.id },
+      });
       res.status(204).send();
     } catch (error) {
       next(error);
