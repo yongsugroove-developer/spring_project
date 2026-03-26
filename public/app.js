@@ -528,7 +528,7 @@ function feedback(message, error = false) {
   const node = document.getElementById("feedback");
   if (!node) return;
   node.textContent = message;
-  node.style.color = error ? "var(--danger)" : "var(--accent)";
+  node.style.color = message ? (error ? "var(--danger)" : "var(--accent)") : "";
 }
 
 function text(id, value) {
@@ -633,6 +633,13 @@ function targetSummary(item) {
     return `${t("typeBinary")} · ${percent(item.progressRate)}`;
   }
   return `${item.currentCount}/${item.targetCount} ${trackingUnitLabel(item.trackingType)} · ${percent(item.progressRate)}`;
+}
+
+function compactTrackingValue(item) {
+  if (item.trackingType === "time") {
+    return `${item.currentCount}/${item.targetCount}${trackingUnitLabel(item.trackingType)}`;
+  }
+  return `${item.currentCount}/${item.targetCount}`;
 }
 
 async function api(path, options = {}) {
@@ -766,7 +773,7 @@ async function refreshAll(message = "") {
     state.override = await api(`/api/overrides/${state.selectedDate}`);
     await refreshAdminData();
     render();
-    if (message) feedback(resolveMessage(message));
+    feedback("");
   } catch (error) {
     feedback(error instanceof Error ? error.message : t("loadFailed"), true);
   }
@@ -1208,6 +1215,30 @@ function todayRoutine(routine) {
 }
 
 function todayItem(routineId, item) {
+  if (isMobileViewport()) {
+    if (item.trackingType === "binary") {
+      return `<div class="routine-item-row routine-item-row--binary ${item.isComplete ? "is-complete" : ""}">
+        <div class="routine-item-row-copy">
+          <strong>${esc(item.title)}</strong>
+        </div>
+        <span class="state-pill routine-item-row-value ${item.isComplete ? "is-success" : ""}">${item.isComplete ? t("done") : t("open")}</span>
+        <span class="routine-item-row-toggle">
+          <input type="checkbox" data-action="toggle-binary" data-routine-id="${routineId}" data-item-id="${item.id}" ${item.currentCount >= 1 ? "checked" : ""} aria-label="${esc(item.title)}" ${isPending(`routine-${routineId}`) ? "disabled" : ""} />
+        </span>
+      </div>`;
+    }
+    return `<div class="routine-item-row routine-item-row--counter ${item.isComplete ? "is-complete" : ""}">
+      <div class="routine-item-row-copy">
+        <strong>${esc(item.title)}</strong>
+      </div>
+      <strong class="routine-item-row-value ${item.isComplete ? "is-complete" : ""}">${esc(compactTrackingValue(item))}</strong>
+      <div class="counter">
+        <button class="counter-button" type="button" data-action="adjust-progress" data-direction="-1" data-routine-id="${routineId}" data-item-id="${item.id}" aria-label="${esc(`${t("decrease")} ${item.title}`)}"${disabledAttr(`routine-${routineId}`)}>-</button>
+        <strong class="counter-value">${item.currentCount}</strong>
+        <button class="counter-button" type="button" data-action="adjust-progress" data-direction="1" data-routine-id="${routineId}" data-item-id="${item.id}" aria-label="${esc(`${t("increase")} ${item.title}`)}"${disabledAttr(`routine-${routineId}`)}>+</button>
+      </div>
+    </div>`;
+  }
   if (item.trackingType === "binary") {
     return `<div class="item-card item-card--check ${item.isComplete ? "is-complete" : ""}">
       <label class="check-row">
@@ -1874,13 +1905,12 @@ async function finishSuccess(message, options = {}) {
   if (options.highlightTodoId) {
     state.highlightTodoId = options.highlightTodoId;
   }
-  if (options.inlineScope) {
-    setInlineFeedback(options.inlineScope, message);
-  }
+  state.inlineFeedback = null;
+  feedback("");
   if (typeof options.onBeforeRefresh === "function") {
     options.onBeforeRefresh();
   }
-  await refreshAll(message);
+  await refreshAll();
 }
 
 async function onSubmit(event) {
@@ -2124,13 +2154,11 @@ async function onSubmit(event) {
       if (!start || !end) {
         setInlineFeedback("stats-custom", t("customStatsRangeRequired"), true);
         render();
-        feedback(t("customStatsRangeRequired"), true);
         return;
       }
       if (start > end) {
         setInlineFeedback("stats-custom", t("customStatsRangeOrder"), true);
         render();
-        feedback(t("customStatsRangeOrder"), true);
         return;
       }
       state.customStatsStart = start;
@@ -2145,6 +2173,8 @@ async function onSubmit(event) {
     if (scope) {
       setInlineFeedback(scope, message, true);
       render();
+      feedback("");
+      return;
     }
     feedback(message, true);
   }
@@ -2314,7 +2344,7 @@ async function onClick(event) {
         await api("/api/auth/logout", { method: "POST" });
         clearAuthState();
         clearPlannerState();
-        feedback(resolveMessage("logoutDone"));
+        feedback("");
         redirectToLogin();
       });
     }
@@ -2325,9 +2355,9 @@ async function onClick(event) {
           body: JSON.stringify({ planCode: button.dataset.planCode }),
         });
         state.billingOverview = result;
-        setInlineFeedback("billing", "billingUpdated");
+        state.inlineFeedback = null;
+        feedback("");
         renderAuthShell();
-        feedback(resolveMessage("billingUpdated"));
       });
     }
     if (button.dataset.action === "delete-routine") {
