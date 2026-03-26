@@ -54,12 +54,15 @@ Run these steps once on the production server.
 5. GitHub Actions runs `deploy.yml`.
 6. The workflow builds a release bundle and uploads it to:
    - `/var/www/my-planner/releases/<commit-sha>`
-7. The workflow runs `scripts/deploy-release.sh` on the server.
-8. The server:
+7. Before upload/activation, the workflow verifies that `GITHUB_SHA` still matches `origin/main` HEAD.
+   - stale reruns or manual dispatches for older commits fail instead of deploying old code
+8. The workflow runs `scripts/deploy-release.sh` on the server.
+9. The server:
    - copies `shared/.env`
    - installs production dependencies
    - switches the `current` symlink
    - reloads PM2
+   - saves the PM2 process list so reboot/resurrect keeps the active release
    - verifies `/api/health`
 
 ## Rollback
@@ -72,6 +75,8 @@ To roll back to a previous release:
 3. Verify:
    - `pm2 logs my-planner`
    - `curl http://127.0.0.1:3000/api/health`
+4. Note:
+   - rollback now also runs `pm2 save`, so the selected release persists across PM2 restart or server reboot
 
 ## Recommended GitHub Settings
 - Protect the `main` branch

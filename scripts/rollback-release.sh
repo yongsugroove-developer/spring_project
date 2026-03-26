@@ -13,4 +13,5 @@ fi
 
 ln -sfn "$RELEASE_DIR" "$CURRENT_LINK"
 pm2 startOrReload "$CURRENT_LINK/ecosystem.config.cjs" --update-env
+pm2 save
 echo "Rolled back to release ${RELEASE_ID}."

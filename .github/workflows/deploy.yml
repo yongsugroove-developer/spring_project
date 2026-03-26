@@ -19,6 +19,19 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify deploy SHA is current main HEAD
+        run: |
+          git fetch origin main --depth=1
+          CURRENT_MAIN_SHA="$(git rev-parse origin/main)"
+          echo "Workflow SHA: ${GITHUB_SHA}"
+          echo "origin/main SHA: ${CURRENT_MAIN_SHA}"
+          if [[ "${GITHUB_SHA}" != "${CURRENT_MAIN_SHA}" ]]; then
+            echo "Refusing to deploy a stale commit. Re-run the workflow from the latest main commit." >&2
+            exit 1
+          fi
 
       - name: Set up Node.js
         uses: actions/setup-node@v4

@@ -15,6 +15,7 @@
 - [x] Third-pass mobile tightening now removes planner hamburger navigation on phones, hides hero chrome, and routes admin entry through Account
 - [x] Today mobile routines now use table-like dense rows instead of stacked item cards, keeping semantic tables out of the narrow layout
 - [x] Planner success notifications are now minimized in the UI, while mutation activity is recorded on the server side
+- [x] Production deploy safeguards now block stale SHA redeploys and persist the active PM2 release across reboot
 - [x] Second-pass layout tuning now reduces mobile draft/form density and shrinks hero, routine, todo, and calendar surfaces for faster scanning
 - [x] Local MySQL runtime now exists with app schema, MySQL-backed planner repository, auth session APIs, and billing plan/subscription scaffolding
 - [x] Browser UI now supports login/register/logout, token-backed session restore, and manual plan activation against the MySQL auth/billing APIs

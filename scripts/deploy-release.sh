@@ -28,4 +28,5 @@ PORT_VALUE="${PORT_VALUE:-3000}"
 
 sleep 3
 curl --fail --silent "http://127.0.0.1:${PORT_VALUE}/api/health" >/dev/null
+pm2 save
 echo "Release ${RELEASE_ID} is live on port ${PORT_VALUE}."
