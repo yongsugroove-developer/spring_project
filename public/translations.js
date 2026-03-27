@@ -453,3 +453,21 @@ MESSAGES.ko = {
   densityComfy: "여유",
   densityCompact: "조밀",
 };
+
+Object.assign(MESSAGES.en, {
+  addMenu: "Open add menu",
+  closeMenu: "Close add menu",
+  homeQuickCreateHint: "Use the + button at the bottom left to add habits, tasks, or routines.",
+});
+
+Object.assign(MESSAGES.ja, {
+  addMenu: "追加メニューを開く",
+  closeMenu: "追加メニューを閉じる",
+  homeQuickCreateHint: "左下の + ボタンから習慣、タスク、ルーティンを追加できます。",
+});
+
+Object.assign(MESSAGES.ko, {
+  addMenu: "추가 메뉴 열기",
+  closeMenu: "추가 메뉴 닫기",
+  homeQuickCreateHint: "왼쪽 아래 + 버튼에서 습관, 할 일, 루틴을 추가할 수 있습니다.",
+});
