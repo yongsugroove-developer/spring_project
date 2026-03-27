@@ -1477,20 +1477,27 @@ textarea {
   top: calc(100% + 8px);
   left: 0;
   z-index: 12;
-  width: min(320px, 92vw);
+  width: min(432px, 92vw);
   display: grid;
-  gap: 10px;
+  gap: 12px;
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.98);
   box-shadow: var(--shadow-lg);
   backdrop-filter: blur(18px);
+  max-height: min(420px, 62vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .emoji-picker-section {
   display: grid;
   gap: 6px;
+}
+
+.emoji-picker-all {
+  display: grid;
 }
 
 .emoji-picker-label {
@@ -1505,6 +1512,11 @@ textarea {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 6px;
+}
+
+.emoji-grid--catalog {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .emoji-option {
@@ -2572,6 +2584,15 @@ textarea {
 
   .emoji-trigger-label {
     font-size: 0.9rem;
+  }
+
+  .emoji-picker-panel {
+    width: min(100%, 92vw);
+    max-height: min(400px, 60vh);
+  }
+
+  .emoji-grid--catalog {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 
   .app-nav-drawer {
