@@ -282,6 +282,13 @@ export async function ensureMySqlSchema(pool: Pool) {
       PRIMARY KEY (owner_user_id, id),
       CONSTRAINT fk_planner_todos_user FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
     )`,
+    `CREATE TABLE IF NOT EXISTS planner_documents (
+      owner_user_id VARCHAR(36) NOT NULL,
+      data_json JSON NOT NULL,
+      updated_at DATETIME(3) NOT NULL,
+      PRIMARY KEY (owner_user_id),
+      CONSTRAINT fk_planner_documents_user FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+    )`,
   ];
 
   for (const statement of statements) {

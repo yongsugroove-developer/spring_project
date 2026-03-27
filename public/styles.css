@@ -3701,3 +3701,90 @@ textarea {
     animation-iteration-count: 1 !important;
   }
 }
+
+.form-grid label,
+.route-section-card label,
+.content-card label {
+  display: grid;
+  gap: 0.4rem;
+  align-content: start;
+}
+
+.form-grid label > span,
+.content-card legend {
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--muted-strong);
+}
+
+.content-card fieldset {
+  display: grid;
+  gap: 0.7rem;
+  min-width: 0;
+  padding: 0.9rem 1rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.74);
+}
+
+.route-list-card > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.route-list-card > summary::-webkit-details-marker {
+  display: none;
+}
+
+.route-list-card[draggable="true"] > summary {
+  cursor: grab;
+}
+
+.route-list-card[draggable="true"] > summary:active {
+  cursor: grabbing;
+}
+
+.route-list-card form {
+  margin-top: 0.9rem;
+}
+
+.route-list-card .actions,
+.content-card .actions {
+  margin-top: 0;
+}
+
+.emoji-picker {
+  width: 100%;
+}
+
+.emoji-input + details.emoji-picker {
+  margin-top: 0.15rem;
+}
+
+.today-home-context.summary-grid {
+  margin: 0;
+}
+
+.today-home-board .home-board-cell--status .btn-soft,
+.today-home-board .home-board-cell--status .home-counter {
+  width: 100%;
+  justify-content: flex-end;
+}
+
+.settings-control-list {
+  margin-top: 0.3rem;
+}
+
+.settings-link-list {
+  margin-top: 0.4rem;
+}
+
+@media (max-width: 560px) {
+  .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .content-card fieldset {
+    padding-inline: 0.8rem;
+  }
+}

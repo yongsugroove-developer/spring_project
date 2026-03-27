@@ -509,88 +509,145 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  app.get("/api/habits", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req);
+      res.json(await plannerFor(actor.userId).listHabits());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/habits", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req);
+      const habit = await plannerFor(actor.userId).createHabit(req.body);
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.habits",
+        eventType: "create-habit",
+        message: "User created a habit",
+        details: { habitId: habit.id, trackingType: habit.trackingType },
+      });
+      res.status(201).json({ ok: true, habit });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/habits/:id", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req);
+      const habit = await plannerFor(actor.userId).updateHabit(req.params.id, req.body);
+      if (!habit) {
+        res.status(404).json({ ok: false, message: "Habit not found" });
+        return;
+      }
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.habits",
+        eventType: "update-habit",
+        message: "User updated a habit",
+        details: { habitId: habit.id, trackingType: habit.trackingType },
+      });
+      res.json({ ok: true, habit });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/habits/:id", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req);
+      const deleted = await plannerFor(actor.userId).deleteHabit(req.params.id);
+      if (!deleted) {
+        res.status(404).json({ ok: false, message: "Habit not found" });
+        return;
+      }
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.habits",
+        eventType: "delete-habit",
+        message: "User deleted a habit",
+        details: { habitId: req.params.id },
+      });
+      res.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/habits/reorder", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req);
+      const result = await plannerFor(actor.userId).reorderHabits({
+        habitIds: Array.isArray(req.body?.habitIds) ? (req.body.habitIds as string[]) : [],
+      });
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.habits",
+        eventType: "reorder-habits",
+        message: "User reordered habits",
+        details: { habitCount: result.habits.length },
+      });
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/habit-checkins/:date", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req);
+      res.json(await plannerFor(actor.userId).getHabitCheckins(req.params.date));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.put("/api/habit-checkins/:date/habits/:habitId", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req);
+      const habit = await plannerFor(actor.userId).upsertHabitCheckin(req.params.date, req.params.habitId, {
+        value: typeof req.body?.value === "number" ? req.body.value : undefined,
+        completed: typeof req.body?.completed === "boolean" ? req.body.completed : undefined,
+      });
+      if (!habit) {
+        res.status(404).json({ ok: false, message: "Habit not found" });
+        return;
+      }
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.habit-checkins",
+        eventType: "upsert-habit-checkin",
+        message: "User updated habit progress",
+        details: {
+          date: req.params.date,
+          habitId: habit.id,
+          value: habit.currentValue,
+          targetCount: habit.targetCount,
+        },
+      });
+      res.json({ ok: true, habit });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get("/api/routines", async (req, res, next) => {
     try {
       const actor = await resolveActor(req);
       res.json(await plannerFor(actor.userId).listRoutines());
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/routine-task-templates", async (req, res, next) => {
-    try {
-      const actor = await resolveActor(req);
-      res.json(await plannerFor(actor.userId).listRoutineTaskTemplates());
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post("/api/routine-task-templates", async (req, res, next) => {
-    try {
-      const actor = await resolveActor(req);
-      const template = await plannerFor(actor.userId).createRoutineTaskTemplate(req.body);
-      await recordServerActivity({
-        actorUserId: actor.userId,
-        actorRole: actor.user?.role,
-        targetUserId: actor.userId,
-        scope: "planner.routine-task-templates",
-        eventType: "create-routine-task-template",
-        message: "User created a routine task template",
-        details: { templateId: template.id, trackingType: template.trackingType },
-      });
-      res.status(201).json({ ok: true, routineTaskTemplate: template });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.patch("/api/routine-task-templates/:id", async (req, res, next) => {
-    try {
-      const actor = await resolveActor(req);
-      const template = await plannerFor(actor.userId).updateRoutineTaskTemplate(req.params.id, req.body);
-      if (!template) {
-        res.status(404).json({ ok: false, message: "Routine task template not found" });
-        return;
-      }
-      await recordServerActivity({
-        actorUserId: actor.userId,
-        actorRole: actor.user?.role,
-        targetUserId: actor.userId,
-        scope: "planner.routine-task-templates",
-        eventType: "update-routine-task-template",
-        message: "User updated a routine task template",
-        details: {
-          templateId: template.id,
-          trackingType: template.trackingType,
-          isArchived: template.isArchived,
-        },
-      });
-      res.json({ ok: true, routineTaskTemplate: template });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.delete("/api/routine-task-templates/:id", async (req, res, next) => {
-    try {
-      const actor = await resolveActor(req);
-      const deleted = await plannerFor(actor.userId).deleteRoutineTaskTemplate(req.params.id);
-      if (!deleted) {
-        res.status(404).json({ ok: false, message: "Routine task template not found" });
-        return;
-      }
-      await recordServerActivity({
-        actorUserId: actor.userId,
-        actorRole: actor.user?.role,
-        targetUserId: actor.userId,
-        scope: "planner.routine-task-templates",
-        eventType: "delete-routine-task-template",
-        message: "User deleted a routine task template",
-        details: { templateId: req.params.id },
-      });
-      res.status(204).send();
     } catch (error) {
       next(error);
     }
@@ -610,7 +667,7 @@ export function createApp(options: AppOptions = {}) {
         scope: "planner.routines",
         eventType: "create-routine",
         message: "User created a routine",
-        details: { routineId: routine.id },
+        details: { routineId: routine.id, habitCount: routine.habits.length },
       });
       res.status(201).json({ ok: true, routine });
     } catch (error) {
@@ -633,7 +690,11 @@ export function createApp(options: AppOptions = {}) {
         scope: "planner.routines",
         eventType: "update-routine",
         message: "User updated a routine",
-        details: { routineId: routine.id, isArchived: routine.isArchived },
+        details: {
+          routineId: routine.id,
+          habitCount: routine.habits.length,
+          notificationEnabled: routine.notificationEnabled,
+        },
       });
       res.json({ ok: true, routine });
     } catch (error) {
@@ -664,328 +725,73 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.post("/api/routines/:id/items", async (req, res, next) => {
+  app.get("/api/tasks", async (req, res, next) => {
     try {
       const actor = await resolveActor(req);
-      const item = await plannerFor(actor.userId).addRoutineItem(req.params.id, req.body);
-      if (!item) {
-        res.status(404).json({ ok: false, message: messageFor(req, "routineNotFound") });
+      res.json(await plannerFor(actor.userId).listTasks());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/tasks", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req);
+      const task = await plannerFor(actor.userId).createTask(req.body);
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.tasks",
+        eventType: "create-task",
+        message: "User created a task",
+        details: { taskId: task.id, dueDate: task.dueDate, status: task.status },
+      });
+      res.status(201).json({ ok: true, task });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/tasks/:id", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req);
+      const task = await plannerFor(actor.userId).updateTask(req.params.id, req.body);
+      if (!task) {
+        res.status(404).json({ ok: false, message: "Task not found" });
         return;
       }
       await recordServerActivity({
         actorUserId: actor.userId,
         actorRole: actor.user?.role,
         targetUserId: actor.userId,
-        scope: "planner.routine-items",
-        eventType: "create-routine-item",
-        message: "User created a routine item",
-        details: { routineId: req.params.id, itemId: item.id, trackingType: item.trackingType },
+        scope: "planner.tasks",
+        eventType: "update-task",
+        message: "User updated a task",
+        details: { taskId: task.id, dueDate: task.dueDate, status: task.status },
       });
-      res.status(201).json({ ok: true, item });
+      res.json({ ok: true, task });
     } catch (error) {
       next(error);
     }
   });
 
-  app.patch("/api/routines/:id/items/:itemId", async (req, res, next) => {
+  app.delete("/api/tasks/:id", async (req, res, next) => {
     try {
       const actor = await resolveActor(req);
-      const item = await plannerFor(actor.userId).updateRoutineItem(req.params.id, req.params.itemId, req.body);
-      if (!item) {
-        res.status(404).json({ ok: false, message: messageFor(req, "routineItemNotFound") });
-        return;
-      }
-      await recordServerActivity({
-        actorUserId: actor.userId,
-        actorRole: actor.user?.role,
-        targetUserId: actor.userId,
-        scope: "planner.routine-items",
-        eventType: "update-routine-item",
-        message: "User updated a routine item",
-        details: {
-          routineId: req.params.id,
-          itemId: item.id,
-          trackingType: item.trackingType,
-          isActive: item.isActive,
-        },
-      });
-      res.json({ ok: true, item });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.delete("/api/routines/:id/items/:itemId", async (req, res, next) => {
-    try {
-      const actor = await resolveActor(req);
-      const deleted = await plannerFor(actor.userId).deleteRoutineItem(req.params.id, req.params.itemId);
+      const deleted = await plannerFor(actor.userId).deleteTask(req.params.id);
       if (!deleted) {
-        res.status(404).json({ ok: false, message: messageFor(req, "routineItemNotFound") });
+        res.status(404).json({ ok: false, message: "Task not found" });
         return;
       }
       await recordServerActivity({
         actorUserId: actor.userId,
         actorRole: actor.user?.role,
         targetUserId: actor.userId,
-        scope: "planner.routine-items",
-        eventType: "delete-routine-item",
-        message: "User deleted a routine item",
-        details: { routineId: req.params.id, itemId: req.params.itemId },
-      });
-      res.status(204).send();
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/routine-sets", async (req, res, next) => {
-    try {
-      const actor = await resolveActor(req);
-      res.json(await plannerFor(actor.userId).listRoutineSets());
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post("/api/routine-sets", async (req, res, next) => {
-    try {
-      const actor = await resolveActor(req);
-      const routineSet = await plannerFor(actor.userId).createRoutineSet(req.body);
-      await recordServerActivity({
-        actorUserId: actor.userId,
-        actorRole: actor.user?.role,
-        targetUserId: actor.userId,
-        scope: "planner.routine-sets",
-        eventType: "create-routine-set",
-        message: "User created a routine set",
-        details: { routineSetId: routineSet.id, routineCount: routineSet.routines.length },
-      });
-      res.status(201).json({ ok: true, routineSet });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.patch("/api/routine-sets/:id", async (req, res, next) => {
-    try {
-      const actor = await resolveActor(req);
-      const routineSet = await plannerFor(actor.userId).updateRoutineSet(req.params.id, req.body);
-      if (!routineSet) {
-        res.status(404).json({ ok: false, message: messageFor(req, "routineSetNotFound") });
-        return;
-      }
-      await recordServerActivity({
-        actorUserId: actor.userId,
-        actorRole: actor.user?.role,
-        targetUserId: actor.userId,
-        scope: "planner.routine-sets",
-        eventType: "update-routine-set",
-        message: "User updated a routine set",
-        details: { routineSetId: routineSet.id, routineCount: routineSet.routines.length },
-      });
-      res.json({ ok: true, routineSet });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.delete("/api/routine-sets/:id", async (req, res, next) => {
-    try {
-      const actor = await resolveActor(req);
-      const deleted = await plannerFor(actor.userId).deleteRoutineSet(req.params.id);
-      if (!deleted) {
-        res.status(404).json({ ok: false, message: messageFor(req, "routineSetNotFound") });
-        return;
-      }
-      await recordServerActivity({
-        actorUserId: actor.userId,
-        actorRole: actor.user?.role,
-        targetUserId: actor.userId,
-        scope: "planner.routine-sets",
-        eventType: "delete-routine-set",
-        message: "User deleted a routine set",
-        details: { routineSetId: req.params.id },
-      });
-      res.status(204).send();
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/assignments", async (req, res, next) => {
-    try {
-      const actor = await resolveActor(req);
-      res.json(await plannerFor(actor.userId).getAssignments());
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.put("/api/assignments", async (req, res, next) => {
-    try {
-      const actor = await resolveActor(req);
-      const assignments = Array.isArray(req.body?.assignments) ? req.body.assignments : [];
-      const result = await plannerFor(actor.userId).replaceAssignments(assignments);
-      await recordServerActivity({
-        actorUserId: actor.userId,
-        actorRole: actor.user?.role,
-        targetUserId: actor.userId,
-        scope: "planner.assignments",
-        eventType: "replace-assignments",
-        message: "User replaced routine assignments",
-        details: { assignmentCount: result.assignments.length },
-      });
-      res.json(result);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/overrides/:date", async (req, res, next) => {
-    try {
-      const actor = await resolveActor(req);
-      res.json(await plannerFor(actor.userId).getOverride(req.params.date));
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.put("/api/overrides/:date", async (req, res, next) => {
-    try {
-      const actor = await resolveActor(req);
-      const result = await plannerFor(actor.userId).upsertOverride(req.params.date, req.body);
-      await recordServerActivity({
-        actorUserId: actor.userId,
-        actorRole: actor.user?.role,
-        targetUserId: actor.userId,
-        scope: "planner.overrides",
-        eventType: "upsert-override",
-        message: "User updated a date override",
-        details: {
-          date: req.params.date,
-          setId: result.override.setId,
-          includeCount: result.override.includeRoutineIds.length,
-          excludeCount: result.override.excludeRoutineIds.length,
-        },
-      });
-      res.json(result);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/checkins/:date", async (req, res, next) => {
-    try {
-      const actor = await resolveActor(req);
-      res.json(await plannerFor(actor.userId).getCheckins(req.params.date));
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.put("/api/checkins/:date/routines/:routineId", async (req, res, next) => {
-    try {
-      const actor = await resolveActor(req);
-      const routine = await plannerFor(actor.userId).upsertCheckin(req.params.date, req.params.routineId, {
-        itemProgress:
-          req.body?.itemProgress && typeof req.body.itemProgress === "object"
-            ? (req.body.itemProgress as Record<string, number>)
-            : undefined,
-        completedItemIds: Array.isArray(req.body?.completedItemIds)
-          ? (req.body.completedItemIds as string[])
-          : undefined,
-      });
-      if (!routine) {
-        res.status(404).json({ ok: false, message: messageFor(req, "routineNotFound") });
-        return;
-      }
-      await recordServerActivity({
-        actorUserId: actor.userId,
-        actorRole: actor.user?.role,
-        targetUserId: actor.userId,
-        scope: "planner.checkins",
-        eventType: "upsert-checkin",
-        message: "User updated routine progress",
-        details: {
-          date: req.params.date,
-          routineId: routine.id,
-          completedUnits: routine.progress.completedUnits,
-          targetUnits: routine.progress.targetUnits,
-        },
-      });
-      res.json({ ok: true, routine });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/todos", async (req, res, next) => {
-    try {
-      const actor = await resolveActor(req);
-      res.json(await plannerFor(actor.userId).listTodos());
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post("/api/todos", async (req, res, next) => {
-    try {
-      const actor = await resolveActor(req);
-      const todo = await plannerFor(actor.userId).createTodo(req.body);
-      await recordServerActivity({
-        actorUserId: actor.userId,
-        actorRole: actor.user?.role,
-        targetUserId: actor.userId,
-        scope: "planner.todos",
-        eventType: "create-todo",
-        message: "User created a todo",
-        details: { todoId: todo.id, dueDate: todo.dueDate, status: todo.status },
-      });
-      res.status(201).json({ ok: true, todo });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.patch("/api/todos/:id", async (req, res, next) => {
-    try {
-      const actor = await resolveActor(req);
-      const todo = await plannerFor(actor.userId).updateTodo(req.params.id, req.body);
-      if (!todo) {
-        res.status(404).json({ ok: false, message: messageFor(req, "todoNotFound") });
-        return;
-      }
-      await recordServerActivity({
-        actorUserId: actor.userId,
-        actorRole: actor.user?.role,
-        targetUserId: actor.userId,
-        scope: "planner.todos",
-        eventType: "update-todo",
-        message: "User updated a todo",
-        details: { todoId: todo.id, dueDate: todo.dueDate, status: todo.status },
-      });
-      res.json({ ok: true, todo });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.delete("/api/todos/:id", async (req, res, next) => {
-    try {
-      const actor = await resolveActor(req);
-      const deleted = await plannerFor(actor.userId).deleteTodo(req.params.id);
-      if (!deleted) {
-        res.status(404).json({ ok: false, message: messageFor(req, "todoNotFound") });
-        return;
-      }
-      await recordServerActivity({
-        actorUserId: actor.userId,
-        actorRole: actor.user?.role,
-        targetUserId: actor.userId,
-        scope: "planner.todos",
-        eventType: "delete-todo",
-        message: "User deleted a todo",
-        details: { todoId: req.params.id },
+        scope: "planner.tasks",
+        eventType: "delete-task",
+        message: "User deleted a task",
+        details: { taskId: req.params.id },
       });
       res.status(204).send();
     } catch (error) {

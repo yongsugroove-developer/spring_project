@@ -25,10 +25,9 @@ describe("json planner repository", () => {
 
     const data = await repository.read();
 
-    expect(data.routines).toHaveLength(3);
-    expect(data.routineTaskTemplates).toHaveLength(6);
-    expect(data.routineSets).toHaveLength(2);
-    expect(data.todos).toHaveLength(3);
+    expect(data.habits).toHaveLength(3);
+    expect(data.routines).toHaveLength(2);
+    expect(data.tasks).toHaveLength(3);
   });
 
   it("writes planner data updates", async () => {
@@ -37,9 +36,9 @@ describe("json planner repository", () => {
     const repository = new JsonPlannerRepository(temp.filePath);
     const data = createSamplePlannerData();
 
-    data.todos.push({
-      id: "todo-new",
-      title: "Write release note",
+    data.tasks.push({
+      id: "task-new",
+      title: "출시 노트 쓰기",
       emoji: "📝",
       note: null,
       dueDate: "2026-03-25",
@@ -51,10 +50,10 @@ describe("json planner repository", () => {
     await repository.write(data);
 
     const nextData = await repository.read();
-    expect(nextData.todos.at(-1)?.title).toBe("Write release note");
+    expect(nextData.tasks.at(-1)?.title).toBe("출시 노트 쓰기");
   });
 
-  it("migrates legacy planner data into routine-set and itemProgress structures", async () => {
+  it("migrates legacy routine/template/todo data into habits, routines, and tasks", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "my-planner-legacy-"));
     const filePath = path.join(directory, "planner-data.json");
     cleanups.push(async () => rm(directory, { recursive: true, force: true }));
@@ -67,10 +66,18 @@ describe("json planner repository", () => {
             {
               id: "routine-legacy",
               name: "Legacy Routine",
+              emoji: "🌅",
               color: "#f97316",
-              activeDays: [1, 2, 3, 4, 5],
-              startTime: "07:30",
-              isArchived: false,
+              createdAt: "2026-03-20T07:00:00.000Z",
+              updatedAt: "2026-03-20T07:00:00.000Z",
+            },
+          ],
+          routineTaskTemplates: [
+            {
+              id: "template-bonus",
+              title: "Bonus habit",
+              trackingType: "count",
+              targetCount: 2,
               createdAt: "2026-03-20T07:00:00.000Z",
               updatedAt: "2026-03-20T07:00:00.000Z",
             },
@@ -80,8 +87,8 @@ describe("json planner repository", () => {
               id: "item-legacy",
               routineId: "routine-legacy",
               title: "Drink water",
+              trackingType: "binary",
               sortOrder: 1,
-              isActive: true,
             },
           ],
           routineCheckins: [
@@ -111,22 +118,26 @@ describe("json planner repository", () => {
     const repository = new JsonPlannerRepository(filePath);
     const data = await repository.read();
 
-    expect(data.routineTaskTemplates).toHaveLength(1);
-    expect(data.routineSets).toHaveLength(2);
-    expect(data.routineAssignmentRules).toHaveLength(2);
-    expect(data.routineDateOverrides).toEqual([]);
-    expect(data.routines[0]).not.toHaveProperty("startTime");
-    expect(data.routines[0].emoji).toBeNull();
-    expect(data.routineItems[0].templateId).toBe("template-item-legacy");
-    expect(data.routineTaskTemplates[0]).toMatchObject({
-      title: "Drink water",
+    expect(data.habits.map((habit) => habit.id)).toContain("item-legacy");
+    expect(data.habits.map((habit) => habit.id)).toContain("template-bonus");
+    expect(data.habits.find((habit) => habit.id === "item-legacy")).toMatchObject({
+      name: "Drink water",
       trackingType: "binary",
       targetCount: 1,
+      emoji: "🌅",
     });
-    expect(data.routineCheckins[0].itemProgress).toEqual({ "item-legacy": 1 });
-    expect(data.todos[0]).toMatchObject({
+    expect(data.habitCheckins).toEqual([
+      {
+        date: "2026-03-22",
+        habitId: "item-legacy",
+        value: 1,
+        updatedAt: "2026-03-22T08:00:00.000Z",
+      },
+    ]);
+    expect(data.routines[0].habitIds).toEqual(["item-legacy"]);
+    expect(data.tasks[0]).toMatchObject({
+      id: "todo-legacy",
       title: "Legacy todo",
-      emoji: null,
       status: "pending",
     });
   });

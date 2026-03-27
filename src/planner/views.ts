@@ -1,342 +1,283 @@
-import { eachDateInRange, getDayOfWeek } from "./date.js";
-import { resolveRoutineItems } from "./routineTemplates.js";
-import { clampProgressValue, sanitizeIds, sortTodos } from "./validation.js";
+import { addDays, eachDateInRange } from "./date.js";
+import { clampProgressValue, sortTasks } from "./validation.js";
 import type {
-  ActiveDay,
   CalendarDaySummary,
+  Habit,
+  HabitWithStats,
   PlannerData,
-  RankedRoutineStat,
-  ResolvedAssignment,
-  Routine,
-  RoutineDateOverride,
-  RoutineItemState,
-  ResolvedRoutineItem,
-  RoutineSet,
-  RoutineSetWithMeta,
+  RankedHabitStat,
+  RoutineWithHabits,
+  TodayHabit,
   TodayResponse,
-  TodayRoutine,
 } from "./types.js";
 
-export function buildRoutineCollection(data: PlannerData) {
+export function buildHabitCollection(data: PlannerData): HabitWithStats[] {
+  return sortHabits(data.habits).map((habit) => ({
+    ...habit,
+    currentStreak: getHabitStreak(data, habit.id),
+    bestStreak: getHabitBestStreak(data, habit.id),
+  }));
+}
+
+export function buildRoutineCollection(data: PlannerData): RoutineWithHabits[] {
+  const habitMap = new Map(data.habits.map((habit) => [habit.id, habit]));
   return [...data.routines]
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-    .map((routine) => buildRoutineWithItems(data, routine));
-}
-
-export function buildRoutineWithItems(data: PlannerData, routine: Routine) {
-  return {
-    ...routine,
-    items: getRoutineItems(data, routine.id),
-  };
-}
-
-export function buildRoutineSetCollection(data: PlannerData): RoutineSetWithMeta[] {
-  return [...data.routineSets]
-    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-    .map((routineSet) => buildRoutineSetWithMeta(data, routineSet));
-}
-
-export function buildRoutineSetWithMeta(data: PlannerData, routineSet: RoutineSet): RoutineSetWithMeta {
-  return {
-    ...routineSet,
-    routines: routineSet.routineIds
-      .map((routineId) => data.routines.find((routine) => routine.id === routineId))
-      .filter((routine): routine is Routine => routine !== undefined),
-  };
-}
-
-export function getRoutineItems(data: PlannerData, routineId: string): ResolvedRoutineItem[] {
-  return resolveRoutineItems(data, routineId);
-}
-
-export function createEmptyOverride(date: string): RoutineDateOverride {
-  return {
-    date,
-    setId: null,
-    includeRoutineIds: [],
-    excludeRoutineIds: [],
-    updatedAt: new Date(0).toISOString(),
-  };
-}
-
-export function resolveAssignment(data: PlannerData, date: string): ResolvedAssignment {
-  const override = data.routineDateOverrides.find((entry) => entry.date === date);
-  const baseSetFromRule = resolveRuleSet(data, date);
-  const baseSetId = override?.setId ?? baseSetFromRule?.id ?? null;
-  const baseSet = baseSetId
-    ? data.routineSets.find((routineSet) => routineSet.id === baseSetId) ?? null
-    : null;
-  const includeRoutineIds = sanitizeIds(
-    override?.includeRoutineIds ?? [],
-    data.routines.map((entry) => entry.id),
-  );
-  const excludeRoutineIds = sanitizeIds(
-    override?.excludeRoutineIds ?? [],
-    data.routines.map((entry) => entry.id),
-  );
-  const activeRoutineIds = new Set(baseSet?.routineIds ?? []);
-
-  for (const routineId of includeRoutineIds) {
-    activeRoutineIds.add(routineId);
-  }
-  for (const routineId of excludeRoutineIds) {
-    activeRoutineIds.delete(routineId);
-  }
-  const hasOverride =
-    override !== undefined &&
-    (override.setId !== null ||
-      override.includeRoutineIds.length > 0 ||
-      override.excludeRoutineIds.length > 0);
-
-  return {
-    date,
-    baseSetId: baseSet?.id ?? null,
-    baseSetName: baseSet?.name ?? null,
-    source: hasOverride ? "override" : baseSet ? "rule" : "none",
-    includeRoutineIds,
-    excludeRoutineIds,
-    activeRoutineIds: [...activeRoutineIds],
-  };
+    .map((routine) => ({
+      ...routine,
+      habits: routine.habitIds
+        .map((habitId) => habitMap.get(habitId))
+        .filter((habit): habit is Habit => habit !== undefined)
+        .sort((left, right) => left.sortOrder - right.sortOrder),
+    }));
 }
 
 export function buildTodayResponse(data: PlannerData, date: string): TodayResponse {
-  const assignment = resolveAssignment(data, date);
-  const routines = buildTodayRoutines(data, date, assignment);
-  const dueToday = data.todos.filter((todo) => todo.dueDate === date);
-  const inbox = data.todos.filter((todo) => todo.dueDate === null && todo.status === "pending");
-  const completedUnits = routines.reduce((sum, routine) => sum + routine.progress.completedUnits, 0);
-  const targetUnits = routines.reduce((sum, routine) => sum + routine.progress.targetUnits, 0);
-  const completedItemCount = routines.reduce(
-    (sum, routine) => sum + routine.progress.completedItemCount,
-    0,
-  );
-  const totalItemCount = routines.reduce((sum, routine) => sum + routine.progress.totalItemCount, 0);
+  const habits = buildTodayHabits(data, date);
+  const completedHabits = habits.filter((habit) => habit.isComplete).length;
+  const totalHabits = habits.length;
 
   return {
     ok: true,
     date,
-    assignment,
     summary: {
-      routineRate: targetUnits === 0 ? 0 : completedUnits / targetUnits,
-      completedUnits,
-      targetUnits,
-      completedItemCount,
-      totalItemCount,
-      dueTodayCount: dueToday.filter((todo) => todo.status === "pending").length,
-      inboxCount: inbox.length,
-      completedTodoCount: data.todos.filter((todo) => todo.status === "done").length,
+      habitRate: totalHabits === 0 ? 0 : completedHabits / totalHabits,
+      completedHabits,
+      totalHabits,
+      remainingHabits: totalHabits - completedHabits,
     },
-    routines,
-    todos: {
-      dueToday: [...dueToday].sort(sortTodos),
-      inbox: [...inbox].sort(sortTodos),
-    },
+    habits,
   };
 }
 
-export function buildTodayRoutines(
-  data: PlannerData,
-  date: string,
-  assignment: ResolvedAssignment = resolveAssignment(data, date),
-): TodayRoutine[] {
-  return assignment.activeRoutineIds
-    .map((routineId) => data.routines.find((routine) => routine.id === routineId))
-    .filter((routine): routine is Routine => routine !== undefined)
-    .filter((routine) => !routine.isArchived && routine.createdAt.slice(0, 10) <= date)
-    .map((routine) => buildTodayRoutine(data, routine, date));
+export function buildTodayHabits(data: PlannerData, date: string): TodayHabit[] {
+  return sortHabits(data.habits)
+    .filter((habit) => habit.startDate <= date)
+    .map((habit) => buildTodayHabit(data, habit, date));
 }
 
-export function buildTodayRoutine(data: PlannerData, routine: Routine, date: string): TodayRoutine {
-  const progress = getRoutineProgress(data, routine.id, date);
+export function buildTodayHabit(data: PlannerData, habit: Habit, date: string): TodayHabit {
+  const currentValue = getHabitValue(data, habit.id, date);
+  const progressRate = habit.targetCount === 0 ? 0 : currentValue / habit.targetCount;
   return {
-    ...routine,
-    items: progress.itemStates,
-    progress,
-  };
-}
-
-export function getRoutineProgress(data: PlannerData, routineId: string, date: string) {
-  const items = getRoutineItems(data, routineId).filter((item) => item.isActive);
-  const checkin = data.routineCheckins.find(
-    (entry) => entry.routineId === routineId && entry.date === date,
-  );
-  const itemStates: RoutineItemState[] = items.map((item) => {
-    const rawCount = checkin?.itemProgress[item.id] ?? 0;
-    const currentCount = clampProgressValue(rawCount, item.targetCount);
-    const progressRate = item.targetCount === 0 ? 0 : currentCount / item.targetCount;
-    return {
-      ...item,
-      currentCount,
-      isComplete: currentCount >= item.targetCount,
-      progressRate,
-    };
-  });
-
-  const completedUnits = itemStates.reduce((sum, item) => sum + item.currentCount, 0);
-  const targetUnits = itemStates.reduce((sum, item) => sum + item.targetCount, 0);
-  const completedItemCount = itemStates.filter((item) => item.isComplete).length;
-
-  return {
-    itemStates,
-    completedUnits,
-    targetUnits,
-    completedItemCount,
-    totalItemCount: itemStates.length,
-    rate: targetUnits === 0 ? 0 : completedUnits / targetUnits,
+    ...habit,
+    currentValue,
+    isComplete: isHabitComplete(habit, currentValue),
+    progressRate,
+    streak: getHabitStreak(data, habit.id, date),
   };
 }
 
 export function buildCalendarDay(data: PlannerData, date: string): CalendarDaySummary {
-  const assignment = resolveAssignment(data, date);
-  const routines = buildTodayRoutines(data, date, assignment);
-  const completedUnits = routines.reduce((sum, routine) => sum + routine.progress.completedUnits, 0);
-  const targetUnits = routines.reduce((sum, routine) => sum + routine.progress.targetUnits, 0);
-  const todos = data.todos.filter((todo) => todo.dueDate === date);
-
+  const habits = buildTodayHabits(data, date);
+  const completedHabits = habits.filter((habit) => habit.isComplete).length;
+  const tasks = data.tasks.filter((task) => task.dueDate === date);
   return {
     date,
-    routineProgressRate: targetUnits === 0 ? 0 : completedUnits / targetUnits,
-    completedUnits,
-    targetUnits,
-    todoCount: todos.length,
-    completedTodoCount: todos.filter((todo) => todo.status === "done").length,
-    setId: assignment.baseSetId,
-    setName: assignment.baseSetName,
-    overrideApplied: data.routineDateOverrides.some((entry) => entry.date === date),
+    habitProgressRate: habits.length === 0 ? 0 : completedHabits / habits.length,
+    completedHabits,
+    totalHabits: habits.length,
+    taskCount: tasks.length,
+    completedTaskCount: tasks.filter((task) => task.status === "done").length,
   };
 }
 
 export function getRangeRate(data: PlannerData, startDate: string, endDate: string): number {
-  let completedUnits = 0;
-  let targetUnits = 0;
+  let completed = 0;
+  let total = 0;
 
   for (const date of eachDateInRange(startDate, endDate)) {
     const day = buildCalendarDay(data, date);
-    completedUnits += day.completedUnits;
-    targetUnits += day.targetUnits;
+    completed += day.completedHabits;
+    total += day.totalHabits;
   }
 
-  return targetUnits === 0 ? 0 : completedUnits / targetUnits;
+  return total === 0 ? 0 : completed / total;
 }
 
 export function getCurrentStreak(data: PlannerData, today: string): number {
-  const startDate = getEarliestTrackedDate(data) ?? today;
-  const scheduledDates = eachDateInRange(startDate, today).filter(
-    (date) => buildCalendarDay(data, date).targetUnits > 0,
-  );
-  let streak = 0;
+  return getDatasetStreak(data, today, false);
+}
 
-  for (let index = scheduledDates.length - 1; index >= 0; index -= 1) {
-    const day = buildCalendarDay(data, scheduledDates[index]);
-    if (day.completedUnits === day.targetUnits && day.targetUnits > 0) {
-      streak += 1;
-      continue;
+export function getBestStreak(data: PlannerData, today: string): number {
+  return getDatasetStreak(data, today, true);
+}
+
+export function getTopHabits(
+  data: PlannerData,
+  startDate: string,
+  endDate: string,
+): RankedHabitStat[] {
+  return sortHabits(data.habits)
+    .map((habit) => {
+      let completedDays = 0;
+      let trackedDays = 0;
+
+      for (const date of eachDateInRange(startDate, endDate)) {
+        if (habit.startDate > date) {
+          continue;
+        }
+        trackedDays += 1;
+        if (isHabitComplete(habit, getHabitValue(data, habit.id, date))) {
+          completedDays += 1;
+        }
+      }
+
+      return {
+        habitId: habit.id,
+        name: habit.name,
+        emoji: habit.emoji,
+        color: habit.color,
+        completionRate: trackedDays === 0 ? 0 : completedDays / trackedDays,
+        completedDays,
+        trackedDays,
+      };
+    })
+    .filter((stat) => stat.trackedDays > 0)
+    .sort((left, right) => {
+      if (right.completionRate !== left.completionRate) {
+        return right.completionRate - left.completionRate;
+      }
+      if (right.completedDays !== left.completedDays) {
+        return right.completedDays - left.completedDays;
+      }
+      return left.name.localeCompare(right.name);
+    })
+    .slice(0, 5);
+}
+
+export function getTaskCompletion(data: PlannerData, startDate: string, endDate: string) {
+  const tasks = data.tasks.filter((task) => {
+    if (task.dueDate === null) {
+      return false;
     }
-    break;
+    return task.dueDate >= startDate && task.dueDate <= endDate;
+  });
+  const completed = tasks.filter((task) => task.status === "done").length;
+  return {
+    completed,
+    total: tasks.length,
+    rate: tasks.length === 0 ? 0 : completed / tasks.length,
+  };
+}
+
+export function getHabitValue(data: PlannerData, habitId: string, date: string): number {
+  const habit = data.habits.find((entry) => entry.id === habitId);
+  if (!habit) {
+    return 0;
+  }
+  const checkin = data.habitCheckins.find((entry) => entry.habitId === habitId && entry.date === date);
+  return clampProgressValue(checkin?.value ?? 0, habit.targetCount);
+}
+
+export function isHabitComplete(habit: Habit, value: number): boolean {
+  return clampProgressValue(value, habit.targetCount) >= habit.targetCount;
+}
+
+export function getHabitStreak(data: PlannerData, habitId: string, endDate?: string): number {
+  const habit = data.habits.find((entry) => entry.id === habitId);
+  if (!habit) {
+    return 0;
+  }
+
+  const latestDate =
+    endDate ??
+    [...data.habitCheckins.filter((checkin) => checkin.habitId === habitId).map((checkin) => checkin.date)].sort().at(-1) ??
+    habit.startDate;
+  let streak = 0;
+  let cursor = latestDate;
+
+  while (cursor >= habit.startDate) {
+    if (!isHabitComplete(habit, getHabitValue(data, habitId, cursor))) {
+      break;
+    }
+    streak += 1;
+    cursor = addDays(cursor, -1);
   }
 
   return streak;
 }
 
-export function getBestStreak(data: PlannerData, today: string): number {
-  const startDate = getEarliestTrackedDate(data) ?? today;
-  const scheduledDates = eachDateInRange(startDate, today).filter(
-    (date) => buildCalendarDay(data, date).targetUnits > 0,
-  );
-  let best = 0;
-  let streak = 0;
-
-  for (const date of scheduledDates) {
-    const day = buildCalendarDay(data, date);
-    if (day.completedUnits === day.targetUnits && day.targetUnits > 0) {
-      streak += 1;
-      best = Math.max(best, streak);
-      continue;
-    }
-    streak = 0;
+export function getHabitBestStreak(data: PlannerData, habitId: string): number {
+  const habit = data.habits.find((entry) => entry.id === habitId);
+  if (!habit) {
+    return 0;
   }
 
-  return best;
-}
+  const dates = [
+    ...new Set(
+      data.habitCheckins.filter((checkin) => checkin.habitId === habitId).map((checkin) => checkin.date),
+    ),
+  ].sort();
+  if (dates.length === 0) {
+    return 0;
+  }
 
-export function getTopRoutines(data: PlannerData, startDate: string, endDate: string): RankedRoutineStat[] {
-  return data.routines
-    .filter((routine) => !routine.isArchived)
-    .map((routine) => {
-      let completedUnits = 0;
-      let targetUnits = 0;
-
-      for (const date of eachDateInRange(startDate, endDate)) {
-        const assignment = resolveAssignment(data, date);
-        if (!assignment.activeRoutineIds.includes(routine.id) || routine.createdAt.slice(0, 10) > date) {
-          continue;
-        }
-
-        const progress = getRoutineProgress(data, routine.id, date);
-        completedUnits += progress.completedUnits;
-        targetUnits += progress.targetUnits;
-      }
-
-      return {
-        routineId: routine.id,
-        name: routine.name,
-        emoji: routine.emoji,
-        color: routine.color,
-        completionRate: targetUnits === 0 ? 0 : completedUnits / targetUnits,
-        completedUnits,
-        targetUnits,
-      };
-    })
-    .filter((stat) => stat.targetUnits > 0)
-    .sort((left, right) => {
-      if (right.completionRate !== left.completionRate) {
-        return right.completionRate - left.completionRate;
-      }
-      return right.completedUnits - left.completedUnits;
-    })
-    .slice(0, 5);
-}
-
-export function getTodoCompletion(data: PlannerData, startDate: string, endDate: string) {
-  const todos = data.todos.filter((todo) => {
-    if (todo.dueDate === null) {
-      return false;
+  let best = 0;
+  let streak = 0;
+  let cursor = habit.startDate;
+  const endDate = dates.at(-1) ?? habit.startDate;
+  for (const date of eachDateInRange(habit.startDate, endDate)) {
+    if (isHabitComplete(habit, getHabitValue(data, habitId, date))) {
+      streak += 1;
+      best = Math.max(best, streak);
+    } else {
+      streak = 0;
     }
-    return todo.dueDate >= startDate && todo.dueDate <= endDate;
-  });
-  const completed = todos.filter((todo) => todo.status === "done").length;
-  return {
-    completed,
-    total: todos.length,
-    rate: todos.length === 0 ? 0 : completed / todos.length,
-  };
+    cursor = date;
+  }
+
+  void cursor;
+  return best;
 }
 
 export function getEarliestTrackedDate(data: PlannerData): string | null {
   const dates = [
-    ...data.routineCheckins.map((entry) => entry.date),
-    ...data.routineDateOverrides.map((entry) => entry.date),
-    ...data.todos.flatMap((entry) => (entry.dueDate ? [entry.dueDate] : [])),
+    ...data.habits.map((habit) => habit.startDate),
+    ...data.habitCheckins.map((checkin) => checkin.date),
+    ...data.tasks.flatMap((task) => (task.dueDate ? [task.dueDate] : [])),
   ].sort();
   return dates[0] ?? null;
 }
 
-function resolveRuleSet(data: PlannerData, date: string): RoutineSet | null {
-  const day = getDayOfWeek(date) as ActiveDay;
-  const customRule = data.routineAssignmentRules.find(
-    (rule) => rule.ruleType === "custom-days" && rule.days.includes(day),
+export function sortTasksForView(data: PlannerData) {
+  return [...data.tasks].sort(sortTasks);
+}
+
+function sortHabits(habits: Habit[]): Habit[] {
+  return [...habits].sort((left, right) => {
+    if (left.sortOrder !== right.sortOrder) {
+      return left.sortOrder - right.sortOrder;
+    }
+    if (left.startDate !== right.startDate) {
+      return left.startDate.localeCompare(right.startDate);
+    }
+    return left.createdAt.localeCompare(right.createdAt);
+  });
+}
+
+function getDatasetStreak(data: PlannerData, today: string, findBest: boolean) {
+  const startDate = getEarliestTrackedDate(data) ?? today;
+  const scheduledDates = eachDateInRange(startDate, today).filter(
+    (date) => buildTodayHabits(data, date).length > 0,
   );
-  if (customRule) {
-    return data.routineSets.find((routineSet) => routineSet.id === customRule.setId) ?? null;
+  let streak = 0;
+  let best = 0;
+
+  for (const date of scheduledDates) {
+    const habits = buildTodayHabits(data, date);
+    const allComplete = habits.length > 0 && habits.every((habit) => habit.isComplete);
+    if (allComplete) {
+      streak += 1;
+      best = Math.max(best, streak);
+    } else {
+      if (!findBest && date === today) {
+        streak = 0;
+        break;
+      }
+      streak = 0;
+    }
   }
 
-  const defaultRule = data.routineAssignmentRules.find(
-    (rule) =>
-      (rule.ruleType === "weekday" || rule.ruleType === "weekend") && rule.days.includes(day),
-  );
-  if (!defaultRule) {
-    return null;
-  }
-
-  return data.routineSets.find((routineSet) => routineSet.id === defaultRule.setId) ?? null;
+  return findBest ? best : streak;
 }

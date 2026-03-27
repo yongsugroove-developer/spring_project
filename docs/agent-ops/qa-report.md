@@ -9,13 +9,16 @@
 - Lint: `npm run lint`
 - Unit: `npm run test:unit`
 - Integration: `npm run test:integration`
+- Frontend syntax: `node --check public/app.js`
+- Frontend syntax: `node --check public/translations.js`
 
 ## Result
 - Build: Passed on 2026-03-27
 - Lint: Passed on 2026-03-27
 - Unit: Passed on 2026-03-27
 - Integration: Passed on 2026-03-27
+- Frontend syntax: Passed on 2026-03-27
 
 ## Verdict
 - Verdict: Pass
-- Recommendation: The planner slice now includes the date-selectable `/api/today` home flow plus a quieter settings/task-library/routine-create/set-create UI built around route app bars, row-based lists, inline selectors, and sticky creation CTAs. Build, lint, unit, and integration verification passed. Manual browser validation remains advisable after the large frontend layout change.
+- Recommendation: The planner now runs on a habit-first domain model, with habits on the home timetable, routines reduced to habit bundles with notification metadata, and one-off work moved to renamed task APIs and screens. Automated verification passed. Manual browser validation is still required for drag-and-drop ordering, mobile layout density, and in-browser form flows.
