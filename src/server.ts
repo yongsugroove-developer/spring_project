@@ -15,6 +15,18 @@ const projectRoot = process.cwd();
 const publicDir = path.resolve(projectRoot, "public");
 const defaultDataFile = path.resolve(projectRoot, "data", "planner-data.json");
 
+function setNoCacheHeaders(res: express.Response) {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+}
+
+function setStaticAssetHeaders(res: express.Response, filePath: string) {
+  if (/\.(html|js|css)$/i.test(filePath)) {
+    setNoCacheHeaders(res);
+  }
+}
+
 type ServerLocale = "ko" | "en" | "ja";
 type ServerMessageKey =
   | "routineNotFound"
@@ -149,7 +161,13 @@ export function createApp(options: AppOptions = {}) {
       : Promise.resolve();
 
   app.use(express.json());
-  app.use(express.static(publicDir));
+  app.use(
+    express.static(publicDir, {
+      setHeaders: (res, filePath) => {
+        setStaticAssetHeaders(res, filePath);
+      },
+    }),
+  );
 
   async function ensureReady() {
     await ready;
@@ -829,10 +847,12 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.get("/", (_req, res) => {
+    setNoCacheHeaders(res);
     res.sendFile(path.resolve(publicDir, "index.html"));
   });
 
   app.get("/login", (_req, res) => {
+    setNoCacheHeaders(res);
     res.sendFile(path.resolve(publicDir, "login.html"));
   });
 

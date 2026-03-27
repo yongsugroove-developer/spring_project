@@ -3788,3 +3788,177 @@ textarea {
     padding-inline: 0.8rem;
   }
 }
+
+.today-home-layout--dense {
+  gap: 0.65rem;
+}
+
+.today-home-overview {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem 1.1rem;
+}
+
+.today-home-overview-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.today-home-summary-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.today-home-summary-card {
+  display: grid;
+  gap: 0.12rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.86);
+}
+
+.today-home-summary-card span {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.today-home-summary-card strong {
+  font-size: 1rem;
+  line-height: 1.1;
+}
+
+.today-home-board--dense .today-home-board-body {
+  gap: 0.55rem;
+}
+
+.today-home-board--dense .home-board-cell {
+  min-height: 52px;
+  padding: 0.72rem 0.8rem;
+}
+
+.today-home-board--dense .home-board-cell--index {
+  gap: 0.2rem;
+}
+
+.today-home-board--dense .home-routine-main {
+  gap: 0.6rem;
+}
+
+.today-home-board--dense .home-item-copy strong {
+  line-height: 1.25;
+}
+
+.today-home-board--dense .home-item-copy span {
+  font-size: 0.82rem;
+}
+
+.emoji-badge--empty {
+  background: rgba(148, 163, 184, 0.14);
+  border-style: dashed;
+}
+
+.calendar-shell {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.calendar-grid--month {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.6rem;
+  align-items: stretch;
+}
+
+.calendar-day-button {
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.calendar-day-button.is-today strong {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.calendar-day-button:hover {
+  transform: translateY(-1px);
+  border-color: var(--line-strong);
+}
+
+.calendar-grid--month .muted {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 820px) {
+  .today-home-overview-head {
+    display: grid;
+  }
+
+  .today-home-summary-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .calendar-grid--month {
+    gap: 0.45rem;
+  }
+
+  .calendar-day-button {
+    min-height: 108px;
+    padding: 10px;
+  }
+}
+
+@media (max-width: 560px) {
+  .today-home-overview {
+    padding: 0.9rem;
+  }
+
+  .today-home-summary-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.4rem;
+  }
+
+  .today-home-summary-card {
+    padding: 0.65rem 0.55rem;
+  }
+
+  .today-home-summary-card strong {
+    font-size: 0.92rem;
+  }
+
+  .today-home-board--dense .home-board-row {
+    grid-template-columns: 54px minmax(0, 1fr) 120px;
+  }
+
+  .today-home-board--dense .home-board-cell {
+    padding: 0.62rem 0.48rem;
+  }
+
+  .calendar-grid--month {
+    gap: 0.35rem;
+  }
+
+  .calendar-day-button {
+    min-height: 86px;
+    padding: 8px 6px;
+  }
+
+  .calendar-day-button strong {
+    width: 28px;
+    height: 28px;
+  }
+
+  .calendar-meta {
+    margin-top: 8px;
+    gap: 4px;
+    font-size: 0.72rem;
+  }
+}

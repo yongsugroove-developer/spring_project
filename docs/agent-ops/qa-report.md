@@ -21,4 +21,4 @@
 
 ## Verdict
 - Verdict: Pass
-- Recommendation: The planner now runs on a habit-first domain model, with habits on the home timetable, routines reduced to habit bundles with notification metadata, and one-off work moved to renamed task APIs and screens. The MySQL planner snapshot path now also handles JSON columns whether mysql2 returns them as raw strings or parsed objects. Automated verification passed. Manual browser validation is still required for drag-and-drop ordering, mobile layout density, and in-browser form flows.
+- Recommendation: The planner now runs on a habit-first domain model, with habits on the home timetable, routines reduced to habit bundles with notification metadata, and one-off work moved to renamed task APIs and screens. The calendar screen now renders as a real month grid, and the home screen has been tightened into a denser summary plus timetable layout. The MySQL planner snapshot path now also handles JSON columns whether mysql2 returns them as raw strings or parsed objects. Automated verification passed. Manual browser validation is still required for drag-and-drop ordering, mobile layout density, and in-browser form flows.
