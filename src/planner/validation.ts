@@ -4,6 +4,7 @@ import type {
   PlannerData,
   RoutineCheckin,
   RoutineItem,
+  ResolvedRoutineItem,
   Todo,
   TrackingType,
 } from "./types.js";
@@ -144,6 +145,19 @@ export function normalizeRoutineIds(routineIds: string[], data: PlannerData): st
   return sanitizeIds(routineIds, data.routines.map((entry) => entry.id));
 }
 
+export function normalizeRoutineTaskTemplateIds(
+  templateIds: string[],
+  data: Pick<PlannerData, "routineTaskTemplates">,
+): string[] {
+  if (!Array.isArray(templateIds)) {
+    throw new PlannerValidationError("taskTemplateIds must be an array");
+  }
+  return sanitizeIds(
+    templateIds,
+    data.routineTaskTemplates.filter((entry) => !entry.isArchived).map((entry) => entry.id),
+  );
+}
+
 export function requireExistingSetId(setId: string, data: PlannerData): string {
   if (!data.routineSets.some((routineSet) => routineSet.id === setId)) {
     throw new PlannerValidationError("Referenced routine set was not found");
@@ -165,7 +179,7 @@ export function clampProgressValue(value: number, targetCount: number): number {
 
 export function normalizeStoredItemProgress(
   rawProgress: Record<string, number>,
-  items: RoutineItem[],
+  items: ResolvedRoutineItem[],
 ): Record<string, number> {
   const progress: Record<string, number> = {};
   for (const item of items) {
@@ -176,7 +190,7 @@ export function normalizeStoredItemProgress(
 
 export function normalizeCheckinsForRoutineItems(
   checkins: RoutineCheckin[],
-  routineItems: RoutineItem[],
+  routineItems: ResolvedRoutineItem[],
   routineId: string,
 ) {
   const items = routineItems.filter((item) => item.routineId === routineId && item.isActive);

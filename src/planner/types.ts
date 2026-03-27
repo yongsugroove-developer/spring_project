@@ -12,12 +12,26 @@ export interface Routine {
   updatedAt: string;
 }
 
+export interface RoutineTaskTemplate {
+  id: string;
+  title: string;
+  trackingType: TrackingType;
+  targetCount: number;
+  isArchived: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface RoutineItem {
   id: string;
   routineId: string;
-  title: string;
+  templateId: string;
   sortOrder: number;
   isActive: boolean;
+}
+
+export interface ResolvedRoutineItem extends RoutineItem {
+  title: string;
   trackingType: TrackingType;
   targetCount: number;
 }
@@ -72,6 +86,7 @@ export interface Todo {
 
 export interface PlannerData {
   routines: Routine[];
+  routineTaskTemplates: RoutineTaskTemplate[];
   routineItems: RoutineItem[];
   routineCheckins: RoutineCheckin[];
   routineSets: RoutineSet[];
@@ -80,7 +95,7 @@ export interface PlannerData {
   todos: Todo[];
 }
 
-export interface RoutineItemState extends RoutineItem {
+export interface RoutineItemState extends ResolvedRoutineItem {
   currentCount: number;
   isComplete: boolean;
   progressRate: number;
@@ -96,7 +111,7 @@ export interface RoutineProgress {
 }
 
 export interface RoutineWithItems extends Routine {
-  items: RoutineItem[];
+  items: ResolvedRoutineItem[];
 }
 
 export interface RoutineSetWithMeta extends RoutineSet {
@@ -187,6 +202,11 @@ export interface CheckinsResponse {
 export interface RoutinesResponse {
   ok: true;
   routines: RoutineWithItems[];
+}
+
+export interface RoutineTaskTemplatesResponse {
+  ok: true;
+  routineTaskTemplates: RoutineTaskTemplate[];
 }
 
 export interface RoutineSetsResponse {

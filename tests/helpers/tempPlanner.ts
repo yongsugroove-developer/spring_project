@@ -1,10 +1,10 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createDefaultPlannerData } from "../../src/planner/defaultData.js";
+import { createSamplePlannerData } from "../../src/planner/defaultData.js";
 import type { PlannerData } from "../../src/planner/types.js";
 
-export async function createTempPlannerFile(initialData: PlannerData = createDefaultPlannerData()) {
+export async function createTempPlannerFile(initialData: PlannerData = createSamplePlannerData()) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "my-planner-"));
   const filePath = path.join(directory, "planner-data.json");
   await writeFile(filePath, JSON.stringify(initialData, null, 2), "utf8");

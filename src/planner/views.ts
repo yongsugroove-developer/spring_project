@@ -1,4 +1,5 @@
 import { eachDateInRange, getDayOfWeek } from "./date.js";
+import { resolveRoutineItems } from "./routineTemplates.js";
 import { clampProgressValue, sanitizeIds, sortTodos } from "./validation.js";
 import type {
   ActiveDay,
@@ -8,8 +9,8 @@ import type {
   ResolvedAssignment,
   Routine,
   RoutineDateOverride,
-  RoutineItem,
   RoutineItemState,
+  ResolvedRoutineItem,
   RoutineSet,
   RoutineSetWithMeta,
   TodayResponse,
@@ -44,11 +45,8 @@ export function buildRoutineSetWithMeta(data: PlannerData, routineSet: RoutineSe
   };
 }
 
-export function getRoutineItems(data: PlannerData, routineId: string): RoutineItem[] {
-  return data.routineItems
-    .filter((item) => item.routineId === routineId)
-    .sort((left, right) => left.sortOrder - right.sortOrder)
-    .map((item) => ({ ...item }));
+export function getRoutineItems(data: PlannerData, routineId: string): ResolvedRoutineItem[] {
+  return resolveRoutineItems(data, routineId);
 }
 
 export function createEmptyOverride(date: string): RoutineDateOverride {

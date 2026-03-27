@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { createDefaultPlannerData } from "../../src/planner/defaultData.js";
+import { createDefaultPlannerData, createSamplePlannerData } from "../../src/planner/defaultData.js";
 import { JsonPlannerRepository } from "../../src/planner/repository.js";
 import { PlannerService } from "../../src/planner/service.js";
 import { createTempPlannerFile } from "../helpers/tempPlanner.js";
@@ -60,7 +60,7 @@ describe("planner service", () => {
   });
 
   it("applies date overrides ahead of base assignment rules", async () => {
-    const temp = await createTempPlannerFile(createDefaultPlannerData());
+    const temp = await createTempPlannerFile(createSamplePlannerData());
     cleanups.push(temp.cleanup);
     const service = new PlannerService(new JsonPlannerRepository(temp.filePath), {
       now: () => new Date("2026-03-22T12:00:00+09:00"),
@@ -79,7 +79,7 @@ describe("planner service", () => {
   });
 
   it("marks include-only overrides as override sources and rejects overlapping override routines", async () => {
-    const temp = await createTempPlannerFile(createDefaultPlannerData());
+    const temp = await createTempPlannerFile(createSamplePlannerData());
     cleanups.push(temp.cleanup);
     const service = new PlannerService(new JsonPlannerRepository(temp.filePath), {
       now: () => new Date("2026-03-22T12:00:00+09:00"),
@@ -99,7 +99,7 @@ describe("planner service", () => {
   });
 
   it("preserves completedAt when editing an already completed todo", async () => {
-    const temp = await createTempPlannerFile(createDefaultPlannerData());
+    const temp = await createTempPlannerFile(createSamplePlannerData());
     cleanups.push(temp.cleanup);
     const service = new PlannerService(new JsonPlannerRepository(temp.filePath), {
       now: () => new Date("2026-03-25T09:00:00+09:00"),
@@ -116,7 +116,7 @@ describe("planner service", () => {
   });
 
   it("aggregates statistics using partial count progress", async () => {
-    const temp = await createTempPlannerFile(createDefaultPlannerData());
+    const temp = await createTempPlannerFile(createSamplePlannerData());
     cleanups.push(temp.cleanup);
     const service = new PlannerService(new JsonPlannerRepository(temp.filePath), {
       now: () => new Date("2026-03-22T12:00:00+09:00"),
@@ -128,6 +128,34 @@ describe("planner service", () => {
     expect(stats.summary.monthlyRate).toBeLessThan(1);
     expect(stats.summary.topRoutines[0]).toMatchObject({
       name: "Weekday Launch",
+    });
+  });
+
+  it("creates reusable task templates and links them when creating routines", async () => {
+    const temp = await createTempPlannerFile(createDefaultPlannerData());
+    cleanups.push(temp.cleanup);
+    const service = new PlannerService(new JsonPlannerRepository(temp.filePath), {
+      now: () => new Date("2026-03-27T09:00:00+09:00"),
+    });
+
+    const template = await service.createRoutineTaskTemplate({
+      title: "Morning stretch",
+      trackingType: "time",
+      targetCount: 10,
+    });
+    const routine = await service.createRoutine({
+      name: "Morning reset",
+      emoji: "🌤️",
+      color: "#16a34a",
+      taskTemplateIds: [template.id],
+    });
+
+    expect(routine?.items).toHaveLength(1);
+    expect(routine?.items[0]).toMatchObject({
+      templateId: template.id,
+      title: "Morning stretch",
+      trackingType: "time",
+      targetCount: 10,
     });
   });
 });

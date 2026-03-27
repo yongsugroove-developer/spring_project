@@ -2,10 +2,16 @@
 
 ## todo
 - [ ] Run manual browser validation for the expanded emoji picker on desktop and mobile layouts
+- [ ] Run manual browser validation for the new hash-routed home, routine task library, routine create, set create, and settings pages on mobile and desktop
 - [ ] Replace manual billing placeholders with a real provider checkout/subscription flow
 - [ ] Decide app packaging path for web-to-mobile release
 
 ## in_progress
+- [x] Planner runtime defaults now start empty for new storage while legacy saved data is normalized forward into the template-backed routine model
+- [x] Routine creation now uses reusable routine task templates, with template CRUD APIs and compatibility handling for legacy item routes
+- [x] SPA information architecture now separates routine create, set create, routine task library, and settings into hash-routed screens
+- [x] Home and settings UI were reworked toward a denser, cleaner mobile-first flow while preserving existing app tokens and navigation chrome
+- [x] Build, lint, unit, and integration verification completed for the routine-template and route-split slice; manual browser validation remains pending
 - [x] Requirements, README, and status docs updated for emoji decoration and personalization scope
 - [x] JSON-backed planner API now persists routine/todo emoji fields with migration support
 - [x] Responsive planner UI now supports a flat Unicode emoji picker, live preview, today quick add, calendar focus cards, and theme/density personalization
@@ -28,6 +34,7 @@
 ## done (user approved only)
 - [x] Emoji decoration and UX refresh for the single-user planner MVP
 - [ ] Unicode emoji expansion and flat picker rollout
+- [ ] Main/settings UX restructure and first-pass routine-task template workflow
 
 ## Notes
 - Project: 마이 플래너

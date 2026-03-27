@@ -184,10 +184,23 @@ export async function ensureMySqlSchema(pool: Pool) {
       PRIMARY KEY (owner_user_id, id),
       CONSTRAINT fk_planner_routines_user FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
     )`,
+    `CREATE TABLE IF NOT EXISTS planner_routine_task_templates (
+      owner_user_id VARCHAR(36) NOT NULL,
+      id VARCHAR(36) NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      tracking_type VARCHAR(16) NOT NULL,
+      target_count INT NOT NULL,
+      is_archived TINYINT(1) NOT NULL DEFAULT 0,
+      created_at DATETIME(3) NOT NULL,
+      updated_at DATETIME(3) NOT NULL,
+      PRIMARY KEY (owner_user_id, id),
+      CONSTRAINT fk_planner_routine_task_templates_user FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+    )`,
     `CREATE TABLE IF NOT EXISTS planner_routine_items (
       owner_user_id VARCHAR(36) NOT NULL,
       id VARCHAR(36) NOT NULL,
       routine_id VARCHAR(36) NOT NULL,
+      template_id VARCHAR(36) NULL,
       title VARCHAR(255) NOT NULL,
       sort_order INT NOT NULL,
       is_active TINYINT(1) NOT NULL,
@@ -196,6 +209,7 @@ export async function ensureMySqlSchema(pool: Pool) {
       PRIMARY KEY (owner_user_id, id),
       CONSTRAINT fk_planner_routine_items_user FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
     )`,
+    `ALTER TABLE planner_routine_items ADD COLUMN IF NOT EXISTS template_id VARCHAR(36) NULL AFTER routine_id`,
     `CREATE TABLE IF NOT EXISTS planner_routine_checkins (
       owner_user_id VARCHAR(36) NOT NULL,
       date_key CHAR(10) NOT NULL,
