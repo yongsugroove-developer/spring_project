@@ -59,6 +59,7 @@ const state = {
   feedback: "",
   feedbackIsError: false,
   appNavOpen: false,
+  homeQuickActionsOpen: false,
   draggedHabitId: "",
 };
 
@@ -84,6 +85,12 @@ function bindEvents() {
   });
 
   document.addEventListener("click", (event) => {
+    const clickTarget = event.target instanceof HTMLElement ? event.target : null;
+    if (state.homeQuickActionsOpen && clickTarget && !clickTarget.closest(".home-fab-shell")) {
+      state.homeQuickActionsOpen = false;
+      render();
+    }
+
     const target = event.target instanceof HTMLElement ? event.target.closest("[data-action], [data-route], [data-pick-emoji], [data-pick-color], [data-delete-id]") : null;
     if (!(target instanceof HTMLElement)) return;
 
@@ -173,6 +180,16 @@ async function handleAction(action, target) {
   if (action === "close-app-nav") {
     state.appNavOpen = false;
     renderShellOnly();
+    return;
+  }
+  if (action === "toggle-home-fab") {
+    state.homeQuickActionsOpen = !state.homeQuickActionsOpen;
+    render();
+    return;
+  }
+  if (action === "close-home-fab") {
+    state.homeQuickActionsOpen = false;
+    render();
     return;
   }
   if (action === "shift-week") {
@@ -389,6 +406,7 @@ function syncRouteFromHash() {
 
 function navigate(route) {
   state.appNavOpen = false;
+  state.homeQuickActionsOpen = false;
   const target = normalizeHashPath(route);
   const nextHash = target === "/today" ? buildTodayRoute(state.selectedHomeDate) : target;
   if (location.hash !== `#${nextHash}`) {
@@ -488,8 +506,8 @@ function renderShellOnly() {
 
   const feedback = document.getElementById("feedback");
   if (feedback) {
-    feedback.textContent = state.feedback;
-    feedback.style.color = state.feedback ? (state.feedbackIsError ? "var(--danger)" : "var(--accent-strong)") : "";
+    feedback.textContent = "";
+    feedback.hidden = true;
   }
 }
 
@@ -714,10 +732,7 @@ function renderHomeHabitRow(habit) {
 function renderHomeEmpty() {
   return `<div class="home-board-empty">
     <p>${esc(t("noHabitsHome"))}</p>
-    <div class="actions actions-center">
-      <button class="btn" type="button" data-route="/habits">${esc(t("createHabit"))}</button>
-      <button class="btn-soft" type="button" data-route="/routines">${esc(t("createRoutine"))}</button>
-    </div>
+    <span class="muted">${esc(t("homeQuickCreateHint"))}</span>
   </div>`;
 }
 
@@ -864,12 +879,6 @@ function renderTodayDensePage() {
           <h2>${esc(formatMonthLabel(state.selectedHomeDate))}</h2>
           <p class="muted today-home-date-copy">${esc(formatFullDate(state.selectedHomeDate))}</p>
         </div>
-        <div class="today-home-topbar-side">
-          <div class="actions today-home-topbar-actions">
-            <button class="btn-soft compact-action" type="button" data-route="/habits">${esc(t("manageHabits"))}</button>
-            <button class="btn-soft compact-action" type="button" data-route="/routines">${esc(t("goRoutines"))}</button>
-          </div>
-        </div>
       </div>
       <div class="today-home-summary-row">
         ${renderHomeMiniStat(t("homeSummaryRate"), percent(state.today.summary.habitRate))}
@@ -897,6 +906,19 @@ function renderTodayDensePage() {
         ${state.today.habits.length ? state.today.habits.map(renderHomeHabitRowDense).join("") : renderHomeEmpty()}
       </div>
     </section>
+    ${renderHomeFab()}
+  </div>`;
+}
+
+function renderHomeFab() {
+  return `<div class="home-fab-shell ${state.homeQuickActionsOpen ? "is-open" : ""}">
+    ${state.homeQuickActionsOpen ? `<button class="home-fab-backdrop" type="button" data-action="close-home-fab" aria-label="${esc(t("closeMenu"))}"></button>` : ""}
+    <div class="home-fab-menu" aria-hidden="${state.homeQuickActionsOpen ? "false" : "true"}">
+      <button class="home-fab-option btn-soft" type="button" data-route="/habits">${esc(t("createHabit"))}</button>
+      <button class="home-fab-option btn-soft" type="button" data-route="/tasks">${esc(t("createTask"))}</button>
+      <button class="home-fab-option btn-soft" type="button" data-route="/routines">${esc(t("createRoutine"))}</button>
+    </div>
+    <button class="home-fab-trigger" type="button" data-action="toggle-home-fab" aria-label="${esc(t("addMenu"))}">+</button>
   </div>`;
 }
 
@@ -1078,9 +1100,21 @@ function applyShellText() {
 }
 
 function showFeedback(message, isError = false) {
-  state.feedback = resolveMessage(message);
-  state.feedbackIsError = isError;
-  renderShellOnly();
+  const resolved = resolveMessage(message);
+  if (resolved) {
+    if (isError) {
+      console.error(`[planner-ui] ${resolved}`);
+    } else {
+      console.info(`[planner-ui] ${resolved}`);
+    }
+  }
+  state.feedback = "";
+  state.feedbackIsError = false;
+  const feedback = document.getElementById("feedback");
+  if (feedback instanceof HTMLElement) {
+    feedback.textContent = "";
+    feedback.hidden = true;
+  }
 }
 
 function detectLocale() {
