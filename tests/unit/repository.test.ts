@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createDefaultPlannerData } from "../../src/planner/defaultData.js";
+import { createDefaultPlannerData, createSamplePlannerData } from "../../src/planner/defaultData.js";
 import { JsonPlannerRepository } from "../../src/planner/repository.js";
 import { createTempPlannerFile } from "../helpers/tempPlanner.js";
 
@@ -26,6 +26,7 @@ describe("json planner repository", () => {
     const data = await repository.read();
 
     expect(data.routines).toHaveLength(3);
+    expect(data.routineTaskTemplates).toHaveLength(6);
     expect(data.routineSets).toHaveLength(2);
     expect(data.todos).toHaveLength(3);
   });
@@ -34,7 +35,7 @@ describe("json planner repository", () => {
     const temp = await createTempPlannerFile();
     cleanups.push(temp.cleanup);
     const repository = new JsonPlannerRepository(temp.filePath);
-    const data = createDefaultPlannerData();
+    const data = createSamplePlannerData();
 
     data.todos.push({
       id: "todo-new",
@@ -110,18 +111,34 @@ describe("json planner repository", () => {
     const repository = new JsonPlannerRepository(filePath);
     const data = await repository.read();
 
+    expect(data.routineTaskTemplates).toHaveLength(1);
     expect(data.routineSets).toHaveLength(2);
     expect(data.routineAssignmentRules).toHaveLength(2);
     expect(data.routineDateOverrides).toEqual([]);
     expect(data.routines[0]).not.toHaveProperty("startTime");
     expect(data.routines[0].emoji).toBeNull();
-    expect(data.routineItems[0].trackingType).toBe("binary");
-    expect(data.routineItems[0].targetCount).toBe(1);
+    expect(data.routineItems[0].templateId).toBe("template-item-legacy");
+    expect(data.routineTaskTemplates[0]).toMatchObject({
+      title: "Drink water",
+      trackingType: "binary",
+      targetCount: 1,
+    });
     expect(data.routineCheckins[0].itemProgress).toEqual({ "item-legacy": 1 });
     expect(data.todos[0]).toMatchObject({
       title: "Legacy todo",
       emoji: null,
       status: "pending",
     });
+  });
+
+  it("uses empty runtime defaults when no file exists", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "my-planner-empty-"));
+    const filePath = path.join(directory, "planner-data.json");
+    cleanups.push(async () => rm(directory, { recursive: true, force: true }));
+
+    const repository = new JsonPlannerRepository(filePath, createDefaultPlannerData);
+    const data = await repository.read();
+
+    expect(data).toEqual(createDefaultPlannerData());
   });
 });

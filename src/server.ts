@@ -517,6 +517,84 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  app.get("/api/routine-task-templates", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req);
+      res.json(await plannerFor(actor.userId).listRoutineTaskTemplates());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/routine-task-templates", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req);
+      const template = await plannerFor(actor.userId).createRoutineTaskTemplate(req.body);
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.routine-task-templates",
+        eventType: "create-routine-task-template",
+        message: "User created a routine task template",
+        details: { templateId: template.id, trackingType: template.trackingType },
+      });
+      res.status(201).json({ ok: true, routineTaskTemplate: template });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/routine-task-templates/:id", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req);
+      const template = await plannerFor(actor.userId).updateRoutineTaskTemplate(req.params.id, req.body);
+      if (!template) {
+        res.status(404).json({ ok: false, message: "Routine task template not found" });
+        return;
+      }
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.routine-task-templates",
+        eventType: "update-routine-task-template",
+        message: "User updated a routine task template",
+        details: {
+          templateId: template.id,
+          trackingType: template.trackingType,
+          isArchived: template.isArchived,
+        },
+      });
+      res.json({ ok: true, routineTaskTemplate: template });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/routine-task-templates/:id", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req);
+      const deleted = await plannerFor(actor.userId).deleteRoutineTaskTemplate(req.params.id);
+      if (!deleted) {
+        res.status(404).json({ ok: false, message: "Routine task template not found" });
+        return;
+      }
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.routine-task-templates",
+        eventType: "delete-routine-task-template",
+        message: "User deleted a routine task template",
+        details: { templateId: req.params.id },
+      });
+      res.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post("/api/routines", async (req, res, next) => {
     try {
       const actor = await resolveActor(req);

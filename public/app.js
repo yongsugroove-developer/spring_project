@@ -23,6 +23,8 @@ const DENSITY_OPTIONS = [
 const MOBILE_VIEWPORT_QUERY = globalThis.matchMedia?.("(max-width: 820px)") ?? null;
 
 const state = {
+  routePath: "",
+  routeScreen: "today",
   activeTab: "today",
   selectedMonth: monthKey(new Date()),
   selectedDate: "",
@@ -76,6 +78,7 @@ const state = {
   adminLogs: [],
   today: null,
   routines: [],
+  routineTaskTemplates: [],
   routineSets: [],
   assignments: [],
   override: null,
@@ -127,6 +130,7 @@ function setAuthToken(token) {
 function clearPlannerState() {
   state.today = null;
   state.routines = [];
+  state.routineTaskTemplates = [];
   state.routineSets = [];
   state.assignments = [];
   state.override = null;
@@ -165,6 +169,70 @@ function clearAdminState() {
 
 function canAccessAdmin() {
   return ["owner", "admin"].includes(state.authUser?.role ?? "");
+}
+
+function normalizeRoutePath(path) {
+  const normalized = String(path || "/today").trim();
+  const withSlash = normalized.startsWith("/") ? normalized : `/${normalized}`;
+  const clean = withSlash.replace(/\/+/g, "/").replace(/\/$/, "");
+  return clean || "/today";
+}
+
+function parseRoute(path = globalThis.location?.hash?.slice(1) ?? "/today") {
+  const normalized = normalizeRoutePath(path);
+  if (normalized === "/routine-tasks") {
+    return { path: normalized, tab: "routines", screen: "task-library" };
+  }
+  if (normalized === "/routines/new") {
+    return { path: normalized, tab: "routines", screen: "routine-create" };
+  }
+  if (normalized === "/routine-sets/new") {
+    return { path: normalized, tab: "routines", screen: "routine-set-create" };
+  }
+  if (normalized === "/settings") {
+    return { path: normalized, tab: "settings", screen: "settings" };
+  }
+  if (normalized === "/account") {
+    return { path: normalized, tab: "account", screen: "account" };
+  }
+  if (normalized === "/admin") {
+    return { path: normalized, tab: "admin", screen: "admin" };
+  }
+  if (normalized === "/todos") {
+    return { path: normalized, tab: "todos", screen: "todos" };
+  }
+  if (normalized === "/calendar") {
+    return { path: normalized, tab: "calendar", screen: "calendar" };
+  }
+  if (normalized === "/stats") {
+    return { path: normalized, tab: "stats", screen: "stats" };
+  }
+  if (normalized === "/routines") {
+    return { path: normalized, tab: "routines", screen: "routines" };
+  }
+  return { path: "/today", tab: "today", screen: "today" };
+}
+
+function syncRouteState(path) {
+  const route = parseRoute(path);
+  state.routePath = route.path;
+  state.routeScreen = route.screen;
+  state.activeTab = route.tab;
+  return route;
+}
+
+function setRoute(path, { replace = false } = {}) {
+  const route = parseRoute(path);
+  const nextHash = `#${route.path}`;
+  if (globalThis.location?.hash !== nextHash) {
+    if (replace) {
+      globalThis.history?.replaceState?.(null, "", nextHash);
+    } else {
+      globalThis.location.hash = route.path;
+    }
+  }
+  syncRouteState(route.path);
+  render();
 }
 
 function setAccountSection(section) {
@@ -549,6 +617,7 @@ function applyStaticText() {
   setDocumentMeta();
   text("language-label", t("language"));
   text("settings-summary", t("settings"));
+  text("settings-button", t("settings"));
   text("app-nav-label", t("manageMenu"));
   text("app-nav-title", t("appTitle"));
   text("app-utility-title", t("appTitle"));
@@ -563,6 +632,7 @@ function applyStaticText() {
   textAll('[data-tab="todos"]', t("todos"));
   textAll('[data-tab="calendar"]', t("calendar"));
   textAll('[data-tab="stats"]', t("stats"));
+  textAll('[data-tab="settings"]', t("settings"));
   textAll('[data-tab="admin"]', t("admin"));
   text("theme-label", t("theme"));
   text("density-label", t("density"));
@@ -745,10 +815,11 @@ async function refreshAll(message = "") {
       state.statsRange === "custom" && state.customStatsStart && state.customStatsEnd
         ? `?range=custom&start=${state.customStatsStart}&end=${state.customStatsEnd}`
         : `?range=${state.statsRange}`;
-    const [today, routines, routineSets, assignments, todos, calendar, stats] =
+    const [today, routines, routineTaskTemplates, routineSets, assignments, todos, calendar, stats] =
       await Promise.all([
         api("/api/today"),
         api("/api/routines"),
+        api("/api/routine-task-templates"),
         api("/api/routine-sets"),
         api("/api/assignments"),
         api("/api/todos"),
@@ -757,6 +828,7 @@ async function refreshAll(message = "") {
       ]);
     state.today = today;
     state.routines = routines.routines;
+    state.routineTaskTemplates = routineTaskTemplates.routineTaskTemplates;
     state.routineSets = routineSets.routineSets;
     state.assignments = assignments.assignments;
     state.todos = todos.todos;
@@ -1022,27 +1094,7 @@ function renderUserEntry() {
 }
 
 function render() {
-  applyStaticText();
-  applyPreferences();
-  renderUserEntry();
-  renderHero();
-  if (plannerLocked()) {
-    redirectToLogin();
-    return;
-  }
-  renderAppNav();
-  renderAuthShell();
-  setPlannerVisibility(true);
-  renderTabs();
-  if (!plannerLocked()) {
-    renderToday();
-    renderRoutines();
-    renderTodos();
-    renderCalendar();
-    renderStats();
-    renderAdmin();
-  }
-  syncInteractiveFields();
+  renderApp();
 }
 
 function renderAppNav() {
@@ -1057,14 +1109,7 @@ function renderAppNav() {
 }
 
 function renderHero() {
-  text("hero-set", state.today?.assignment.baseSetName ?? t("noSet"));
-  text("hero-rate", percent(state.today?.summary.routineRate));
-  text("hero-streak", `${state.stats?.summary.currentStreak ?? 0} ${t("days")}`);
-  text("hero-date", dateLabel(state.today?.date));
-  const focus = document.getElementById("hero-focus");
-  if (focus) {
-    focus.innerHTML = todayFocusCards();
-  }
+  renderHeroPanel();
 }
 
 function renderTabs() {
@@ -1087,6 +1132,7 @@ function renderTabs() {
 }
 
 function renderToday() {
+  return renderTodayPage();
   const target = document.getElementById("tab-today");
   if (!target) return;
   if (!state.today) {
@@ -1265,6 +1311,7 @@ function todayItem(routineId, item) {
 }
 
 function renderRoutines() {
+  return renderRoutinesPage();
   const target = document.getElementById("tab-routines");
   if (!target) return;
   target.innerHTML = `<div class="layout-2 layout-workspace workspace-two-pane">
@@ -1783,6 +1830,390 @@ function empty(message, action = null) {
   return `<div class="empty"><p>${esc(message)}</p>${actionMarkup}</div>`;
 }
 
+function pageHero(label, title, copy = "", actions = "") {
+  return `<article class="panel section section-elevated route-hero-card">
+    <div class="section-head route-hero-head">
+      <div>
+        <p class="section-label">${esc(label)}</p>
+        <h2>${esc(title)}</h2>
+        ${copy ? `<p class="muted route-hero-copy">${esc(copy)}</p>` : ""}
+      </div>
+      ${actions ? `<div class="inline-actions route-hero-actions">${actions}</div>` : ""}
+    </div>
+  </article>`;
+}
+
+function routeActionButton(action, label, className = "btn-soft compact-action") {
+  return `<button class="${className}" type="button" data-action="${action}">${esc(label)}</button>`;
+}
+
+function settingLinkCard(action, title, copy, meta = "") {
+  return `<button class="settings-link-card" type="button" data-action="${action}">
+    <div class="settings-link-copy">
+      <strong>${esc(title)}</strong>
+      <span>${esc(copy)}</span>
+    </div>
+    <span class="settings-link-meta">${esc(meta || "›")}</span>
+  </button>`;
+}
+
+function templateUsageCount(templateId) {
+  return state.routineItems?.filter?.((item) => item.templateId === templateId).length ?? 0;
+}
+
+function taskTemplateChoiceItem(template, checked = false) {
+  return `<label class="choice-item choice-item--template">
+    <input type="checkbox" name="taskTemplateIds" value="${template.id}" ${checked ? "checked" : ""} />
+    <span class="choice-copy">
+      <strong>${esc(template.title)}</strong>
+      <span>${esc(`${trackingTypeLabel(template.trackingType)} · ${template.targetCount}${trackingUnitLabel(template.trackingType)}`)}</span>
+    </span>
+  </label>`;
+}
+
+function routineSummaryCard(routine) {
+  return `<article class="content-card content-card--stat routine-summary-card"${accentStyle(routine.color)}>
+    <div class="row-between">
+      <div class="routine-name">
+        ${emojiBadge(routine.emoji)}
+        <div>
+          <strong>${esc(routine.name)}</strong>
+          <div class="muted">${t("itemsCount", { count: routine.items.length })}</div>
+        </div>
+      </div>
+      <div class="inline-actions">
+        <span class="state-pill ${routine.isArchived ? "" : "is-success"}">${t(routine.isArchived ? "archived" : "active")}</span>
+        <button class="btn-danger compact-action" type="button" data-action="delete-routine" data-id="${routine.id}">${t("delete")}</button>
+      </div>
+    </div>
+    <div class="tag-cloud top-gap-sm">${routine.items.length ? routine.items.map((item) => `<span class="tag-chip">${esc(item.title)}</span>`).join("") : `<span class="muted">${t("noRoutineItems")}</span>`}</div>
+  </article>`;
+}
+
+function routineSetSummaryCard(routineSet) {
+  return `<article class="content-card content-card--stat routine-summary-card">
+    <div class="row-between">
+      <div>
+        <strong>${esc(routineSet.name)}</strong>
+        <div class="muted">${t("linkedRoutines", { count: routineSet.routines.length })}</div>
+      </div>
+      <button class="btn-danger compact-action" type="button" data-action="delete-routine-set" data-id="${routineSet.id}">${t("delete")}</button>
+    </div>
+    <div class="tag-cloud top-gap-sm">${routineSet.routines.length ? routineSet.routines.map((routine) => `<span class="tag-chip">${esc(routine.name)}</span>`).join("") : `<span class="muted">${t("noRoutines")}</span>`}</div>
+  </article>`;
+}
+
+function routineTaskTemplateCard(template) {
+  const usageCount = state.routines.reduce(
+    (sum, routine) => sum + routine.items.filter((item) => item.templateId === template.id).length,
+    0,
+  );
+  return `<form class="content-card content-card--form task-template-card" data-form="routine-task-template-update" data-id="${template.id}">
+    <div class="row-between">
+      <div>
+        <strong>${esc(template.title)}</strong>
+        <div class="muted">${esc(`${trackingTypeLabel(template.trackingType)} · ${template.targetCount}${trackingUnitLabel(template.trackingType)}`)}</div>
+      </div>
+      <div class="inline-actions">
+        <span class="state-pill">${usageCount}${t("items")}</span>
+        <button class="btn-danger compact-action" type="button" data-action="delete-routine-task-template" data-id="${template.id}">${t("delete")}</button>
+      </div>
+    </div>
+    <div class="form-grid top-gap-sm">
+      <label class="field field-wide"><span>${t("itemName")}</span><input name="title" required value="${esc(template.title)}" /></label>
+      <label class="field"><span>${t("type")}</span><select name="trackingType">${renderTrackingTypeOptions(template.trackingType)}</select></label>
+      <label class="field" data-role="target-field"><span>${t("targetValue")}</span>${targetInput("targetCount", template.trackingType, template.targetCount)}</label>
+      <label class="field"><span>${t("status")}</span><select name="isArchived"><option value="false" ${template.isArchived ? "" : "selected"}>${t("active")}</option><option value="true" ${template.isArchived ? "selected" : ""}>${t("archived")}</option></select></label>
+    </div>
+    ${inlineFeedback(`routine-task-template-${template.id}`)}
+    <div class="actions"><button class="btn-soft" type="submit">${t("saveItem")}</button></div>
+  </form>`;
+}
+
+function routineTaskTemplateCreateForm() {
+  return `<form class="content-card content-card--form" data-form="routine-task-template-create">
+    <div class="form-grid">
+      <label class="field field-wide"><span>${t("itemName")}</span><input name="title" required /></label>
+      <label class="field"><span>${t("type")}</span><select name="trackingType">${renderTrackingTypeOptions("binary")}</select></label>
+      <label class="field" data-role="target-field"><span>${t("targetValue")}</span>${targetInput("targetCount", "binary", 1)}</label>
+    </div>
+    ${trackingGuide()}
+    ${inlineFeedback("routine-task-template-create")}
+    <div class="actions"><button class="btn" type="submit">${t("addItem")}</button></div>
+  </form>`;
+}
+
+function routineHomeEmptyState() {
+  return `<article class="panel section section-elevated onboarding-panel">
+    <div class="section-head">
+      <div>
+        <p class="section-label">${t("today")}</p>
+        <h2>${state.locale === "ko" ? "비어 있는 시작 화면" : "Start With A Clean Planner"}</h2>
+        <p class="muted route-hero-copy">${state.locale === "ko" ? "기본 샘플은 제거했다. 먼저 루틴용 할일을 만들고, 그다음 루틴과 세트를 묶는 흐름으로 시작하면 된다." : "The planner now starts empty. Build reusable routine tasks first, then compose routines and sets."}</p>
+      </div>
+    </div>
+    <div class="onboarding-actions">
+      ${settingLinkCard("open-routine-task-library", state.locale === "ko" ? "할일 라이브러리 만들기" : "Create Task Library", state.locale === "ko" ? "재사용할 루틴용 할일을 먼저 저장한다" : "Save reusable routine tasks first")}
+      ${settingLinkCard("open-routine-create", t("createRoutine"), state.locale === "ko" ? "저장된 할일을 선택해 루틴을 만든다" : "Compose a routine from saved tasks")}
+      ${settingLinkCard("open-routine-set-create", t("createSet"), state.locale === "ko" ? "루틴을 묶어 요일별 세트를 만든다" : "Group routines into a set")}
+    </div>
+  </article>`;
+}
+
+function renderSettingsPage() {
+  const target = document.getElementById("tab-settings");
+  if (!target) return;
+  target.innerHTML = `<div class="settings-layout">
+    ${pageHero(
+      t("settings"),
+      state.locale === "ko" ? "설정" : "Settings",
+      state.locale === "ko" ? "현재 동작하는 설정과 관리 진입점만 한 화면에 정리했다." : "Only working settings and management entry points are shown here.",
+      routeActionButton("open-routine-task-library", state.locale === "ko" ? "할일 라이브러리" : "Task Library"),
+    )}
+    <article class="panel section settings-list-card">
+      <div class="section-head"><div><p class="section-label">${t("displaySettings")}</p><h2>${state.locale === "ko" ? "화면 설정" : "Display"}</h2></div></div>
+      <div class="settings-control-list">
+        <label class="settings-control-item">
+          <span>${t("language")}</span>
+          <select id="language-select" aria-label="${esc(t("language"))}">
+            <option value="ko">${LANGUAGE_LABELS.ko}</option>
+            <option value="en">${LANGUAGE_LABELS.en}</option>
+            <option value="ja">${LANGUAGE_LABELS.ja}</option>
+          </select>
+        </label>
+        <label class="settings-control-item">
+          <span>${t("theme")}</span>
+          <select id="theme-select" aria-label="${esc(t("theme"))}">
+            <option value="violet">${t("themeViolet")}</option>
+            <option value="sunset">${t("themeSunset")}</option>
+            <option value="forest">${t("themeForest")}</option>
+          </select>
+        </label>
+        <label class="settings-control-item">
+          <span>${t("density")}</span>
+          <select id="density-select" aria-label="${esc(t("density"))}">
+            <option value="comfy">${t("densityComfy")}</option>
+            <option value="compact">${t("densityCompact")}</option>
+          </select>
+        </label>
+      </div>
+    </article>
+    <article class="panel section settings-list-card">
+      <div class="section-head"><div><p class="section-label">${t("manageMenu")}</p><h2>${state.locale === "ko" ? "플래너 구조" : "Planner Flow"}</h2></div></div>
+      <div class="settings-link-list">
+        ${settingLinkCard("open-routine-task-library", state.locale === "ko" ? "루틴용 할일 라이브러리" : "Routine Task Library", state.locale === "ko" ? "루틴이 참조할 재사용 할일을 관리한다" : "Manage reusable tasks that routines reference")}
+        ${settingLinkCard("open-routine-create", state.locale === "ko" ? "루틴 만들기" : "Create Routine", state.locale === "ko" ? "저장된 할일을 선택해 루틴을 생성한다" : "Build a routine from saved tasks")}
+        ${settingLinkCard("open-routine-set-create", state.locale === "ko" ? "세트 만들기" : "Create Set", state.locale === "ko" ? "루틴들을 묶어 세트를 만든다" : "Bundle routines into a set")}
+        ${settingLinkCard("open-todo-create", t("todos"), state.locale === "ko" ? "일회성 투두 화면으로 이동한다" : "Go to one-off todo planning")}
+      </div>
+    </article>
+    ${state.authAvailable ? `<article class="panel section settings-list-card">
+      <div class="section-head"><div><p class="section-label">${t("account")}</p><h2>${state.locale === "ko" ? "계정 및 운영" : "Account And Admin"}</h2></div></div>
+      <div class="settings-link-list">
+        ${settingLinkCard("open-account", t("accountWorkspace"), state.locale === "ko" ? "계정과 결제 상태를 확인한다" : "View account and billing")}
+        ${canAccessAdmin() ? settingLinkCard("open-admin-workspace", t("adminWorkspace"), state.locale === "ko" ? "운영 현황과 사용자 상태를 관리한다" : "Manage operations and user access") : ""}
+      </div>
+    </article>` : ""}
+  </div>`;
+}
+
+function renderTodayPage() {
+  const target = document.getElementById("tab-today");
+  if (!target || !state.today) return;
+  const hasPlannerData =
+    state.routineTaskTemplates.length > 0 ||
+    state.routines.length > 0 ||
+    state.routineSets.length > 0 ||
+    state.todos.length > 0;
+  const summary = state.today.summary;
+  const todayTodos = [...state.today.todos.dueToday, ...state.today.todos.inbox];
+  target.innerHTML = `<div class="today-quiet-layout">
+    ${pageHero(
+      t("today"),
+      dateLabel(state.today.date),
+      state.today.assignment.baseSetName
+        ? `${t("heroSet")}: ${state.today.assignment.baseSetName}`
+        : state.locale === "ko"
+          ? "아직 연결된 세트가 없다."
+          : "No routine set is linked yet.",
+      [
+        routeActionButton("open-routine-task-library", state.locale === "ko" ? "할일 라이브러리" : "Task Library"),
+        routeActionButton("open-routine-create", t("createRoutine")),
+      ].join(""),
+    )}
+    <article class="panel section section-elevated today-summary-panel-compact">
+      <div class="summary-grid today-summary-grid">
+        <div class="summary-card"><span>${t("rate")}</span><strong>${percent(summary.routineRate)}</strong></div>
+        <div class="summary-card"><span>${t("items")}</span><strong>${summary.completedItemCount}/${summary.totalItemCount}</strong></div>
+        <div class="summary-card"><span>${t("focusTodayTodos")}</span><strong>${summary.dueTodayCount}</strong></div>
+      </div>
+    </article>
+    ${!hasPlannerData ? routineHomeEmptyState() : ""}
+    ${state.today.routines.length ? `<article class="panel section">
+      <div class="section-head"><div><p class="section-label">${t("today")}</p><h2>${t("routines")}</h2></div></div>
+      <div class="stack">${state.today.routines.map((routine) => todayRoutine(routine)).join("")}</div>
+    </article>` : ""}
+    <article class="panel section">
+      <div class="section-head"><div><p class="section-label">${t("todayTodos")}</p><h2>${t("todayTodos")}</h2></div>${routeActionButton("open-todo-create", t("openCreateTodo"))}</div>
+      <div class="list-stack today-list-stack">${todayTodos.length ? todayTodos.map((todo) => todayTodoCard(todo, todo.dueDate ? "due" : "inbox")).join("") : empty(t("noTodos"), { label: t("openCreateTodo"), action: "open-todo-create" })}</div>
+    </article>
+  </div>`;
+}
+
+function renderRoutinesPage() {
+  const target = document.getElementById("tab-routines");
+  if (!target) return;
+
+  if (state.routeScreen === "task-library") {
+    target.innerHTML = `<div class="route-page-grid">
+      ${pageHero(
+        state.locale === "ko" ? "루틴용 할일" : "Routine Tasks",
+        state.locale === "ko" ? "루틴용 할일 라이브러리" : "Routine Task Library",
+        state.locale === "ko" ? "루틴은 여기서 저장한 할일을 선택해 묶는다." : "Routines are composed by selecting tasks saved here.",
+        [
+          routeActionButton("open-routine-create", t("createRoutine")),
+          routeActionButton("open-routine-set-create", t("createSet")),
+        ].join(""),
+      )}
+      <article class="panel section">${routineTaskTemplateCreateForm()}</article>
+      <article class="panel section">
+        <div class="section-head"><div><p class="section-label">${t("manageItems")}</p><h2>${state.locale === "ko" ? "저장된 할일" : "Saved Tasks"}</h2></div></div>
+        <div class="stack">${state.routineTaskTemplates.length ? state.routineTaskTemplates.map(routineTaskTemplateCard).join("") : empty(state.locale === "ko" ? "저장된 루틴용 할일이 없습니다." : "No routine tasks saved yet.")}</div>
+      </article>
+    </div>`;
+    return;
+  }
+
+  if (state.routeScreen === "routine-create") {
+    const activeTemplates = state.routineTaskTemplates.filter((template) => !template.isArchived);
+    target.innerHTML = `<div class="route-page-grid">
+      ${pageHero(
+        t("createRoutine"),
+        state.locale === "ko" ? "루틴 만들기" : "Create Routine",
+        state.locale === "ko" ? "루틴 메타데이터를 입력하고, 저장된 루틴용 할일을 선택한다." : "Enter routine metadata and choose from saved routine tasks.",
+        routeActionButton("open-routine-task-library", state.locale === "ko" ? "할일 라이브러리" : "Task Library"),
+      )}
+      <article class="panel section section-elevated">
+        <form class="content-card content-card--form" data-form="routine-create">
+          <div class="create-flow">
+            <div class="stack">
+              ${routineFields({ color: "#16a34a" })}
+              <div class="field-wide">
+                <span>${state.locale === "ko" ? "루틴용 할일 선택" : "Select Routine Tasks"}</span>
+                <div class="choice-list choice-list--stacked">${activeTemplates.length ? activeTemplates.map((template) => taskTemplateChoiceItem(template)).join("") : empty(state.locale === "ko" ? "먼저 루틴용 할일을 만들어야 합니다." : "Create routine tasks first.", { label: state.locale === "ko" ? "할일 만들기" : "Create Tasks", action: "open-routine-task-library" })}</div>
+              </div>
+              ${inlineFeedback("routine-create")}
+              <div class="actions">
+                <button class="btn" type="submit">${t("createRoutine")}</button>
+                ${routeActionButton("open-routine-task-library", state.locale === "ko" ? "새 할일 추가" : "Add New Task")}
+              </div>
+            </div>
+            ${routineDraftPreview({ color: "#16a34a" })}
+          </div>
+        </form>
+      </article>
+      <article class="panel section">
+        <div class="section-head"><div><p class="section-label">${t("addItem")}</p><h2>${state.locale === "ko" ? "같은 화면에서 할일 추가" : "Quick Add Task"}</h2></div></div>
+        ${routineTaskTemplateCreateForm()}
+      </article>
+    </div>`;
+    return;
+  }
+
+  if (state.routeScreen === "routine-set-create") {
+    target.innerHTML = `<div class="route-page-grid">
+      ${pageHero(
+        t("createSet"),
+        state.locale === "ko" ? "세트 만들기" : "Create Set",
+        state.locale === "ko" ? "저장된 루틴을 선택해 세트를 만든다." : "Build a set by selecting existing routines.",
+        routeActionButton("open-routine-create", t("createRoutine")),
+      )}
+      <article class="panel section section-elevated">
+        <form class="content-card content-card--form" data-form="routine-set-create">
+          ${routineSetFields()}
+          ${inlineFeedback("routine-set-create")}
+          <div class="actions"><button class="btn" type="submit">${t("createSet")}</button></div>
+        </form>
+      </article>
+    </div>`;
+    return;
+  }
+
+  target.innerHTML = `<div class="route-page-grid">
+    ${pageHero(
+      t("routines"),
+      state.locale === "ko" ? "루틴 워크스페이스" : "Routine Workspace",
+      state.locale === "ko" ? "생성 흐름을 분리하고, 저장된 할일을 기준으로 루틴을 구성하도록 바꿨다." : "Creation flows are separated, and routines are composed from saved tasks.",
+      [
+        routeActionButton("open-routine-task-library", state.locale === "ko" ? "할일 라이브러리" : "Task Library"),
+        routeActionButton("open-routine-create", t("createRoutine")),
+        routeActionButton("open-routine-set-create", t("createSet")),
+      ].join(""),
+    )}
+    <article class="panel section">
+      <div class="section-head"><div><p class="section-label">${t("routineEditor")}</p><h2>${t("routines")}</h2></div></div>
+      <div class="stack">${state.routines.length ? state.routines.map(routineSummaryCard).join("") : empty(t("noRoutines"), { label: t("createRoutine"), action: "open-routine-create" })}</div>
+    </article>
+    <article class="panel section">
+      <div class="section-head"><div><p class="section-label">${t("routineSetsHeading")}</p><h2>${t("routineSetsHeading")}</h2></div></div>
+      <div class="stack">${state.routineSets.length ? state.routineSets.map(routineSetSummaryCard).join("") : empty(t("noRoutineSets"), { label: t("createSet"), action: "open-routine-set-create" })}</div>
+    </article>
+  </div>`;
+}
+
+function renderHeroPanel() {
+  const header = document.querySelector(".app-header");
+  if (header) {
+    header.hidden = state.activeTab !== "today";
+  }
+  if (state.activeTab !== "today") {
+    return;
+  }
+  text("hero-title", dateLabel(state.today?.date));
+  text(
+    "hero-copy",
+    state.today?.assignment.baseSetName
+      ? `${t("heroSet")}: ${state.today.assignment.baseSetName}`
+      : state.locale === "ko"
+        ? "오늘 적용된 세트가 없습니다."
+        : "No set is applied today.",
+  );
+  text("hero-set", state.today?.assignment.baseSetName ?? t("noSet"));
+  text("hero-rate", percent(state.today?.summary.routineRate));
+  text("hero-streak", `${state.stats?.summary.currentStreak ?? 0} ${t("days")}`);
+  text("hero-date", dateLabel(state.today?.date));
+  const focus = document.getElementById("hero-focus");
+  if (focus) {
+    focus.innerHTML = todayFocusCards();
+  }
+}
+
+function renderApp() {
+  syncRouteState(state.routePath || globalThis.location?.hash?.slice(1) || "/today");
+  applyStaticText();
+  applyPreferences();
+  renderUserEntry();
+  renderHero();
+  if (plannerLocked()) {
+    redirectToLogin();
+    return;
+  }
+  renderAppNav();
+  renderAuthShell();
+  setPlannerVisibility(true);
+  renderTabs();
+  if (!plannerLocked()) {
+    renderToday();
+    renderRoutines();
+    renderTodos();
+    renderCalendar();
+    renderStats();
+    renderSettingsPage();
+    renderAdmin();
+  }
+  syncInteractiveFields();
+}
+
 function checkedValues(form, name) {
   return [...form.querySelectorAll(`input[name="${name}"]:checked`)].map((input) => input.value);
 }
@@ -1881,7 +2312,9 @@ function syncTrackingForm(form) {
 
 function syncTrackingForms() {
   document
-    .querySelectorAll('form[data-form="routine-item-create"], form[data-form="routine-item-update"]')
+    .querySelectorAll(
+      'form[data-form="routine-item-create"], form[data-form="routine-item-update"], form[data-form="routine-task-template-create"], form[data-form="routine-task-template-update"]',
+    )
     .forEach((form) => syncTrackingForm(form));
 }
 
@@ -1919,6 +2352,8 @@ async function onSubmit(event) {
     "auth-register": "auth-register",
     "admin-user-update": `admin-user-${form.dataset.userId ?? ""}`,
     "admin-subscription-assign": `admin-billing-${form.dataset.userId ?? ""}`,
+    "routine-task-template-create": "routine-task-template-create",
+    "routine-task-template-update": `routine-task-template-${form.dataset.id ?? ""}`,
     "routine-create": "routine-create",
     "routine-update": `routine-editor-${form.dataset.id ?? ""}`,
     "routine-item-create": `routine-editor-${form.dataset.routineId ?? ""}`,
@@ -2000,9 +2435,40 @@ async function onSubmit(event) {
             name: data.get("name"),
             emoji: formEmojiValue(data),
             color: data.get("color"),
+            taskTemplateIds: checkedValues(form, "taskTemplateIds"),
           }),
         });
+        syncRouteState("/routines");
         await finishSuccess("createRoutineDone", { inlineScope: "routine-create" });
+      });
+    }
+    if (form.dataset.form === "routine-task-template-create") {
+      return runPending("routine-task-template-create", async () => {
+        await api("/api/routine-task-templates", {
+          method: "POST",
+          body: JSON.stringify({
+            title: data.get("title"),
+            trackingType: data.get("trackingType"),
+            targetCount: Number(data.get("targetCount")),
+          }),
+        });
+        await finishSuccess("createItemDone", { inlineScope: "routine-task-template-create" });
+      });
+    }
+    if (form.dataset.form === "routine-task-template-update") {
+      return runPending(`routine-task-template-${form.dataset.id}`, async () => {
+        await api(`/api/routine-task-templates/${form.dataset.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            title: data.get("title"),
+            trackingType: data.get("trackingType"),
+            targetCount: Number(data.get("targetCount")),
+            isArchived: data.get("isArchived") === "true",
+          }),
+        });
+        await finishSuccess("updateItemDone", {
+          inlineScope: `routine-task-template-${form.dataset.id}`,
+        });
       });
     }
     if (form.dataset.form === "routine-update") {
@@ -2058,6 +2524,7 @@ async function onSubmit(event) {
             routineIds: checkedValues(form, "routineIds"),
           }),
         });
+        syncRouteState("/routines");
         await finishSuccess("createSetDone", { inlineScope: "routine-set-create" });
       });
     }
@@ -2180,16 +2647,19 @@ async function onClick(event) {
   const button = event.target.closest("[data-action], [data-tab]");
   if (!button) return;
   if (button.dataset.tab) {
-    state.activeTab = button.dataset.tab;
     state.appNavOpen = false;
-    render();
+    setRoute(`/${button.dataset.tab}`);
     return;
   }
   try {
     if (button.dataset.action === "open-account") {
-      state.activeTab = "account";
       state.appNavOpen = false;
-      render();
+      setRoute("/account");
+      return;
+    }
+    if (button.dataset.action === "open-settings") {
+      state.appNavOpen = false;
+      setRoute("/settings");
       return;
     }
     if (button.dataset.action === "toggle-app-nav") {
@@ -2213,9 +2683,8 @@ async function onClick(event) {
       return;
     }
     if (button.dataset.action === "open-admin-workspace") {
-      state.activeTab = "admin";
       state.appNavOpen = false;
-      render();
+      setRoute("/admin");
       return;
     }
     if (button.dataset.action === "auth-mode") {
@@ -2318,19 +2787,19 @@ async function onClick(event) {
       return;
     }
     if (button.dataset.action === "open-routine-create") {
-      state.activeTab = "routines";
-      state.isRoutineCreateOpen = true;
-      render();
+      setRoute("/routines/new");
       return;
     }
     if (button.dataset.action === "open-routine-set-create") {
-      state.activeTab = "routines";
-      state.isRoutineSetCreateOpen = true;
-      render();
+      setRoute("/routine-sets/new");
+      return;
+    }
+    if (button.dataset.action === "open-routine-task-library") {
+      setRoute("/routine-tasks");
       return;
     }
     if (button.dataset.action === "open-todo-create") {
-      state.activeTab = "todos";
+      setRoute("/todos");
       state.isTodoCreateOpen = true;
       render();
       return;
@@ -2371,6 +2840,15 @@ async function onClick(event) {
           method: "DELETE",
         });
         await finishSuccess("deleteItemDone", { inlineScope: `routine-editor-${button.dataset.routineId}` });
+      });
+    }
+    if (button.dataset.action === "delete-routine-task-template") {
+      if (!globalThis.confirm(t("confirmDeleteItem"))) return;
+      return runPending(`routine-task-template-${button.dataset.id}`, async () => {
+        await api(`/api/routine-task-templates/${button.dataset.id}`, { method: "DELETE" });
+        await finishSuccess("deleteItemDone", {
+          inlineScope: `routine-task-template-${button.dataset.id}`,
+        });
       });
     }
     if (button.dataset.action === "delete-routine-set") {
@@ -2554,6 +3032,10 @@ document.addEventListener("submit", (event) => void onSubmit(event));
 document.addEventListener("click", (event) => void onClick(event));
 document.addEventListener("change", (event) => void onChange(event));
 document.addEventListener("input", (event) => void onInput(event));
+globalThis.addEventListener?.("hashchange", () => {
+  syncRouteState(globalThis.location?.hash?.slice(1) || "/today");
+  render();
+});
 
 if (MOBILE_VIEWPORT_QUERY) {
   const onViewportChange = () => {
@@ -2568,6 +3050,10 @@ if (MOBILE_VIEWPORT_QUERY) {
 }
 
 async function initializeApp() {
+  syncRouteState(globalThis.location?.hash?.slice(1) || "/today");
+  if (!globalThis.location?.hash) {
+    globalThis.history?.replaceState?.(null, "", "#/today");
+  }
   render();
   try {
     await refreshHealth();

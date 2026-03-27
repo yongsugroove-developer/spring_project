@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { eachDateInRange, formatMonthKey, getMonthBounds, getTodayKey, getWeekBounds, isValidMonthKey } from "./date.js";
+import {
+  eachDateInRange,
+  formatMonthKey,
+  getMonthBounds,
+  getTodayKey,
+  getWeekBounds,
+  isValidMonthKey,
+} from "./date.js";
 import {
   buildCalendarDay,
   buildRoutineCollection,
@@ -28,6 +35,7 @@ import {
   normalizePositiveInteger,
   normalizeRoutineIds,
   normalizeRoutineItemOrder,
+  normalizeRoutineTaskTemplateIds,
   normalizeRuleDays,
   normalizeRuleType,
   normalizeStoredItemProgress,
@@ -48,7 +56,10 @@ import type {
   RoutineCheckin,
   RoutineDateOverride,
   RoutineItem,
+  RoutineSet,
   RoutineSetsResponse,
+  RoutineTaskTemplate,
+  RoutineTaskTemplatesResponse,
   RoutinesResponse,
   StatsResponse,
   Todo,
@@ -67,6 +78,14 @@ interface RoutineInput {
   name: string;
   emoji?: string | null;
   color: string;
+  taskTemplateIds?: string[];
+}
+
+interface RoutineTaskTemplateInput {
+  title: string;
+  trackingType?: TrackingType;
+  targetCount?: number;
+  isArchived?: boolean;
 }
 
 interface RoutineItemInput {
@@ -127,9 +146,82 @@ export class PlannerService {
     return { ok: true, routines: buildRoutineCollection(data) };
   }
 
+  async listRoutineTaskTemplates(): Promise<RoutineTaskTemplatesResponse> {
+    const data = await this.repository.read();
+    return {
+      ok: true,
+      routineTaskTemplates: [...data.routineTaskTemplates].sort((left, right) =>
+        left.createdAt.localeCompare(right.createdAt),
+      ),
+    };
+  }
+
+  async createRoutineTaskTemplate(input: RoutineTaskTemplateInput) {
+    const data = await this.repository.read();
+    const template = this.buildRoutineTaskTemplate(input);
+    data.routineTaskTemplates.push(template);
+    await this.repository.write(data);
+    return template;
+  }
+
+  async updateRoutineTaskTemplate(
+    templateId: string,
+    input: Partial<RoutineTaskTemplateInput>,
+  ) {
+    const data = await this.repository.read();
+    const template = data.routineTaskTemplates.find((entry) => entry.id === templateId);
+    if (!template) {
+      return null;
+    }
+
+    const nextTrackingType = input.trackingType
+      ? normalizeTrackingType(input.trackingType)
+      : template.trackingType;
+
+    if (input.title !== undefined) {
+      template.title = requireText(input.title, "Routine task template title");
+    }
+    if (input.trackingType !== undefined) {
+      template.trackingType = nextTrackingType;
+    }
+    if (input.targetCount !== undefined || input.trackingType !== undefined) {
+      template.targetCount = normalizeTargetCount(
+        nextTrackingType,
+        input.targetCount ?? template.targetCount,
+      );
+    }
+    if (typeof input.isArchived === "boolean") {
+      template.isArchived = input.isArchived;
+    }
+
+    template.updatedAt = this.now().toISOString();
+    await this.repository.write(data);
+    return template;
+  }
+
+  async deleteRoutineTaskTemplate(templateId: string): Promise<boolean> {
+    const data = await this.repository.read();
+    if (data.routineItems.some((entry) => entry.templateId === templateId)) {
+      throw new PlannerValidationError("Cannot delete a task template that is used by a routine");
+    }
+
+    const nextTemplates = data.routineTaskTemplates.filter((entry) => entry.id !== templateId);
+    if (nextTemplates.length === data.routineTaskTemplates.length) {
+      return false;
+    }
+
+    data.routineTaskTemplates = nextTemplates;
+    await this.repository.write(data);
+    return true;
+  }
+
   async createRoutine(input: RoutineInput) {
     const data = await this.repository.read();
     const timestamp = this.now().toISOString();
+    const taskTemplateIds =
+      input.taskTemplateIds !== undefined
+        ? normalizeRoutineTaskTemplateIds(input.taskTemplateIds, data)
+        : [];
     const routine: Routine = {
       id: randomUUID(),
       name: requireText(input.name, "Routine name"),
@@ -141,6 +233,15 @@ export class PlannerService {
     };
 
     data.routines.push(routine);
+    data.routineItems.push(
+      ...taskTemplateIds.map((templateId, index) => ({
+        id: randomUUID(),
+        routineId: routine.id,
+        templateId,
+        sortOrder: index + 1,
+        isActive: true,
+      })),
+    );
     await this.repository.write(data);
     return buildRoutineCollection(data).find((entry) => entry.id === routine.id) ?? null;
   }
@@ -166,6 +267,20 @@ export class PlannerService {
     }
     if (typeof input.isArchived === "boolean") {
       routine.isArchived = input.isArchived;
+    }
+    if (input.taskTemplateIds !== undefined) {
+      const taskTemplateIds = normalizeRoutineTaskTemplateIds(input.taskTemplateIds, data);
+      data.routineItems = data.routineItems.filter((entry) => entry.routineId !== routineId);
+      data.routineItems.push(
+        ...taskTemplateIds.map((templateId, index) => ({
+          id: randomUUID(),
+          routineId,
+          templateId,
+          sortOrder: index + 1,
+          isActive: true,
+        })),
+      );
+      normalizeCheckinsForRoutineItems(data.routineCheckins, getRoutineItems(data, routineId), routineId);
     }
 
     routine.updatedAt = this.now().toISOString();
@@ -205,20 +320,9 @@ export class PlannerService {
       return null;
     }
 
-    const currentOrders = data.routineItems
-      .filter((entry) => entry.routineId === routineId)
-      .map((entry) => entry.sortOrder);
-    const nextOrder = currentOrders.length === 0 ? 1 : Math.max(...currentOrders) + 1;
-    const trackingType = normalizeTrackingType(input.trackingType ?? "binary");
-    const item: RoutineItem = {
-      id: randomUUID(),
-      routineId,
-      title: requireText(input.title, "Routine item title"),
-      sortOrder: input.sortOrder ? normalizePositiveInteger(input.sortOrder, "sortOrder") : nextOrder,
-      isActive: true,
-      trackingType,
-      targetCount: normalizeTargetCount(trackingType, input.targetCount),
-    };
+    const template = this.buildRoutineTaskTemplate(input);
+    data.routineTaskTemplates.push(template);
+    const item = this.createRoutineItemLink(data.routineItems, routineId, template.id, input.sortOrder);
 
     data.routineItems.push(item);
     normalizeRoutineItemOrder(data.routineItems, routineId);
@@ -241,24 +345,50 @@ export class PlannerService {
       return null;
     }
 
-    if (input.title !== undefined) {
-      item.title = requireText(input.title, "Routine item title");
+    const resolvedItem = getRoutineItems(data, routineId).find((entry) => entry.id === itemId);
+    if (!resolvedItem) {
+      return null;
     }
+
     if (input.sortOrder !== undefined) {
       item.sortOrder = normalizePositiveInteger(input.sortOrder, "sortOrder");
     }
     if (typeof input.isActive === "boolean") {
       item.isActive = input.isActive;
     }
-    if (input.trackingType !== undefined) {
-      item.trackingType = normalizeTrackingType(input.trackingType);
-      item.targetCount = normalizeTargetCount(item.trackingType, input.targetCount ?? item.targetCount);
-    } else if (input.targetCount !== undefined) {
-      item.targetCount = normalizeTargetCount(item.trackingType, input.targetCount);
+
+    if (
+      input.title !== undefined ||
+      input.trackingType !== undefined ||
+      input.targetCount !== undefined
+    ) {
+      const currentTemplate = data.routineTaskTemplates.find((entry) => entry.id === item.templateId);
+      const nextTrackingType = normalizeTrackingType(input.trackingType ?? resolvedItem.trackingType);
+      const nextTitle = requireText(input.title ?? resolvedItem.title, "Routine item title");
+      const nextTargetCount = normalizeTargetCount(
+        nextTrackingType,
+        input.targetCount ?? resolvedItem.targetCount,
+      );
+      const templateUsage = data.routineItems.filter((entry) => entry.templateId === item.templateId).length;
+
+      if (currentTemplate && templateUsage === 1) {
+        currentTemplate.title = nextTitle;
+        currentTemplate.trackingType = nextTrackingType;
+        currentTemplate.targetCount = nextTargetCount;
+        currentTemplate.updatedAt = this.now().toISOString();
+      } else {
+        const template = this.buildRoutineTaskTemplate({
+          title: nextTitle,
+          trackingType: nextTrackingType,
+          targetCount: nextTargetCount,
+        });
+        data.routineTaskTemplates.push(template);
+        item.templateId = template.id;
+      }
     }
 
     normalizeRoutineItemOrder(data.routineItems, routineId);
-    normalizeCheckinsForRoutineItems(data.routineCheckins, data.routineItems, routineId);
+    normalizeCheckinsForRoutineItems(data.routineCheckins, getRoutineItems(data, routineId), routineId);
     routine.updatedAt = this.now().toISOString();
     await this.repository.write(data);
     return getRoutineItems(data, routineId).find((entry) => entry.id === itemId) ?? null;
@@ -290,7 +420,7 @@ export class PlannerService {
   async createRoutineSet(input: RoutineSetInput) {
     const data = await this.repository.read();
     const timestamp = this.now().toISOString();
-    const routineSet = {
+    const routineSet: RoutineSet = {
       id: randomUUID(),
       name: requireText(input.name, "Routine set name"),
       routineIds: normalizeRoutineIds(input.routineIds, data),
@@ -500,7 +630,10 @@ export class PlannerService {
     if (input.status !== undefined) {
       const nextStatus = normalizeTodoStatus(input.status);
       if (nextStatus === "done") {
-        todo.completedAt = todo.status === "done" ? (todo.completedAt ?? this.now().toISOString()) : this.now().toISOString();
+        todo.completedAt =
+          todo.status === "done"
+            ? (todo.completedAt ?? this.now().toISOString())
+            : this.now().toISOString();
       } else {
         todo.completedAt = null;
       }
@@ -545,7 +678,10 @@ export class PlannerService {
   ): Promise<StatsResponse> {
     const today = getTodayKey(this.now());
     const weekBounds = { startDate: getWeekBounds(today).startDate, endDate: today };
-    const monthBounds = { startDate: getMonthBounds(formatMonthKey(this.now())).startDate, endDate: today };
+    const monthBounds = {
+      startDate: getMonthBounds(formatMonthKey(this.now())).startDate,
+      endDate: today,
+    };
     const selectedBounds =
       range === "week"
         ? weekBounds
@@ -570,9 +706,48 @@ export class PlannerService {
       },
     };
   }
+
+  private buildRoutineTaskTemplate(
+    input: RoutineTaskTemplateInput,
+  ): RoutineTaskTemplate {
+    const timestamp = this.now().toISOString();
+    const trackingType = normalizeTrackingType(input.trackingType ?? "binary");
+    return {
+      id: randomUUID(),
+      title: requireText(input.title, "Routine task template title"),
+      trackingType,
+      targetCount: normalizeTargetCount(trackingType, input.targetCount),
+      isArchived: Boolean(input.isArchived),
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+  }
+
+  private createRoutineItemLink(
+    items: RoutineItem[],
+    routineId: string,
+    templateId: string,
+    sortOrder?: number,
+  ): RoutineItem {
+    const currentOrders = items
+      .filter((entry) => entry.routineId === routineId)
+      .map((entry) => entry.sortOrder);
+    const nextOrder = currentOrders.length === 0 ? 1 : Math.max(...currentOrders) + 1;
+
+    return {
+      id: randomUUID(),
+      routineId,
+      templateId,
+      sortOrder: sortOrder ? normalizePositiveInteger(sortOrder, "sortOrder") : nextOrder,
+      isActive: true,
+    };
+  }
 }
 
-function normalizeCheckinInput(input: CheckinInput, items: RoutineItem[]) {
+function normalizeCheckinInput(
+  input: CheckinInput,
+  items: ReturnType<typeof getRoutineItems>,
+) {
   if (input.itemProgress && typeof input.itemProgress === "object") {
     return normalizeStoredItemProgress(input.itemProgress, items);
   }
@@ -604,6 +779,8 @@ function assertNoOverlap(leftIds: string[], rightIds: string[], label: string) {
   const right = new Set(rightIds);
   const overlap = leftIds.filter((entry) => right.has(entry));
   if (overlap.length > 0) {
-    throw new PlannerValidationError(`${label} cannot include the same routine in includeRoutineIds and excludeRoutineIds`);
+    throw new PlannerValidationError(
+      `${label} cannot include the same routine in includeRoutineIds and excludeRoutineIds`,
+    );
   }
 }

@@ -4,6 +4,7 @@ import { createDefaultPlannerData } from "./defaultData.js";
 import type {
   PlannerData,
   RoutineAssignmentRule,
+  RoutineTaskTemplate,
   Todo,
   TrackingType,
   ActiveDay,
@@ -25,7 +26,9 @@ export class MySqlPlannerRepository implements PlannerRepository {
         return data;
       }
       const seed = this.seedFactory();
-      await this.writeWithConnection(connection, seed);
+      if (hasPlannerData(seed)) {
+        await this.writeWithConnection(connection, seed);
+      }
       return seed;
     } finally {
       connection.release();
@@ -57,10 +60,27 @@ export class MySqlPlannerRepository implements PlannerRepository {
        FROM planner_routines WHERE owner_user_id = ? ORDER BY created_at, id`,
       [this.ownerUserId],
     );
+    const [templateRows] = await connection.query<
+      (RowDataPacket & {
+        id: string;
+        title: string;
+        trackingType: TrackingType;
+        targetCount: number;
+        isArchived: number;
+        createdAt: string;
+        updatedAt: string;
+      })[]
+    >(
+      `SELECT id, title, tracking_type AS trackingType, target_count AS targetCount,
+              is_archived AS isArchived, created_at AS createdAt, updated_at AS updatedAt
+       FROM planner_routine_task_templates WHERE owner_user_id = ? ORDER BY created_at, id`,
+      [this.ownerUserId],
+    );
     const [itemRows] = await connection.query<
       (RowDataPacket & {
         id: string;
         routineId: string;
+        templateId: string | null;
         title: string;
         sortOrder: number;
         isActive: number;
@@ -68,8 +88,8 @@ export class MySqlPlannerRepository implements PlannerRepository {
         targetCount: number;
       })[]
     >(
-      `SELECT id, routine_id AS routineId, title, sort_order AS sortOrder, is_active AS isActive,
-              tracking_type AS trackingType, target_count AS targetCount
+      `SELECT id, routine_id AS routineId, template_id AS templateId, title, sort_order AS sortOrder,
+              is_active AS isActive, tracking_type AS trackingType, target_count AS targetCount
        FROM planner_routine_items WHERE owner_user_id = ? ORDER BY routine_id, sort_order, id`,
       [this.ownerUserId],
     );
@@ -145,6 +165,36 @@ export class MySqlPlannerRepository implements PlannerRepository {
       [this.ownerUserId],
     );
 
+    const templateMap = new Map<string, RoutineTaskTemplate>(
+      templateRows.map((row) => [
+        row.id,
+        {
+          id: row.id,
+          title: row.title,
+          trackingType: row.trackingType,
+          targetCount: row.targetCount,
+          isArchived: Boolean(row.isArchived),
+          createdAt: fromMySqlDateTime(row.createdAt) ?? new Date(0).toISOString(),
+          updatedAt: fromMySqlDateTime(row.updatedAt) ?? new Date(0).toISOString(),
+        },
+      ]),
+    );
+
+    for (const row of itemRows) {
+      const templateId = row.templateId?.trim() || `template-${row.id}`;
+      if (!templateMap.has(templateId)) {
+        templateMap.set(templateId, {
+          id: templateId,
+          title: row.title,
+          trackingType: row.trackingType,
+          targetCount: row.targetCount,
+          isArchived: false,
+          createdAt: new Date(0).toISOString(),
+          updatedAt: new Date(0).toISOString(),
+        });
+      }
+    }
+
     const setMembers = memberRows.reduce<Record<string, string[]>>((acc, row) => {
       acc[row.routineSetId] ??= [];
       acc[row.routineSetId].push(row.routineId);
@@ -171,14 +221,13 @@ export class MySqlPlannerRepository implements PlannerRepository {
         createdAt: fromMySqlDateTime(row.createdAt) ?? new Date(0).toISOString(),
         updatedAt: fromMySqlDateTime(row.updatedAt) ?? new Date(0).toISOString(),
       })),
+      routineTaskTemplates: [...templateMap.values()],
       routineItems: itemRows.map((row) => ({
         id: row.id,
         routineId: row.routineId,
-        title: row.title,
+        templateId: row.templateId?.trim() || `template-${row.id}`,
         sortOrder: row.sortOrder,
         isActive: Boolean(row.isActive),
-        trackingType: row.trackingType,
-        targetCount: row.targetCount,
       })),
       routineCheckins: checkinRows.map((row) => ({
         date: row.date,
@@ -223,6 +272,7 @@ export class MySqlPlannerRepository implements PlannerRepository {
   }
 
   private async writeWithConnection(connection: PoolConnection, data: PlannerData) {
+    const templateMap = new Map(data.routineTaskTemplates.map((template) => [template.id, template]));
     await connection.beginTransaction();
     try {
       await connection.query(`DELETE FROM planner_override_excludes WHERE owner_user_id = ?`, [this.ownerUserId]);
@@ -233,6 +283,7 @@ export class MySqlPlannerRepository implements PlannerRepository {
       await connection.query(`DELETE FROM planner_routine_sets WHERE owner_user_id = ?`, [this.ownerUserId]);
       await connection.query(`DELETE FROM planner_routine_checkins WHERE owner_user_id = ?`, [this.ownerUserId]);
       await connection.query(`DELETE FROM planner_routine_items WHERE owner_user_id = ?`, [this.ownerUserId]);
+      await connection.query(`DELETE FROM planner_routine_task_templates WHERE owner_user_id = ?`, [this.ownerUserId]);
       await connection.query(`DELETE FROM planner_routines WHERE owner_user_id = ?`, [this.ownerUserId]);
       await connection.query(`DELETE FROM planner_todos WHERE owner_user_id = ?`, [this.ownerUserId]);
 
@@ -253,11 +304,44 @@ export class MySqlPlannerRepository implements PlannerRepository {
         );
       }
 
-      for (const item of data.routineItems) {
+      for (const template of data.routineTaskTemplates) {
         await connection.query(
-          `INSERT INTO planner_routine_items (owner_user_id, id, routine_id, title, sort_order, is_active, tracking_type, target_count)
+          `INSERT INTO planner_routine_task_templates
+            (owner_user_id, id, title, tracking_type, target_count, is_archived, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [this.ownerUserId, item.id, item.routineId, item.title, item.sortOrder, item.isActive ? 1 : 0, item.trackingType, item.targetCount],
+          [
+            this.ownerUserId,
+            template.id,
+            template.title,
+            template.trackingType,
+            template.targetCount,
+            template.isArchived ? 1 : 0,
+            toMySqlDateTime(template.createdAt),
+            toMySqlDateTime(template.updatedAt),
+          ],
+        );
+      }
+
+      for (const item of data.routineItems) {
+        const template = templateMap.get(item.templateId);
+        if (!template) {
+          throw new Error(`Missing routine task template for item ${item.id}`);
+        }
+        await connection.query(
+          `INSERT INTO planner_routine_items
+            (owner_user_id, id, routine_id, template_id, title, sort_order, is_active, tracking_type, target_count)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            this.ownerUserId,
+            item.id,
+            item.routineId,
+            item.templateId,
+            template.title,
+            item.sortOrder,
+            item.isActive ? 1 : 0,
+            template.trackingType,
+            template.targetCount,
+          ],
         );
       }
 
@@ -265,7 +349,13 @@ export class MySqlPlannerRepository implements PlannerRepository {
         await connection.query(
           `INSERT INTO planner_routine_checkins (owner_user_id, date_key, routine_id, item_progress_json, updated_at)
            VALUES (?, ?, ?, ?, ?)`,
-          [this.ownerUserId, checkin.date, checkin.routineId, JSON.stringify(checkin.itemProgress), toMySqlDateTime(checkin.updatedAt)],
+          [
+            this.ownerUserId,
+            checkin.date,
+            checkin.routineId,
+            JSON.stringify(checkin.itemProgress),
+            toMySqlDateTime(checkin.updatedAt),
+          ],
         );
       }
 
@@ -273,7 +363,13 @@ export class MySqlPlannerRepository implements PlannerRepository {
         await connection.query(
           `INSERT INTO planner_routine_sets (owner_user_id, id, name, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?)`,
-          [this.ownerUserId, set.id, set.name, toMySqlDateTime(set.createdAt), toMySqlDateTime(set.updatedAt)],
+          [
+            this.ownerUserId,
+            set.id,
+            set.name,
+            toMySqlDateTime(set.createdAt),
+            toMySqlDateTime(set.updatedAt),
+          ],
         );
         for (const [index, routineId] of set.routineIds.entries()) {
           await connection.query(
@@ -348,7 +444,12 @@ export class MySqlPlannerRepository implements PlannerRepository {
 }
 
 function hasPlannerData(data: PlannerData) {
-  return data.routines.length > 0 || data.todos.length > 0 || data.routineSets.length > 0;
+  return (
+    data.routines.length > 0 ||
+    data.routineTaskTemplates.length > 0 ||
+    data.todos.length > 0 ||
+    data.routineSets.length > 0
+  );
 }
 
 function normalizeRecord(value: unknown): Record<string, number> {
@@ -357,7 +458,9 @@ function normalizeRecord(value: unknown): Record<string, number> {
       typeof value === "string"
         ? (JSON.parse(value) as Record<string, unknown>)
         : ((value ?? {}) as Record<string, unknown>);
-    return Object.fromEntries(Object.entries(parsed).map(([key, current]) => [key, Number(current) || 0]));
+    return Object.fromEntries(
+      Object.entries(parsed).map(([key, current]) => [key, Number(current) || 0]),
+    );
   } catch {
     return {};
   }
@@ -365,8 +468,11 @@ function normalizeRecord(value: unknown): Record<string, number> {
 
 export function normalizeDays(value: unknown): ActiveDay[] {
   try {
-    const parsed = typeof value === "string" ? (JSON.parse(value) as number[]) : Array.isArray(value) ? value : [];
-    return parsed.filter((entry): entry is ActiveDay => Number.isInteger(entry) && entry >= 0 && entry <= 6);
+    const parsed =
+      typeof value === "string" ? (JSON.parse(value) as number[]) : Array.isArray(value) ? value : [];
+    return parsed.filter(
+      (entry): entry is ActiveDay => Number.isInteger(entry) && entry >= 0 && entry <= 6,
+    );
   } catch {
     return [];
   }
