@@ -45,7 +45,7 @@ export class MySqlPlannerRepository implements PlannerRepository {
     }
 
     const [rows] = await connection.query<
-      (RowDataPacket & { dataJson: string | null })[]
+      (RowDataPacket & { dataJson: unknown | null })[]
     >(
       `SELECT data_json AS dataJson
          FROM planner_documents
@@ -58,7 +58,11 @@ export class MySqlPlannerRepository implements PlannerRepository {
       return null;
     }
 
-    const parsed = JSON.parse(rows[0].dataJson) as unknown;
+    const parsed = parseStoredDocument(rows[0].dataJson);
+    if (parsed === null) {
+      return null;
+    }
+
     return normalizePlannerData(parsed, this.seedFactory).data;
   }
 
@@ -293,4 +297,20 @@ function normalizeRecord(value: unknown): Record<string, number> {
   } catch {
     return {};
   }
+}
+
+function parseStoredDocument(value: unknown): unknown | null {
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      return null;
+    }
+  }
+
+  if (value && typeof value === "object") {
+    return value;
+  }
+
+  return null;
 }
