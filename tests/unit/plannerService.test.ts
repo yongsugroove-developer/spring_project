@@ -29,6 +29,31 @@ describe("planner service", () => {
     expect(today.routines.map((routine) => routine.name)).toEqual(["Weekend Reset", "Focus Sprint"]);
   });
 
+  it("returns a selected date when getToday is called with an explicit date", async () => {
+    const temp = await createTempPlannerFile();
+    cleanups.push(temp.cleanup);
+    const service = new PlannerService(new JsonPlannerRepository(temp.filePath), {
+      now: () => new Date("2026-03-22T09:00:00+09:00"),
+    });
+
+    const monday = await service.getToday("2026-03-23");
+
+    expect(monday.date).toBe("2026-03-23");
+    expect(monday.assignment.baseSetName).toBe("Weekday");
+    expect(monday.routines.map((routine) => routine.name)).toEqual(["Weekday Launch"]);
+    expect(monday.todos.dueToday).toEqual([]);
+  });
+
+  it("rejects invalid explicit dates in getToday", async () => {
+    const temp = await createTempPlannerFile();
+    cleanups.push(temp.cleanup);
+    const service = new PlannerService(new JsonPlannerRepository(temp.filePath), {
+      now: () => new Date("2026-03-22T09:00:00+09:00"),
+    });
+
+    await expect(service.getToday("2026-03-99")).rejects.toThrow("date must use YYYY-MM-DD format");
+  });
+
   it("stores itemProgress for count and time items and clamps progress to the target", async () => {
     const temp = await createTempPlannerFile();
     cleanups.push(temp.cleanup);

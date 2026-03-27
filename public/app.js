@@ -1,4 +1,12 @@
 import { EMOJI_CATALOG, ROUTINE_COLOR_SWATCHES } from "./emojiCatalog.js";
+import {
+  addDaysToDateKey,
+  buildTodayRoute,
+  buildWeekDates,
+  getMondayWeekStart,
+  isValidDateKey,
+  parseHashRoute,
+} from "./homeUtils.js";
 import { LANGUAGE_LABELS, MESSAGES } from "./translations.js";
 
 const LOCALE_KEY = "my-planner-locale";
@@ -28,6 +36,9 @@ const state = {
   activeTab: "today",
   selectedMonth: monthKey(new Date()),
   selectedDate: "",
+  selectedHomeDate: "",
+  homeBoardMode: "routines",
+  visibleHomeWeekStart: "",
   statsRange: "week",
   todoFilter: "all",
   todoDueFilter: "all",
@@ -39,11 +50,21 @@ const state = {
   isRoutineSetCreateOpen: false,
   isTodoCreateOpen: false,
   isTodayQuickOpen: !(MOBILE_VIEWPORT_QUERY?.matches ?? false),
+  isHomeQuickCreateOpen: false,
   isAssignmentsOpen: false,
   isOverrideEditorOpen: false,
+  settingsExpandedControl: "",
+  isRoutineQuickTaskCreateOpen: false,
   expandedRoutineIds: new Set(),
+  expandedRoutineTaskTemplateIds: new Set(),
   collapsedRoutineCompletedIds: new Set(),
   revealedCompletedRoutineIds: new Set(),
+  routineCreateDraft: {
+    name: "",
+    emoji: "",
+    color: "#16a34a",
+    taskTemplateIds: [],
+  },
   pendingActionId: "",
   inlineFeedback: null,
   highlightTodoId: "",
@@ -171,46 +192,40 @@ function canAccessAdmin() {
   return ["owner", "admin"].includes(state.authUser?.role ?? "");
 }
 
-function normalizeRoutePath(path) {
-  const normalized = String(path || "/today").trim();
-  const withSlash = normalized.startsWith("/") ? normalized : `/${normalized}`;
-  const clean = withSlash.replace(/\/+/g, "/").replace(/\/$/, "");
-  return clean || "/today";
-}
-
 function parseRoute(path = globalThis.location?.hash?.slice(1) ?? "/today") {
-  const normalized = normalizeRoutePath(path);
+  const parsed = parseHashRoute(path);
+  const normalized = parsed.pathname;
   if (normalized === "/routine-tasks") {
-    return { path: normalized, tab: "routines", screen: "task-library" };
+    return { path: normalized, tab: "routines", screen: "task-library", homeDate: "" };
   }
   if (normalized === "/routines/new") {
-    return { path: normalized, tab: "routines", screen: "routine-create" };
+    return { path: normalized, tab: "routines", screen: "routine-create", homeDate: "" };
   }
   if (normalized === "/routine-sets/new") {
-    return { path: normalized, tab: "routines", screen: "routine-set-create" };
+    return { path: normalized, tab: "routines", screen: "routine-set-create", homeDate: "" };
   }
   if (normalized === "/settings") {
-    return { path: normalized, tab: "settings", screen: "settings" };
+    return { path: normalized, tab: "settings", screen: "settings", homeDate: "" };
   }
   if (normalized === "/account") {
-    return { path: normalized, tab: "account", screen: "account" };
+    return { path: normalized, tab: "account", screen: "account", homeDate: "" };
   }
   if (normalized === "/admin") {
-    return { path: normalized, tab: "admin", screen: "admin" };
+    return { path: normalized, tab: "admin", screen: "admin", homeDate: "" };
   }
   if (normalized === "/todos") {
-    return { path: normalized, tab: "todos", screen: "todos" };
+    return { path: normalized, tab: "todos", screen: "todos", homeDate: "" };
   }
   if (normalized === "/calendar") {
-    return { path: normalized, tab: "calendar", screen: "calendar" };
+    return { path: normalized, tab: "calendar", screen: "calendar", homeDate: "" };
   }
   if (normalized === "/stats") {
-    return { path: normalized, tab: "stats", screen: "stats" };
+    return { path: normalized, tab: "stats", screen: "stats", homeDate: "" };
   }
   if (normalized === "/routines") {
-    return { path: normalized, tab: "routines", screen: "routines" };
+    return { path: normalized, tab: "routines", screen: "routines", homeDate: "" };
   }
-  return { path: "/today", tab: "today", screen: "today" };
+  return { path: buildTodayRoute(parsed.date), tab: "today", screen: "today", homeDate: parsed.date };
 }
 
 function syncRouteState(path) {
@@ -218,13 +233,22 @@ function syncRouteState(path) {
   state.routePath = route.path;
   state.routeScreen = route.screen;
   state.activeTab = route.tab;
+  if (route.screen === "today") {
+    if (route.homeDate) {
+      state.selectedHomeDate = route.homeDate;
+      state.visibleHomeWeekStart = getMondayWeekStart(route.homeDate);
+    } else {
+      state.selectedHomeDate = "";
+    }
+  }
   return route;
 }
 
-function setRoute(path, { replace = false } = {}) {
+function setRoute(path, { replace = false, skipRender = false } = {}) {
   const route = parseRoute(path);
   const nextHash = `#${route.path}`;
-  if (globalThis.location?.hash !== nextHash) {
+  const hashChanged = globalThis.location?.hash !== nextHash;
+  if (hashChanged) {
     if (replace) {
       globalThis.history?.replaceState?.(null, "", nextHash);
     } else {
@@ -232,7 +256,9 @@ function setRoute(path, { replace = false } = {}) {
     }
   }
   syncRouteState(route.path);
-  render();
+  if (!skipRender && (!hashChanged || replace)) {
+    render();
+  }
 }
 
 function setAccountSection(section) {
@@ -243,6 +269,50 @@ function setAccountSection(section) {
 function setAdminSection(section) {
   const allowed = ["overview", "accounts", "subscriptions", "sessions", "logs"];
   state.adminSection = allowed.includes(section) ? section : "overview";
+}
+
+function defaultRoutineCreateDraft() {
+  return {
+    name: "",
+    emoji: "",
+    color: "#16a34a",
+    taskTemplateIds: [],
+  };
+}
+
+function getRoutineCreateDraft() {
+  const draft = state.routineCreateDraft ?? defaultRoutineCreateDraft();
+  return {
+    ...defaultRoutineCreateDraft(),
+    ...draft,
+    emoji: sanitizeEmojiInput(draft.emoji ?? ""),
+    color: safeColor(draft.color ?? "#16a34a"),
+    taskTemplateIds: Array.isArray(draft.taskTemplateIds) ? [...new Set(draft.taskTemplateIds)] : [],
+  };
+}
+
+function setRoutineCreateDraft(nextDraft) {
+  state.routineCreateDraft = {
+    ...defaultRoutineCreateDraft(),
+    ...nextDraft,
+    emoji: sanitizeEmojiInput(nextDraft?.emoji ?? ""),
+    color: safeColor(nextDraft?.color ?? "#16a34a"),
+    taskTemplateIds: Array.isArray(nextDraft?.taskTemplateIds) ? [...new Set(nextDraft.taskTemplateIds)] : [],
+  };
+}
+
+function resetRoutineCreateDraft() {
+  setRoutineCreateDraft(defaultRoutineCreateDraft());
+}
+
+function syncRoutineCreateDraftFromForm(form) {
+  if (!(form instanceof HTMLFormElement) || form.dataset.form !== "routine-create") return;
+  setRoutineCreateDraft({
+    name: form.querySelector('input[name="name"]')?.value ?? "",
+    emoji: form.querySelector('input[name="emoji"]')?.value ?? "",
+    color: form.querySelector('input[name="color"]')?.value ?? "#16a34a",
+    taskTemplateIds: [...form.querySelectorAll('input[name="taskTemplateIds"]:checked')].map((input) => input.value),
+  });
 }
 
 function toggleSetEntry(set, value) {
@@ -313,6 +383,22 @@ function weekdayLabels() {
   return Array.from({ length: 7 }, (_, index) =>
     formatter.format(new Date(Date.UTC(2024, 0, 7 + index))),
   );
+}
+
+function homeMonthLabel(value) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat(state.locale, {
+    year: "numeric",
+    month: "long",
+    timeZone: "UTC",
+  }).format(new Date(`${value}T00:00:00Z`));
+}
+
+function homeWeekdayLabel(value) {
+  return new Intl.DateTimeFormat(state.locale, {
+    weekday: "short",
+    timeZone: "UTC",
+  }).format(new Date(`${value}T00:00:00Z`));
 }
 
 function percent(value) {
@@ -803,6 +889,40 @@ async function refreshAdminData() {
   state.adminLogs = logs?.logs ?? [];
 }
 
+function currentHomeDate() {
+  if (isValidDateKey(state.selectedHomeDate)) {
+    return state.selectedHomeDate;
+  }
+  if (isValidDateKey(state.today?.date ?? "")) {
+    return state.today.date;
+  }
+  return "";
+}
+
+function syncHomeDateState(date) {
+  if (!isValidDateKey(date)) {
+    return;
+  }
+  state.selectedHomeDate = date;
+  if (!state.visibleHomeWeekStart || !buildWeekDates(state.visibleHomeWeekStart).includes(date)) {
+    state.visibleHomeWeekStart = getMondayWeekStart(date);
+  }
+}
+
+function todayApiPath(date = currentHomeDate()) {
+  return isValidDateKey(date) ? `/api/today?date=${encodeURIComponent(date)}` : "/api/today";
+}
+
+async function refreshTodayData({ renderAfter = true } = {}) {
+  const today = await api(todayApiPath());
+  state.today = today;
+  syncHomeDateState(today.date);
+  if (renderAfter) {
+    render();
+  }
+  return today;
+}
+
 async function refreshAll(message = "") {
   if (plannerLocked()) {
     clearPlannerState();
@@ -817,7 +937,7 @@ async function refreshAll(message = "") {
         : `?range=${state.statsRange}`;
     const [today, routines, routineTaskTemplates, routineSets, assignments, todos, calendar, stats] =
       await Promise.all([
-        api("/api/today"),
+        api(todayApiPath()),
         api("/api/routines"),
         api("/api/routine-task-templates"),
         api("/api/routine-sets"),
@@ -834,6 +954,7 @@ async function refreshAll(message = "") {
     state.todos = todos.todos;
     state.calendar = calendar;
     state.stats = stats;
+    syncHomeDateState(today.date);
     if (state.highlightTodoId && !state.todos.some((todo) => todo.id === state.highlightTodoId)) {
       state.highlightTodoId = "";
     }
@@ -1132,102 +1253,7 @@ function renderTabs() {
 }
 
 function renderToday() {
-  return renderTodayPage();
-  const target = document.getElementById("tab-today");
-  if (!target) return;
-  if (!state.today) {
-    target.innerHTML = "";
-    return;
-  }
-  const isMobile = isMobileViewport();
-  const summary = state.today.summary;
-  const quickToggleLabel = state.isTodayQuickOpen ? t("hideCreateTodo") : t("quickAdd");
-  const activeTodoSection = state.todayTodoSection === "inbox" ? "inbox" : "due";
-  const activeTodoItems =
-    activeTodoSection === "inbox" ? state.today.todos.inbox : state.today.todos.dueToday;
-  const activeTodoEmptyMessage = activeTodoSection === "inbox" ? t("emptyInbox") : t("noDueToday");
-  const activeTodoCount = activeTodoSection === "inbox" ? summary.inboxCount : summary.dueTodayCount;
-  const overviewMarkup = isMobile
-    ? `<div class="summary-grid today-summary-grid">
-        <div class="summary-card"><span>${t("rate")}</span><strong>${percent(summary.routineRate)}</strong></div>
-        <div class="summary-card"><span>${t("focusRemainingRoutines")}</span><strong>${remainingRoutineCount()}</strong></div>
-        <div class="summary-card"><span>${t("focusTodayTodos")}</span><strong>${summary.dueTodayCount}</strong></div>
-      </div>`
-    : `<div class="summary-grid">
-        <div class="summary-card"><span>${t("rate")}</span><strong>${percent(summary.routineRate)}</strong></div>
-        <div class="summary-card"><span>${t("units")}</span><strong>${summary.completedUnits}/${summary.targetUnits}</strong></div>
-        <div class="summary-card"><span>${t("items")}</span><strong>${summary.completedItemCount}/${summary.totalItemCount}</strong></div>
-      </div>
-      <div class="today-strip top-gap">
-        <div class="content-card content-card--stat"><span>${t("focusRemainingRoutines")}</span><strong>${remainingRoutineCount()}</strong></div>
-        <div class="content-card content-card--stat"><span>${t("focusTodayTodos")}</span><strong>${summary.dueTodayCount}</strong></div>
-        <div class="content-card content-card--stat"><span>${t("inbox")}</span><strong>${summary.inboxCount}</strong></div>
-      </div>`;
-  const todoMarkup = isMobile
-    ? `<article class="panel section today-todo-panel today-todo-panel--merged">
-        <div class="section-head section-head-tight">
-          <div><p class="section-label">${t("todayTodos")}</p><h2>${t("todayTodos")}</h2></div>
-          <span class="state-pill">${activeTodoCount}</span>
-        </div>
-        <div class="segmented today-todo-switch" aria-label="${esc(t("todayTodos"))}">
-          <button class="segment-button ${activeTodoSection === "due" ? "is-selected" : ""}" type="button" data-action="today-todo-section" data-section="due" aria-pressed="${String(activeTodoSection === "due")}">${t("dueToday")} · ${summary.dueTodayCount}</button>
-          <button class="segment-button ${activeTodoSection === "inbox" ? "is-selected" : ""}" type="button" data-action="today-todo-section" data-section="inbox" aria-pressed="${String(activeTodoSection === "inbox")}">${t("inbox")} · ${summary.inboxCount}</button>
-        </div>
-        <div class="list-stack today-list-stack top-gap-sm">${activeTodoItems.length ? activeTodoItems.map((todo) => todayTodoCard(todo, activeTodoSection)).join("") : empty(activeTodoEmptyMessage, { label: t("openCreateTodo"), action: "open-todo-create" })}</div>
-      </article>`
-    : `<div class="today-todo-grid">
-        <article class="panel section today-todo-panel">
-          <div class="section-head section-head-tight"><div><p class="section-label">${t("todayTodos")}</p><h2>${t("dueToday")}</h2></div><span class="state-pill">${summary.dueTodayCount}</span></div>
-          <div class="list-stack today-list-stack">${state.today.todos.dueToday.length ? state.today.todos.dueToday.map((todo) => todayTodoCard(todo, "due")).join("") : empty(t("noDueToday"), { label: t("openCreateTodo"), action: "open-todo-create" })}</div>
-        </article>
-        <article class="panel section today-todo-panel">
-          <div class="section-head section-head-tight"><div><p class="section-label">${t("inbox")}</p><h2>${t("inbox")}</h2></div><span class="state-pill">${summary.inboxCount}</span></div>
-          <div class="list-stack today-list-stack">${state.today.todos.inbox.length ? state.today.todos.inbox.map((todo) => todayTodoCard(todo, "inbox")).join("") : empty(t("emptyInbox"), { label: t("openCreateTodo"), action: "open-todo-create" })}</div>
-        </article>
-      </div>`;
-  target.innerHTML = `<div class="today-layout">
-    <article class="panel section section-elevated today-overview-panel">
-      <div class="section-head">
-        <div>
-          <p class="section-label">${t("today")}</p>
-          <h2>${t("routineProgressForDate", { date: dateLabel(state.today.date) })}</h2>
-        </div>
-        <span class="pill">${esc(state.today.assignment.baseSetName ?? t("noSet"))}</span>
-      </div>
-      ${overviewMarkup}
-    </article>
-
-    <article class="panel section today-routines-panel">
-      <div class="section-head section-head-tight"><div><p class="section-label">${t("today")}</p><h2>${t("routines")}</h2></div><span class="state-pill">${remainingRoutineCount()}</span></div>
-      <div class="stack stack-lg">${state.today.routines.length ? state.today.routines.map(todayRoutine).join("") : empty(t("noActiveRoutines"), { label: t("openCreateRoutine"), action: "open-routine-create" })}</div>
-    </article>
-
-    ${todoMarkup}
-
-    <article class="panel section quick-entry-panel today-quick-panel">
-      <div class="section-head section-head-tight">
-        <div>
-          <p class="section-label">${t("quickAdd")}</p>
-          <h2>${t("todayQuickEntry")}</h2>
-        </div>
-        ${toggleButton("toggle-today-quick", state.isTodayQuickOpen, quickToggleLabel)}
-      </div>
-      ${state.isTodayQuickOpen ? `<form class="content-card content-card--form quick-form" data-form="todo-create-quick">
-        <div class="create-flow create-flow--compact">
-          <div class="stack">
-            <div class="form-grid">
-              <label class="field field-wide"><span>${t("title")}</span><input name="title" required /></label>
-              <label class="field"><span>${t("date")}</span><input name="dueDate" type="date" value="${esc(state.today.date)}" /></label>
-              ${emojiField("")}
-            </div>
-            ${inlineFeedback("today-quick")}
-            <div class="actions"><button class="btn" type="submit">${t("quickCreateTodo")}</button></div>
-          </div>
-          ${todoDraftPreview({ dueDate: state.today.date })}
-        </div>
-      </form>` : `<div class="content-card collapsed-summary today-quick-summary"><strong>${t("quickAdd")}</strong><p class="muted">${t("createTodoHint")}</p></div>`}
-    </article>
-  </div>`;
+  renderTodayHomePage();
 }
 
 function todayRoutine(routine) {
@@ -1861,7 +1887,120 @@ function templateUsageCount(templateId) {
   return state.routineItems?.filter?.((item) => item.templateId === templateId).length ?? 0;
 }
 
-function taskTemplateChoiceItem(template, checked = false) {
+function routeAppBar(backPath, title, copy = "", actions = "", label = "") {
+  return `<header class="route-appbar">
+    <div class="route-appbar-main">
+      <button class="route-appbar-back" type="button" data-action="go-route" data-path="${backPath}" aria-label="${esc(t("prev"))}">
+        <span aria-hidden="true">‹</span>
+      </button>
+      <div class="route-appbar-copy">
+        ${label ? `<p class="section-label">${esc(label)}</p>` : ""}
+        <h2>${esc(title)}</h2>
+        ${copy ? `<p class="muted route-appbar-note">${esc(copy)}</p>` : ""}
+      </div>
+    </div>
+    ${actions ? `<div class="route-appbar-actions">${actions}</div>` : ""}
+  </header>`;
+}
+
+function routeNavRow(action, title, copy = "", meta = "›", extraAttrs = "") {
+  return `<button class="route-list-row" type="button" data-action="${action}" ${extraAttrs}>
+    <span class="route-list-copy">
+      <strong>${esc(title)}</strong>
+      ${copy ? `<span>${esc(copy)}</span>` : ""}
+    </span>
+    <span class="route-list-meta">${esc(meta)}</span>
+  </button>`;
+}
+
+function routePathRow(path, title, copy = "", meta = "›") {
+  return routeNavRow("go-route", title, copy, meta, `data-path="${path}"`);
+}
+
+function settingsCurrentValue(control) {
+  if (control === "language") return LANGUAGE_LABELS[state.locale] ?? LANGUAGE_LABELS.ko;
+  if (control === "theme") {
+    const option = THEME_PRESET_OPTIONS.find((entry) => entry.value === state.themePreset) ?? THEME_PRESET_OPTIONS[0];
+    return t(option.labelKey);
+  }
+  if (control === "density") {
+    const option = DENSITY_OPTIONS.find((entry) => entry.value === state.density) ?? DENSITY_OPTIONS[0];
+    return t(option.labelKey);
+  }
+  return "";
+}
+
+function settingsInlineSelect(control) {
+  if (control === "language") {
+    return `<div class="settings-inline-editor">
+      <select id="language-select" aria-label="${esc(t("language"))}">
+        ${Object.entries(LANGUAGE_LABELS)
+          .map(([value, label]) => `<option value="${value}" ${state.locale === value ? "selected" : ""}>${esc(label)}</option>`)
+          .join("")}
+      </select>
+    </div>`;
+  }
+  if (control === "theme") {
+    return `<div class="settings-inline-editor">
+      <select id="theme-select" aria-label="${esc(t("theme"))}">
+        ${THEME_PRESET_OPTIONS.map((option) => `<option value="${option.value}" ${state.themePreset === option.value ? "selected" : ""}>${esc(t(option.labelKey))}</option>`).join("")}
+      </select>
+    </div>`;
+  }
+  return `<div class="settings-inline-editor">
+    <select id="density-select" aria-label="${esc(t("density"))}">
+      ${DENSITY_OPTIONS.map((option) => `<option value="${option.value}" ${state.density === option.value ? "selected" : ""}>${esc(t(option.labelKey))}</option>`).join("")}
+    </select>
+  </div>`;
+}
+
+function settingsControlRow(control, label) {
+  const open = state.settingsExpandedControl === control;
+  return `<div class="route-list-stack-item ${open ? "is-open" : ""}">
+    ${routeNavRow("toggle-settings-control", label, "", settingsCurrentValue(control), `data-control="${control}" aria-expanded="${String(open)}"`)}
+    ${open ? settingsInlineSelect(control) : ""}
+  </div>`;
+}
+
+function legacyTrackingSummaryText(trackingType, targetCount) {
+  return `${trackingTypeLabel(trackingType)} · ${targetCount}${trackingUnitLabel(trackingType)}`;
+}
+
+function legacyRoutineTaskTemplateListItem(template) {
+  const usageCount = state.routines.reduce(
+    (sum, routine) => sum + routine.items.filter((item) => item.templateId === template.id).length,
+    0,
+  );
+  const expanded = state.expandedRoutineTaskTemplateIds.has(template.id);
+  return `<article class="route-list-card ${template.isArchived ? "is-muted" : ""}">
+    <button class="route-list-row route-list-row--wide" type="button" data-action="toggle-routine-task-template" data-id="${template.id}" aria-expanded="${String(expanded)}">
+      <span class="route-list-copy">
+        <strong>${esc(template.title)}</strong>
+        <span>${esc(trackingSummaryText(template.trackingType, template.targetCount))}</span>
+      </span>
+      <span class="route-list-side">
+        <span class="state-pill ${template.isArchived ? "" : "is-success"}">${esc(template.isArchived ? t("archived") : t("active"))}</span>
+        <span class="state-pill">${usageCount}${t("items")}</span>
+        <span class="route-list-meta">${expanded ? "−" : "+"}</span>
+      </span>
+    </button>
+    ${expanded ? `<form class="route-inline-form" data-form="routine-task-template-update" data-id="${template.id}">
+      <div class="form-grid">
+        <label class="field field-wide"><span>${t("itemName")}</span><input name="title" required value="${esc(template.title)}" /></label>
+        <label class="field"><span>${t("type")}</span><select name="trackingType">${renderTrackingTypeOptions(template.trackingType)}</select></label>
+        <label class="field" data-role="target-field"><span>${t("targetValue")}</span>${targetInput("targetCount", template.trackingType, template.targetCount)}</label>
+        <label class="field"><span>${t("status")}</span><select name="isArchived"><option value="false" ${template.isArchived ? "" : "selected"}>${t("active")}</option><option value="true" ${template.isArchived ? "selected" : ""}>${t("archived")}</option></select></label>
+      </div>
+      ${inlineFeedback(`routine-task-template-${template.id}`)}
+      <div class="actions">
+        <button class="btn-soft" type="submit">${t("saveItem")}</button>
+        <button class="btn-danger" type="button" data-action="delete-routine-task-template" data-id="${template.id}">${t("delete")}</button>
+      </div>
+    </form>` : ""}
+  </article>`;
+}
+
+function legacyTaskTemplateChoiceItem(template, checked = false) {
   return `<label class="choice-item choice-item--template">
     <input type="checkbox" name="taskTemplateIds" value="${template.id}" ${checked ? "checked" : ""} />
     <span class="choice-copy">
@@ -1930,7 +2069,7 @@ function routineTaskTemplateCard(template) {
   </form>`;
 }
 
-function routineTaskTemplateCreateForm() {
+function legacyRoutineTaskTemplateCreateForm() {
   return `<form class="content-card content-card--form" data-form="routine-task-template-create">
     <div class="form-grid">
       <label class="field field-wide"><span>${t("itemName")}</span><input name="title" required /></label>
@@ -1960,7 +2099,383 @@ function routineHomeEmptyState() {
   </article>`;
 }
 
-function renderSettingsPage() {
+function trackingSummaryText(trackingType, targetCount) {
+  return `${trackingTypeLabel(trackingType)} / ${targetCount}${trackingUnitLabel(trackingType)}`;
+}
+
+function taskTemplateChoiceItem(template, checked = false) {
+  return `<label class="choice-item choice-item--template route-selection-row">
+    <input type="checkbox" name="taskTemplateIds" value="${template.id}" ${checked ? "checked" : ""} />
+    <span class="choice-copy">
+      <strong>${esc(template.title)}</strong>
+      <span>${esc(trackingSummaryText(template.trackingType, template.targetCount))}</span>
+    </span>
+    <span class="state-pill">${esc(trackingTypeLabel(template.trackingType))}</span>
+  </label>`;
+}
+
+function routineTaskTemplateCreateForm(options = {}) {
+  const contextAttr = options.context ? ` data-context="${options.context}"` : "";
+  const formClass = options.compact
+    ? "content-card content-card--form route-inline-create-form"
+    : "content-card content-card--form";
+  const submitClass = options.submitClass ?? (options.compact ? "btn-soft" : "btn");
+  return `<form class="${formClass}" data-form="routine-task-template-create"${contextAttr}>
+    <div class="form-grid">
+      <label class="field field-wide"><span>${t("itemName")}</span><input name="title" required /></label>
+      <label class="field"><span>${t("type")}</span><select name="trackingType">${renderTrackingTypeOptions("binary")}</select></label>
+      <label class="field" data-role="target-field"><span>${t("targetValue")}</span>${targetInput("targetCount", "binary", 1)}</label>
+    </div>
+    ${trackingGuide()}
+    ${inlineFeedback("routine-task-template-create")}
+    <div class="actions"><button class="${submitClass}" type="submit">${t("addItem")}</button></div>
+  </form>`;
+}
+
+function routineTaskTemplateListItem(template) {
+  const usageCount = state.routines.reduce(
+    (sum, routine) => sum + routine.items.filter((item) => item.templateId === template.id).length,
+    0,
+  );
+  const expanded = state.expandedRoutineTaskTemplateIds.has(template.id);
+  return `<article class="route-list-card ${template.isArchived ? "is-muted" : ""}">
+    <button class="route-list-row route-list-row--wide" type="button" data-action="toggle-routine-task-template" data-id="${template.id}" aria-expanded="${String(expanded)}">
+      <span class="route-list-copy">
+        <strong>${esc(template.title)}</strong>
+        <span>${esc(trackingSummaryText(template.trackingType, template.targetCount))}</span>
+      </span>
+      <span class="route-list-side">
+        <span class="state-pill ${template.isArchived ? "" : "is-success"}">${esc(template.isArchived ? t("archived") : t("active"))}</span>
+        <span class="state-pill">${usageCount}${t("items")}</span>
+        <span class="route-list-meta">${expanded ? "-" : "+"}</span>
+      </span>
+    </button>
+    ${expanded ? `<form class="route-inline-form" data-form="routine-task-template-update" data-id="${template.id}">
+      <div class="form-grid">
+        <label class="field field-wide"><span>${t("itemName")}</span><input name="title" required value="${esc(template.title)}" /></label>
+        <label class="field"><span>${t("type")}</span><select name="trackingType">${renderTrackingTypeOptions(template.trackingType)}</select></label>
+        <label class="field" data-role="target-field"><span>${t("targetValue")}</span>${targetInput("targetCount", template.trackingType, template.targetCount)}</label>
+        <label class="field"><span>${t("status")}</span><select name="isArchived"><option value="false" ${template.isArchived ? "" : "selected"}>${t("active")}</option><option value="true" ${template.isArchived ? "selected" : ""}>${t("archived")}</option></select></label>
+      </div>
+      ${inlineFeedback(`routine-task-template-${template.id}`)}
+      <div class="actions">
+        <button class="btn-soft" type="submit">${t("saveItem")}</button>
+        <button class="btn-danger" type="button" data-action="delete-routine-task-template" data-id="${template.id}">${t("delete")}</button>
+      </div>
+    </form>` : ""}
+  </article>`;
+}
+
+function routineCreateFields(draft) {
+  return `<div class="create-flow route-create-flow">
+    <div class="stack">
+      <label class="field field-wide route-title-field">
+        <span>${t("name")}</span>
+        <input name="name" required value="${esc(draft.name ?? "")}" />
+      </label>
+      <div class="form-grid route-meta-grid">
+        ${emojiField(draft.emoji ?? "")}
+        <label class="field field-color route-color-field">
+          <span>${t("color")}</span>
+          <div class="color-input-shell"><input class="color-input" name="color" type="color" value="${esc(draft.color ?? "#16a34a")}" /></div>
+          ${colorSwatches(draft.color ?? "#16a34a")}
+        </label>
+      </div>
+    </div>
+    ${routineDraftPreview(draft)}
+  </div>`;
+}
+
+function routineSetCreateChoiceRow(routine, checked = false) {
+  return `<label class="choice-item route-selection-row route-selection-row--routine">
+    <input type="checkbox" name="routineIds" value="${routine.id}" ${checked ? "checked" : ""} />
+    ${emojiBadge(routine.emoji)}
+    <span class="choice-copy">
+      <strong>${esc(routine.name)}</strong>
+      <span>${t("itemsCount", { count: routine.items.length })}</span>
+    </span>
+    <span class="state-pill ${routine.isArchived ? "" : "is-success"}">${t(routine.isArchived ? "archived" : "active")}</span>
+  </label>`;
+}
+
+function homeQuickForm() {
+  return `<form class="content-card content-card--form home-quick-form" data-form="todo-create-quick">
+    <div class="stack">
+      <div class="form-grid">
+        <label class="field field-wide"><span>${t("title")}</span><input name="title" required /></label>
+        <label class="field"><span>${t("date")}</span><input name="dueDate" type="date" value="${esc(currentHomeDate() || state.today?.date || "")}" /></label>
+        ${emojiField("")}
+      </div>
+      ${inlineFeedback("today-quick")}
+      <div class="actions"><button class="btn" type="submit">${t("quickCreateTodo")}</button></div>
+    </div>
+  </form>`;
+}
+
+function homeBoardModeButton(mode, label) {
+  const selected = state.homeBoardMode === mode;
+  return `<button class="segment-button ${selected ? "is-selected" : ""}" type="button" data-action="set-home-board-mode" data-mode="${mode}" aria-pressed="${String(selected)}">${esc(label)}</button>`;
+}
+
+function homeContextChip(label, value, className = "") {
+  const classes = ["home-context-chip", className].filter(Boolean).join(" ");
+  return `<div class="${classes}"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
+}
+
+function homeRoutineEmptyState() {
+  return `<div class="home-board-empty">
+    <p>${esc(t("noActiveRoutines"))}</p>
+    <div class="actions actions-center">
+      <button class="btn-soft compact-action" type="button" data-action="open-routine-task-library">${esc(state.locale === "ko" ? "할일 라이브러리" : "Task Library")}</button>
+      <button class="btn-soft compact-action" type="button" data-action="open-routine-create">${esc(t("createRoutine"))}</button>
+      <button class="btn-soft compact-action" type="button" data-action="open-routine-set-create">${esc(t("createSet"))}</button>
+    </div>
+  </div>`;
+}
+
+function homeTodoEmptyState() {
+  return `<div class="home-board-empty">
+    <p>${esc(t("noTodos"))}</p>
+    <div class="actions actions-center">
+      <button class="btn-soft compact-action" type="button" data-action="toggle-home-quick">${esc(t("quickAdd"))}</button>
+    </div>
+  </div>`;
+}
+
+function homeRoutineGroupRow(routine, order) {
+  const hideCompleted = isMobileViewport()
+    ? !state.revealedCompletedRoutineIds.has(routine.id)
+    : state.collapsedRoutineCompletedIds.has(routine.id);
+  const completedCount = routine.items.filter((item) => item.isComplete).length;
+  const visibleItems = hideCompleted ? routine.items.filter((item) => !item.isComplete) : routine.items;
+
+  return `<div class="home-board-group ${isPending(`routine-${routine.id}`) ? "is-pending" : ""}"${accentStyle(routine.color)}>
+    <div class="home-board-row home-board-row--group">
+      <div class="home-board-cell home-board-cell--index"><span class="home-order-badge">${order}</span></div>
+      <div class="home-board-cell home-board-cell--main">
+        <div class="home-routine-main">
+          ${emojiBadge(routine.emoji)}
+          <span class="home-routine-accent"></span>
+          <div>
+            <strong>${esc(routine.name)}</strong>
+            <span class="muted">${esc(`${routine.progress.completedUnits}/${routine.progress.targetUnits}`)}</span>
+          </div>
+        </div>
+      </div>
+      <div class="home-board-cell home-board-cell--status">
+        <span class="pill tag-teal">${percent(routine.progress.rate)}</span>
+        ${completedCount ? `<button class="btn-soft compact-action" type="button" data-action="toggle-completed-items" data-routine-id="${routine.id}" aria-pressed="${String(hideCompleted)}">${hideCompleted ? t("showCompleted") : t("hideCompleted")}</button>` : ""}
+      </div>
+    </div>
+    ${inlineFeedback(`routine-${routine.id}`)}
+    ${visibleItems.length ? visibleItems.map((item) => homeRoutineItemRow(routine.id, item)).join("") : `<div class="home-board-row home-board-row--empty"><div class="home-board-cell home-board-cell--main">${esc(t("allCompletedHidden"))}</div></div>`}
+  </div>`;
+}
+
+function homeRoutineItemRow(routineId, item) {
+  const meta =
+    item.trackingType === "binary"
+      ? trackingTypeLabel(item.trackingType)
+      : `${item.targetCount}${trackingUnitLabel(item.trackingType)}`;
+
+  if (item.trackingType === "binary") {
+    return `<div class="home-board-row home-board-row--item ${item.isComplete ? "is-complete" : ""}">
+      <div class="home-board-cell home-board-cell--index">${item.sortOrder}</div>
+      <div class="home-board-cell home-board-cell--main">
+        <div class="home-item-copy">
+          <strong>${esc(item.title)}</strong>
+          <span class="muted">${esc(meta)}</span>
+        </div>
+      </div>
+      <div class="home-board-cell home-board-cell--status">
+        <label class="home-binary-toggle">
+          <input type="checkbox" data-action="toggle-binary" data-routine-id="${routineId}" data-item-id="${item.id}" ${item.currentCount >= 1 ? "checked" : ""} ${isPending(`routine-${routineId}`) ? "disabled" : ""} />
+          <span class="state-pill ${item.isComplete ? "is-success" : ""}">${item.isComplete ? t("done") : t("open")}</span>
+        </label>
+      </div>
+    </div>`;
+  }
+
+  return `<div class="home-board-row home-board-row--item ${item.isComplete ? "is-complete" : ""}">
+    <div class="home-board-cell home-board-cell--index">${item.sortOrder}</div>
+    <div class="home-board-cell home-board-cell--main">
+      <div class="home-item-copy">
+        <strong>${esc(item.title)}</strong>
+        <span class="muted">${esc(meta)}</span>
+      </div>
+    </div>
+    <div class="home-board-cell home-board-cell--status">
+      <div class="home-counter">
+        <button class="counter-button" type="button" data-action="adjust-progress" data-direction="-1" data-routine-id="${routineId}" data-item-id="${item.id}" aria-label="${esc(`${t("decrease")} ${item.title}`)}"${disabledAttr(`routine-${routineId}`)}>-</button>
+        <strong class="home-counter-value ${item.isComplete ? "is-complete" : ""}">${esc(compactTrackingValue(item))}</strong>
+        <button class="counter-button" type="button" data-action="adjust-progress" data-direction="1" data-routine-id="${routineId}" data-item-id="${item.id}" aria-label="${esc(`${t("increase")} ${item.title}`)}"${disabledAttr(`routine-${routineId}`)}>+</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function homeTodoGroup(title, todos, typeLabel) {
+  if (!todos.length) {
+    return "";
+  }
+
+  return `<div class="home-board-group">
+    <div class="home-board-row home-board-row--group home-board-row--todo-group">
+      <div class="home-board-cell home-board-cell--index"><span class="home-order-badge">${esc(typeLabel)}</span></div>
+      <div class="home-board-cell home-board-cell--main"><strong>${esc(title)}</strong></div>
+      <div class="home-board-cell home-board-cell--status"><span class="state-pill">${todos.length}</span></div>
+    </div>
+    ${todos.map((todo, index) => homeTodoItemRow(todo, typeLabel, index + 1)).join("")}
+  </div>`;
+}
+
+function homeTodoItemRow(todo, typeLabel, order) {
+  const isDone = todo.status === "done";
+  const rowClasses = ["home-board-row", "home-board-row--item", "home-board-row--todo"];
+  if (todo.status === "done") rowClasses.push("is-complete");
+  if (state.highlightTodoId === todo.id) rowClasses.push("is-highlight");
+  if (isPending(`todo-${todo.id}`)) rowClasses.push("is-pending");
+
+  const moveAction = typeLabel === t("dueToday") ? "move-todo-tomorrow" : "move-todo-today";
+  const moveLabel = typeLabel === t("dueToday") ? t("moveTomorrow") : t("planToday");
+
+  return `<div class="${rowClasses.join(" ")}">
+    <div class="home-board-cell home-board-cell--index">
+      <span class="home-order-badge home-order-badge--plain">${order}</span>
+      <span class="home-todo-kind">${esc(typeLabel)}</span>
+    </div>
+    <div class="home-board-cell home-board-cell--main">
+      <div class="home-item-copy">
+        <div class="home-todo-title">${emojiBadge(todo.emoji)}<strong>${esc(todo.title)}</strong></div>
+        <span class="muted">${esc(describeTodoDue(todo.dueDate))}</span>
+      </div>
+    </div>
+    <div class="home-board-cell home-board-cell--status">
+      <span class="state-pill ${isDone ? "is-success" : ""}">${todoStatusLabel(todo.status)}</span>
+      ${isDone ? "" : `<div class="inline-actions">
+        <button class="btn-soft compact-action" type="button" data-action="complete-todo" data-id="${todo.id}"${disabledAttr(`todo-${todo.id}`)}>${t("done")}</button>
+        <button class="btn-soft compact-action" type="button" data-action="${moveAction}" data-id="${todo.id}"${disabledAttr(`todo-${todo.id}`)}>${moveLabel}</button>
+      </div>`}
+    </div>
+  </div>`;
+}
+
+function renderHomeRoutinesBoard() {
+  if (!state.today?.routines.length) {
+    return homeRoutineEmptyState();
+  }
+
+  return state.today.routines.map((routine, index) => homeRoutineGroupRow(routine, index + 1)).join("");
+}
+
+function renderHomeTodosBoard() {
+  const dueToday = state.today?.todos.dueToday ?? [];
+  const inbox = state.today?.todos.inbox ?? [];
+
+  if (!dueToday.length && !inbox.length) {
+    return homeTodoEmptyState();
+  }
+
+  return [homeTodoGroup(t("dueToday"), dueToday, t("dueToday")), homeTodoGroup(t("inbox"), inbox, t("inbox"))]
+    .filter(Boolean)
+    .join("");
+}
+
+function renderTodayHomePage() {
+  const target = document.getElementById("tab-today");
+  if (!target || !state.today) return;
+
+  syncHomeDateState(state.today.date);
+  const selectedDate = currentHomeDate() || state.today.date;
+  const weekDates = buildWeekDates(state.visibleHomeWeekStart || selectedDate);
+  const summary = state.today.summary;
+  const isMobile = isMobileViewport();
+  const boardMode = state.homeBoardMode === "todos" ? "todos" : "routines";
+  const localToday = dateKeyFromMonth(monthKey(new Date()), new Date().getDate());
+  const topActions = [
+    routeActionButton("toggle-home-quick", t("quickAdd")),
+    routeActionButton("open-routine-create", t("createRoutine")),
+  ].join("");
+
+  target.innerHTML = `<div class="today-home-layout">
+    <article class="panel section today-home-topbar">
+      <div class="today-home-topbar-main">
+        <p class="section-label">${esc(homeWeekdayLabel(selectedDate))}</p>
+        <h2>${esc(homeMonthLabel(selectedDate))}</h2>
+        <p class="muted today-home-date-copy">${esc(dateLabel(selectedDate))}</p>
+      </div>
+      <div class="today-home-topbar-side">
+        <span class="pill">${esc(`🔥 ${state.stats?.summary.currentStreak ?? 0}${t("days")}`)}</span>
+        <div class="inline-actions today-home-topbar-actions">${topActions}</div>
+      </div>
+    </article>
+
+    <article class="panel section today-home-week">
+      <div class="row-between today-home-week-head">
+        <button class="btn-soft compact-action" type="button" data-action="shift-home-week" data-direction="-1">${t("prev")}</button>
+        <strong>${esc(homeMonthLabel(selectedDate))}</strong>
+        <button class="btn-soft compact-action" type="button" data-action="shift-home-week" data-direction="1">${t("next")}</button>
+      </div>
+      <div class="today-home-week-grid">
+        ${weekDates
+          .map((date) => {
+            const selected = date === selectedDate;
+            const isToday = date === localToday;
+            return `<button class="today-home-day ${selected ? "is-selected" : ""} ${isToday ? "is-today" : ""}" type="button" data-action="select-home-date" data-date="${date}">
+              <span>${esc(homeWeekdayLabel(date))}</span>
+              <strong>${Number(date.slice(-2))}</strong>
+            </button>`;
+          })
+          .join("")}
+      </div>
+    </article>
+
+    <div class="today-home-context">
+      ${homeContextChip(t("heroSet"), state.today.assignment.baseSetName ?? t("noSet"))}
+      ${homeContextChip(t("rate"), percent(summary.routineRate), "is-accent")}
+      ${homeContextChip(
+        boardMode === "routines" ? t("focusRemainingRoutines") : t("focusTodayTodos"),
+        String(boardMode === "routines" ? remainingRoutineCount() : summary.dueTodayCount + summary.inboxCount),
+      )}
+    </div>
+
+    <div class="segmented today-home-mode-switch" aria-label="${esc(t("today"))}">
+      ${homeBoardModeButton("routines", t("routines"))}
+      ${homeBoardModeButton("todos", t("todos"))}
+    </div>
+
+    ${!isMobile && state.isHomeQuickCreateOpen ? `<article class="panel section today-home-quick-inline">
+      <div class="section-head section-head-tight">
+        <div><p class="section-label">${t("quickAdd")}</p><h2>${t("todayQuickEntry")}</h2></div>
+        ${routeActionButton("toggle-home-quick", t("hideCreateTodo"))}
+      </div>
+      ${homeQuickForm()}
+    </article>` : ""}
+
+    <article class="panel section today-home-board">
+      <div class="today-home-board-head">
+        <span>${boardMode === "routines" ? t("sortOrder") : t("type")}</span>
+        <span>${t("title")}</span>
+        <span>${t("status")}</span>
+      </div>
+      <div class="today-home-board-body">
+        ${boardMode === "routines" ? renderHomeRoutinesBoard() : renderHomeTodosBoard()}
+      </div>
+    </article>
+
+    ${isMobile ? `<button class="home-fab" type="button" data-action="toggle-home-quick" aria-label="${esc(t("quickAdd"))}">+</button>` : ""}
+    ${isMobile && state.isHomeQuickCreateOpen ? `<div class="home-sheet-backdrop" data-action="close-home-quick"></div>
+      <aside class="home-sheet" aria-label="${esc(t("todayQuickEntry"))}">
+        <div class="section-head section-head-tight">
+          <div><p class="section-label">${t("quickAdd")}</p><h2>${t("todayQuickEntry")}</h2></div>
+          ${routeActionButton("close-home-quick", t("hideCreateTodo"))}
+        </div>
+        ${homeQuickForm()}
+      </aside>` : ""}
+  </div>`;
+}
+
+function legacyRenderSettingsPage() {
   const target = document.getElementById("tab-settings");
   if (!target) return;
   target.innerHTML = `<div class="settings-layout">
@@ -2017,6 +2532,55 @@ function renderSettingsPage() {
   </div>`;
 }
 
+function renderSettingsPage() {
+  const target = document.getElementById("tab-settings");
+  if (!target) return;
+  target.innerHTML = `<div class="route-screen-layout route-screen-layout--settings">
+    ${routeAppBar(
+      "/today",
+      t("settings"),
+      state.locale === "ko"
+        ? "현재 동작하는 설정과 관리 진입만 정리했습니다."
+        : "Only active settings and working management entry points are shown here.",
+      routeActionButton("open-routine-task-library", state.locale === "ko" ? "할일 라이브러리" : "Task Library"),
+      t("settings"),
+    )}
+    <article class="panel section route-section-card">
+      <div class="route-section-heading">
+        <p class="section-label">${t("displaySettings")}</p>
+        <h3>${state.locale === "ko" ? "표시 설정" : "Display"}</h3>
+      </div>
+      <div class="route-list-stack">
+        ${settingsControlRow("language", t("language"))}
+        ${settingsControlRow("theme", t("theme"))}
+        ${settingsControlRow("density", t("density"))}
+      </div>
+    </article>
+    <article class="panel section route-section-card">
+      <div class="route-section-heading">
+        <p class="section-label">${t("manageMenu")}</p>
+        <h3>${state.locale === "ko" ? "플래너 흐름" : "Planner Flow"}</h3>
+      </div>
+      <div class="route-list-stack">
+        ${routePathRow("/routine-tasks", state.locale === "ko" ? "루틴용 할일 라이브러리" : "Routine Task Library", state.locale === "ko" ? "루틴이 참조하는 저장된 할일을 관리합니다." : "Manage reusable tasks that routines reference.")}
+        ${routePathRow("/routines/new", state.locale === "ko" ? "루틴 만들기" : "Create Routine", state.locale === "ko" ? "저장된 할일을 선택해 루틴을 구성합니다." : "Build a routine from saved tasks.")}
+        ${routePathRow("/routine-sets/new", state.locale === "ko" ? "세트 만들기" : "Create Set", state.locale === "ko" ? "저장된 루틴을 묶어 세트를 만듭니다." : "Bundle routines into a set.")}
+        ${routeNavRow("open-todo-create", t("todos"), state.locale === "ko" ? "일회성 할 일을 따로 관리합니다." : "Go to the one-off todo workspace.")}
+      </div>
+    </article>
+    ${state.authAvailable ? `<article class="panel section route-section-card">
+      <div class="route-section-heading">
+        <p class="section-label">${t("account")}</p>
+        <h3>${state.locale === "ko" ? "계정 및 관리" : "Account And Admin"}</h3>
+      </div>
+      <div class="route-list-stack">
+        ${routeNavRow("open-account", t("accountWorkspace"), state.locale === "ko" ? "계정과 결제 상태를 확인합니다." : "View account and billing details.")}
+        ${canAccessAdmin() ? routeNavRow("open-admin-workspace", t("adminWorkspace"), state.locale === "ko" ? "운영 계정과 접근 상태를 관리합니다." : "Manage operations and user access.") : ""}
+      </div>
+    </article>` : ""}
+  </div>`;
+}
+
 function renderTodayPage() {
   const target = document.getElementById("tab-today");
   if (!target || !state.today) return;
@@ -2060,7 +2624,7 @@ function renderTodayPage() {
   </div>`;
 }
 
-function renderRoutinesPage() {
+function legacyRenderRoutinesPage() {
   const target = document.getElementById("tab-routines");
   if (!target) return;
 
@@ -2161,11 +2725,188 @@ function renderRoutinesPage() {
   </div>`;
 }
 
+function renderRoutinesPage() {
+  const target = document.getElementById("tab-routines");
+  if (!target) return;
+
+  if (state.routeScreen === "task-library") {
+    const activeTemplates = state.routineTaskTemplates.filter((template) => !template.isArchived);
+    const archivedTemplates = state.routineTaskTemplates.filter((template) => template.isArchived);
+    target.innerHTML = `<div class="route-screen-layout route-screen-layout--library">
+      ${routeAppBar(
+        "/routines",
+        state.locale === "ko" ? "루틴용 할일 라이브러리" : "Routine Task Library",
+        state.locale === "ko"
+          ? "루틴은 여기 저장된 할일을 골라 묶는 방식으로 구성합니다."
+          : "Routines are composed by selecting the reusable tasks saved here.",
+        routeActionButton("open-routine-create", t("createRoutine")),
+        state.locale === "ko" ? "루틴용 할일" : "Routine Tasks",
+      )}
+      <article class="panel section route-section-card">
+        <div class="route-section-heading">
+          <p class="section-label">${t("addItem")}</p>
+          <h3>${state.locale === "ko" ? "새 할일 저장" : "Save A Task"}</h3>
+        </div>
+        ${routineTaskTemplateCreateForm()}
+      </article>
+      <article class="panel section route-section-card">
+        <div class="route-section-heading">
+          <p class="section-label">${t("manageItems")}</p>
+          <h3>${state.locale === "ko" ? "저장된 할일" : "Saved Tasks"}</h3>
+        </div>
+        <div class="route-list-stack">
+          ${activeTemplates.length
+            ? activeTemplates.map(routineTaskTemplateListItem).join("")
+            : empty(state.locale === "ko" ? "저장된 루틴용 할일이 없습니다." : "No routine tasks saved yet.")}
+        </div>
+      </article>
+      ${archivedTemplates.length ? `<article class="panel section route-section-card route-section-card--muted">
+        <div class="route-section-heading">
+          <p class="section-label">${t("archived")}</p>
+          <h3>${state.locale === "ko" ? "보관된 할일" : "Archived Tasks"}</h3>
+        </div>
+        <div class="route-list-stack">
+          ${archivedTemplates.map(routineTaskTemplateListItem).join("")}
+        </div>
+      </article>` : ""}
+    </div>`;
+    return;
+  }
+
+  if (state.routeScreen === "routine-create") {
+    const draft = getRoutineCreateDraft();
+    const activeTemplates = state.routineTaskTemplates.filter((template) => !template.isArchived);
+    const selectedTemplateIds = new Set(
+      draft.taskTemplateIds.filter((templateId) => activeTemplates.some((template) => template.id === templateId)),
+    );
+    target.innerHTML = `<div class="route-screen-layout route-screen-layout--creator">
+      ${routeAppBar(
+        "/routines",
+        state.locale === "ko" ? "루틴 만들기" : "Create Routine",
+        state.locale === "ko"
+          ? "루틴 이름을 정하고 저장된 할일을 선택해 루틴을 구성합니다."
+          : "Enter routine metadata and choose from saved routine tasks.",
+        routeActionButton("open-routine-task-library", state.locale === "ko" ? "할일 라이브러리" : "Task Library"),
+        t("createRoutine"),
+      )}
+      <form id="routine-create-form" class="route-form-stack" data-form="routine-create">
+        <article class="panel section route-section-card route-section-card--creator">
+          ${routineCreateFields(draft)}
+        </article>
+        <article class="panel section route-section-card route-section-card--creator">
+          <div class="route-section-heading">
+            <p class="section-label">${t("manageItems")}</p>
+            <h3>${state.locale === "ko" ? "저장된 할일 선택" : "Select Saved Tasks"}</h3>
+          </div>
+          <div class="route-list-stack">
+            ${activeTemplates.length
+              ? activeTemplates.map((template) => taskTemplateChoiceItem(template, selectedTemplateIds.has(template.id))).join("")
+              : empty(
+                  state.locale === "ko" ? "먼저 루틴용 할일을 만들어야 합니다." : "Create routine tasks first.",
+                  { label: state.locale === "ko" ? "할일 만들기" : "Create Tasks", action: "open-routine-task-library" },
+                )}
+          </div>
+          ${inlineFeedback("routine-create")}
+        </article>
+      </form>
+      <article class="panel section route-section-card route-section-card--inline">
+        <div class="route-inline-head">
+          <div>
+            <p class="section-label">${t("addItem")}</p>
+            <h3>${state.locale === "ko" ? "같은 화면에서 새 할일 추가" : "Quick Add Task"}</h3>
+          </div>
+          ${routeActionButton(
+            "toggle-routine-task-template-create",
+            state.isRoutineQuickTaskCreateOpen
+              ? state.locale === "ko"
+                ? "접기"
+                : "Hide"
+              : state.locale === "ko"
+                ? "할일 추가"
+                : "Add Task",
+          )}
+        </div>
+        ${state.isRoutineQuickTaskCreateOpen
+          ? routineTaskTemplateCreateForm({ compact: true, context: "routine-create", submitClass: "btn-soft" })
+          : `<p class="muted route-inline-copy">${state.locale === "ko" ? "빠르게 새 할일을 저장하면 바로 위 목록에 추가되고 자동 선택됩니다." : "A new task saved here will be added to the list above and selected automatically."}</p>`}
+      </article>
+      <div class="route-sticky-footer">
+        <button class="btn route-sticky-button" form="routine-create-form" type="submit">${t("createRoutine")}</button>
+      </div>
+    </div>`;
+    return;
+  }
+
+  if (state.routeScreen === "routine-set-create") {
+    target.innerHTML = `<div class="route-screen-layout route-screen-layout--creator">
+      ${routeAppBar(
+        "/routines",
+        state.locale === "ko" ? "세트 만들기" : "Create Set",
+        state.locale === "ko"
+          ? "저장된 루틴을 선택해 평소 사용할 세트를 만듭니다."
+          : "Build a set by selecting existing routines.",
+        routeActionButton("open-routine-create", t("createRoutine")),
+        t("createSet"),
+      )}
+      <form id="routine-set-create-form" class="route-form-stack" data-form="routine-set-create">
+        <article class="panel section route-section-card route-section-card--creator">
+          <div class="route-section-heading">
+            <p class="section-label">${t("createSet")}</p>
+            <h3>${state.locale === "ko" ? "세트 이름" : "Set Name"}</h3>
+          </div>
+          <label class="field field-wide route-title-field">
+            <span>${t("setName")}</span>
+            <input name="name" required />
+          </label>
+        </article>
+        <article class="panel section route-section-card route-section-card--creator">
+          <div class="route-section-heading">
+            <p class="section-label">${t("routines")}</p>
+            <h3>${state.locale === "ko" ? "루틴 선택" : "Select Routines"}</h3>
+          </div>
+          <div class="route-list-stack">
+            ${state.routines.length
+              ? state.routines.map((routine) => routineSetCreateChoiceRow(routine)).join("")
+              : empty(t("noRoutines"), { label: t("createRoutine"), action: "open-routine-create" })}
+          </div>
+          ${inlineFeedback("routine-set-create")}
+        </article>
+      </form>
+      <div class="route-sticky-footer">
+        <button class="btn route-sticky-button" form="routine-set-create-form" type="submit">${t("createSet")}</button>
+      </div>
+    </div>`;
+    return;
+  }
+
+  target.innerHTML = `<div class="route-page-grid">
+    ${pageHero(
+      t("routines"),
+      state.locale === "ko" ? "루틴 워크스페이스" : "Routine Workspace",
+      state.locale === "ko" ? "생성 흐름은 분리하고, 저장된 할일을 바탕으로 루틴을 구성합니다." : "Creation flows are separated, and routines are composed from saved tasks.",
+      [
+        routeActionButton("open-routine-task-library", state.locale === "ko" ? "할일 라이브러리" : "Task Library"),
+        routeActionButton("open-routine-create", t("createRoutine")),
+        routeActionButton("open-routine-set-create", t("createSet")),
+      ].join(""),
+    )}
+    <article class="panel section">
+      <div class="section-head"><div><p class="section-label">${t("routineEditor")}</p><h2>${t("routines")}</h2></div></div>
+      <div class="stack">${state.routines.length ? state.routines.map(routineSummaryCard).join("") : empty(t("noRoutines"), { label: t("createRoutine"), action: "open-routine-create" })}</div>
+    </article>
+    <article class="panel section">
+      <div class="section-head"><div><p class="section-label">${t("routineSetsHeading")}</p><h2>${t("routineSetsHeading")}</h2></div></div>
+      <div class="stack">${state.routineSets.length ? state.routineSets.map(routineSetSummaryCard).join("") : empty(t("noRoutineSets"), { label: t("createSet"), action: "open-routine-set-create" })}</div>
+    </article>
+  </div>`;
+}
+
 function renderHeroPanel() {
   const header = document.querySelector(".app-header");
   if (header) {
-    header.hidden = state.activeTab !== "today";
+    header.hidden = true;
   }
+  return;
   if (state.activeTab !== "today") {
     return;
   }
@@ -2429,6 +3170,7 @@ async function onSubmit(event) {
     }
     if (form.dataset.form === "routine-create") {
       return runPending("routine-create", async () => {
+        syncRoutineCreateDraftFromForm(form);
         await api("/api/routines", {
           method: "POST",
           body: JSON.stringify({
@@ -2439,12 +3181,21 @@ async function onSubmit(event) {
           }),
         });
         syncRouteState("/routines");
-        await finishSuccess("createRoutineDone", { inlineScope: "routine-create" });
+        await finishSuccess("createRoutineDone", {
+          inlineScope: "routine-create",
+          onBeforeRefresh() {
+            resetRoutineCreateDraft();
+            state.isRoutineQuickTaskCreateOpen = false;
+          },
+        });
       });
     }
     if (form.dataset.form === "routine-task-template-create") {
       return runPending("routine-task-template-create", async () => {
-        await api("/api/routine-task-templates", {
+        if (form.dataset.context === "routine-create") {
+          syncRoutineCreateDraftFromForm(document.querySelector('form[data-form="routine-create"]'));
+        }
+        const result = await api("/api/routine-task-templates", {
           method: "POST",
           body: JSON.stringify({
             title: data.get("title"),
@@ -2452,7 +3203,19 @@ async function onSubmit(event) {
             targetCount: Number(data.get("targetCount")),
           }),
         });
-        await finishSuccess("createItemDone", { inlineScope: "routine-task-template-create" });
+        await finishSuccess("createItemDone", {
+          inlineScope: "routine-task-template-create",
+          onBeforeRefresh() {
+            if (form.dataset.context === "routine-create") {
+              const draft = getRoutineCreateDraft();
+              setRoutineCreateDraft({
+                ...draft,
+                taskTemplateIds: [...draft.taskTemplateIds, result?.routineTaskTemplate?.id].filter(Boolean),
+              });
+              state.isRoutineQuickTaskCreateOpen = false;
+            }
+          },
+        });
       });
     }
     if (form.dataset.form === "routine-task-template-update") {
@@ -2593,6 +3356,9 @@ async function onSubmit(event) {
         await finishSuccess("createTodoDone", {
           inlineScope: "today-quick",
           highlightTodoId: result?.todo?.id,
+          onBeforeRefresh() {
+            state.isHomeQuickCreateOpen = false;
+          },
         });
       });
     }
@@ -2652,6 +3418,11 @@ async function onClick(event) {
     return;
   }
   try {
+    if (button.dataset.action === "go-route" && button.dataset.path) {
+      state.appNavOpen = false;
+      setRoute(button.dataset.path);
+      return;
+    }
     if (button.dataset.action === "open-account") {
       state.appNavOpen = false;
       setRoute("/account");
@@ -2724,7 +3495,14 @@ async function onClick(event) {
         input.value = safeColor(button.dataset.color);
         syncColorSwatches(form);
         syncDraftPreview(form);
+        syncRoutineCreateDraftFromForm(form);
       }
+      return;
+    }
+    if (button.dataset.action === "toggle-settings-control") {
+      state.settingsExpandedControl = state.settingsExpandedControl === button.dataset.control ? "" : button.dataset.control ?? "";
+      renderSettingsPage();
+      syncInteractiveFields();
       return;
     }
     if (button.dataset.action === "toggle-routine-create") {
@@ -2744,9 +3522,32 @@ async function onClick(event) {
       syncInteractiveFields();
       return;
     }
+    if (button.dataset.action === "toggle-home-quick") {
+      state.isHomeQuickCreateOpen = !state.isHomeQuickCreateOpen;
+      renderToday();
+      syncInteractiveFields();
+      return;
+    }
+    if (button.dataset.action === "close-home-quick") {
+      state.isHomeQuickCreateOpen = false;
+      renderToday();
+      return;
+    }
     if (button.dataset.action === "toggle-todo-create") {
       state.isTodoCreateOpen = !state.isTodoCreateOpen;
       renderTodos();
+      syncInteractiveFields();
+      return;
+    }
+    if (button.dataset.action === "toggle-routine-task-template") {
+      toggleSetEntry(state.expandedRoutineTaskTemplateIds, button.dataset.id);
+      renderRoutines();
+      syncInteractiveFields();
+      return;
+    }
+    if (button.dataset.action === "toggle-routine-task-template-create") {
+      state.isRoutineQuickTaskCreateOpen = !state.isRoutineQuickTaskCreateOpen;
+      renderRoutines();
       syncInteractiveFields();
       return;
     }
@@ -2768,6 +3569,21 @@ async function onClick(event) {
     if (button.dataset.action === "today-todo-section") {
       state.todayTodoSection = button.dataset.section === "inbox" ? "inbox" : "due";
       renderToday();
+      return;
+    }
+    if (button.dataset.action === "set-home-board-mode") {
+      state.homeBoardMode = button.dataset.mode === "todos" ? "todos" : "routines";
+      renderToday();
+      return;
+    }
+    if (button.dataset.action === "shift-home-week") {
+      const direction = Number(button.dataset.direction) || 0;
+      const nextDate = addDaysToDateKey(currentHomeDate() || state.today?.date || dateKeyFromMonth(monthKey(new Date()), new Date().getDate()), direction * 7);
+      setRoute(buildTodayRoute(nextDate), { skipRender: true });
+      return;
+    }
+    if (button.dataset.action === "select-home-date" && isValidDateKey(button.dataset.date)) {
+      setRoute(buildTodayRoute(button.dataset.date), { skipRender: true });
       return;
     }
     if (button.dataset.action === "toggle-assignments") {
@@ -2964,12 +3780,20 @@ async function onChange(event) {
     state.themePreset = THEME_PRESET_OPTIONS.some((option) => option.value === target.value) ? target.value : "violet";
     setStoredOption(THEME_KEY, state.themePreset);
     applyPreferences();
+    if (state.activeTab === "settings") {
+      renderSettingsPage();
+      syncInteractiveFields();
+    }
     return;
   }
   if (target instanceof HTMLSelectElement && target.id === "density-select") {
     state.density = DENSITY_OPTIONS.some((option) => option.value === target.value) ? target.value : "comfy";
     setStoredOption(DENSITY_KEY, state.density);
     applyPreferences();
+    if (state.activeTab === "settings") {
+      renderSettingsPage();
+      syncInteractiveFields();
+    }
     return;
   }
   if (target instanceof HTMLSelectElement && target.name === "todoDueFilter") {
@@ -2981,6 +3805,10 @@ async function onChange(event) {
     syncTrackingForm(target.closest("form"));
     return;
   }
+  if (target instanceof HTMLInputElement && target.name === "taskTemplateIds") {
+    syncRoutineCreateDraftFromForm(target.closest("form"));
+    return;
+  }
   if (target instanceof HTMLInputElement && target.name === "emoji") {
     target.value = sanitizeEmojiInput(target.value);
     if (target.value) {
@@ -2988,6 +3816,7 @@ async function onChange(event) {
     }
     syncEmojiField(target.closest(".emoji-field"));
     syncDraftPreview(target.closest("form"));
+    syncRoutineCreateDraftFromForm(target.closest("form"));
     return;
   }
   if (!(target instanceof HTMLInputElement) || target.dataset.action !== "toggle-binary") return;
@@ -3026,6 +3855,7 @@ function onInput(event) {
     syncColorSwatches(form);
   }
   syncDraftPreview(form);
+  syncRoutineCreateDraftFromForm(form);
 }
 
 document.addEventListener("submit", (event) => void onSubmit(event));
@@ -3033,13 +3863,20 @@ document.addEventListener("click", (event) => void onClick(event));
 document.addEventListener("change", (event) => void onChange(event));
 document.addEventListener("input", (event) => void onInput(event));
 globalThis.addEventListener?.("hashchange", () => {
-  syncRouteState(globalThis.location?.hash?.slice(1) || "/today");
+  const route = syncRouteState(globalThis.location?.hash?.slice(1) || "/today");
+  if (route.screen === "today") {
+    void refreshTodayData().catch((error) => {
+      feedback(error instanceof Error ? error.message : t("loadFailed"), true);
+    });
+    return;
+  }
   render();
 });
 
 if (MOBILE_VIEWPORT_QUERY) {
   const onViewportChange = () => {
     state.appNavOpen = false;
+    state.isHomeQuickCreateOpen = false;
     render();
   };
   if (typeof MOBILE_VIEWPORT_QUERY.addEventListener === "function") {

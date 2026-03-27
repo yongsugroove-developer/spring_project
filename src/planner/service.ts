@@ -135,10 +135,13 @@ export class PlannerService {
     this.now = options.now ?? (() => new Date());
   }
 
-  async getToday() {
-    const date = getTodayKey(this.now());
+  async getToday(date?: string) {
+    if (date !== undefined) {
+      validateDateKey(date, "date");
+    }
+    const resolvedDate = date ?? getTodayKey(this.now());
     const data = await this.repository.read();
-    return buildTodayResponse(data, date);
+    return buildTodayResponse(data, resolvedDate);
   }
 
   async listRoutines(): Promise<RoutinesResponse> {

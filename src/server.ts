@@ -502,7 +502,8 @@ export function createApp(options: AppOptions = {}) {
   app.get("/api/today", async (req, res, next) => {
     try {
       const actor = await resolveActor(req);
-      res.json(await plannerFor(actor.userId).getToday());
+      const date = typeof req.query?.date === "string" ? req.query.date : undefined;
+      res.json(await plannerFor(actor.userId).getToday(date));
     } catch (error) {
       next(error);
     }
