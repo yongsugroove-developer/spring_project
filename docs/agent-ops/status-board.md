@@ -11,6 +11,8 @@
 - [x] Routine creation now uses reusable routine task templates, with template CRUD APIs and compatibility handling for legacy item routes
 - [x] SPA information architecture now separates routine create, set create, routine task library, and settings into hash-routed screens
 - [x] Home and settings UI were reworked toward a denser, cleaner mobile-first flow while preserving existing app tokens and navigation chrome
+- [x] Home now supports a week-strip, date-selectable today query, and a dense order-based board for routines and todos
+- [x] Settings, routine task library, routine create, and set create now use a quieter app-bar-plus-row layout with inline controls and sticky creation CTAs
 - [x] Build, lint, unit, and integration verification completed for the routine-template and route-split slice; manual browser validation remains pending
 - [x] Requirements, README, and status docs updated for emoji decoration and personalization scope
 - [x] JSON-backed planner API now persists routine/todo emoji fields with migration support

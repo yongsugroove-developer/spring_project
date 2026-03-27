@@ -61,6 +61,32 @@ describe("planner API", () => {
     expect(today.body.assignment.baseSetId).toBe(setId);
   });
 
+  it("supports selected-date today queries and rejects invalid today dates", async () => {
+    const temp = await createTempPlannerFile();
+    cleanups.push(temp.cleanup);
+    const app = createApp({
+      dataFile: temp.filePath,
+      now: () => new Date("2026-03-22T09:00:00+09:00"),
+    });
+
+    const createTodo = await request(app).post("/api/todos").send({
+      title: "Prepare Monday brief",
+      dueDate: "2026-03-23",
+      emoji: "🗂️",
+    });
+    expect(createTodo.status).toBe(201);
+
+    const selectedDate = await request(app).get("/api/today").query({ date: "2026-03-23" });
+    expect(selectedDate.status).toBe(200);
+    expect(selectedDate.body.date).toBe("2026-03-23");
+    expect(selectedDate.body.assignment.baseSetName).toBe("Weekday");
+    expect(selectedDate.body.todos.dueToday.map((todo: { title: string }) => todo.title)).toContain("Prepare Monday brief");
+
+    const invalidDate = await request(app).get("/api/today").query({ date: "2026-03-99" });
+    expect(invalidDate.status).toBe(400);
+    expect(invalidDate.body.ok).toBe(false);
+  });
+
   it("supports count-based and time-based checkins and updated statistics", async () => {
     const temp = await createTempPlannerFile();
     cleanups.push(temp.cleanup);
