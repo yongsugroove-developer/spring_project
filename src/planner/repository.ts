@@ -1,19 +1,12 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createDefaultPlannerData } from "./defaultData.js";
-import { buildRoutineTaskTemplateMap, resolveRoutineItem } from "./routineTemplates.js";
 import type {
-  ActiveDay,
-  AssignmentRuleType,
+  Habit,
+  HabitCheckin,
   PlannerData,
   Routine,
-  RoutineAssignmentRule,
-  RoutineCheckin,
-  RoutineDateOverride,
-  RoutineItem,
-  RoutineSet,
-  RoutineTaskTemplate,
-  Todo,
+  Task,
   TrackingType,
 } from "./types.js";
 
@@ -55,342 +48,320 @@ export class JsonPlannerRepository implements PlannerRepository {
   }
 }
 
-function getNodeErrorCode(error: unknown): string | undefined {
-  if (typeof error === "object" && error !== null && "code" in error) {
-    const code = (error as { code?: unknown }).code;
-    return typeof code === "string" ? code : undefined;
-  }
-
-  return undefined;
-}
-
-function normalizePlannerData(
+export function normalizePlannerData(
   raw: unknown,
-  seedFactory: () => PlannerData,
+  seedFactory: () => PlannerData = createDefaultPlannerData,
 ): { data: PlannerData; migrated: boolean } {
   const seed = seedFactory();
   if (!isRecord(raw)) {
     return { data: seed, migrated: true };
   }
 
-  const routines = normalizeRoutines(getArray(raw, "routines"));
-  const normalizedTemplates = normalizeRoutineTaskTemplates(getArray(raw, "routineTaskTemplates"));
-  const templateMigration = migrateRoutineItemsWithTemplates(
-    getArray(raw, "routineItems"),
-    normalizedTemplates,
-  );
-  const routineTaskTemplates = templateMigration.routineTaskTemplates;
-  const routineItems = templateMigration.routineItems;
-  const routineCheckins = normalizeRoutineCheckins(
-    getArray(raw, "routineCheckins"),
-    routineItems,
-    routineTaskTemplates,
-  );
-  const routineSets = Array.isArray(raw.routineSets)
-    ? normalizeRoutineSets(getArray(raw, "routineSets"), routines)
-    : deriveRoutineSets(getArray(raw, "routines"), routines);
-  const routineAssignmentRules = Array.isArray(raw.routineAssignmentRules)
-    ? normalizeRoutineAssignmentRules(getArray(raw, "routineAssignmentRules"), routineSets)
-    : deriveRoutineAssignmentRules(routineSets);
-  const routineDateOverrides = Array.isArray(raw.routineDateOverrides)
-    ? normalizeRoutineDateOverrides(getArray(raw, "routineDateOverrides"), routines, routineSets)
-    : [];
-  const todos = normalizeTodos(getArray(raw, "todos"));
+  if (Array.isArray(raw.habits) || Array.isArray(raw.tasks) || Array.isArray(raw.habitCheckins)) {
+    return normalizeCurrentPlannerData(raw);
+  }
+
+  return migrateLegacyPlannerData(raw, seed);
+}
+
+function normalizeCurrentPlannerData(raw: Record<string, unknown>): { data: PlannerData; migrated: boolean } {
+  const habits = normalizeHabits(getArray(raw, "habits"));
+  const habitCheckins = normalizeHabitCheckins(getArray(raw, "habitCheckins"), habits);
+  const routines = normalizeRoutines(getArray(raw, "routines"), habits);
+  const tasks = normalizeTasks(getArray(raw, "tasks"));
 
   const migrated =
-    templateMigration.migrated ||
-    !Array.isArray(raw.routineTaskTemplates) ||
-    !Array.isArray(raw.routineSets) ||
-    !Array.isArray(raw.routineAssignmentRules) ||
-    !Array.isArray(raw.routineDateOverrides) ||
-    getArray(raw, "routines").some((entry) => isRecord(entry) && !("emoji" in entry)) ||
-    getArray(raw, "todos").some((entry) => isRecord(entry) && !("emoji" in entry)) ||
-    getArray(raw, "routines").some((entry) => isRecord(entry) && Array.isArray(entry.activeDays)) ||
-    getArray(raw, "routineCheckins").some(
-      (entry) => isRecord(entry) && ("completedItemIds" in entry || !isRecord(entry.itemProgress)),
-    );
+    getArray(raw, "habits").some((entry) => isRecord(entry) && !("tag" in entry)) ||
+    getArray(raw, "routines").some(
+      (entry) => isRecord(entry) && (!("notificationEnabled" in entry) || !Array.isArray(entry.habitIds)),
+    ) ||
+    getArray(raw, "tasks").some((entry) => isRecord(entry) && !("emoji" in entry));
 
   return {
     data: {
+      habits,
+      habitCheckins,
       routines,
-      routineTaskTemplates,
-      routineItems,
-      routineCheckins,
-      routineSets,
-      routineAssignmentRules,
-      routineDateOverrides,
-      todos,
+      tasks,
     },
-    migrated,
+    migrated: migrated || !Array.isArray(raw.habits) || !Array.isArray(raw.routines) || !Array.isArray(raw.tasks),
   };
 }
 
-function normalizeRoutines(entries: unknown[]): Routine[] {
+function migrateLegacyPlannerData(
+  raw: Record<string, unknown>,
+  seed: PlannerData,
+): { data: PlannerData; migrated: boolean } {
+  const legacyRoutines = normalizeLegacyRoutines(getArray(raw, "routines"));
+  const legacyTemplates = normalizeLegacyTemplates(getArray(raw, "routineTaskTemplates"));
+  const legacyItems = normalizeLegacyItems(getArray(raw, "routineItems"), legacyTemplates);
+  const habits: Habit[] = [];
+  const habitCheckins: HabitCheckin[] = [];
+  const itemToHabitId = new Map<string, string>();
+  const timestamp = new Date(0).toISOString();
+
+  legacyItems.forEach((item, index) => {
+    const routine = legacyRoutines.find((entry) => entry.id === item.routineId);
+    const template = legacyTemplates.find((entry) => entry.id === item.templateId);
+    const startDate = getLegacyHabitStartDate(raw, item.id, routine?.createdAt ?? timestamp);
+    const habit: Habit = {
+      id: item.id,
+      name: template?.title ?? item.title ?? `Habit ${index + 1}`,
+      emoji: routine?.emoji ?? null,
+      color: normalizeColorValue(routine?.color ?? "#16a34a"),
+      tag: null,
+      trackingType: template?.trackingType ?? item.trackingType,
+      targetCount: template?.targetCount ?? item.targetCount,
+      startDate,
+      sortOrder: index + 1,
+      createdAt: template?.createdAt ?? routine?.createdAt ?? timestamp,
+      updatedAt: template?.updatedAt ?? routine?.updatedAt ?? timestamp,
+    };
+    habits.push(habit);
+    itemToHabitId.set(item.id, habit.id);
+  });
+
+  const unlinkedTemplates = legacyTemplates.filter(
+    (template) => !legacyItems.some((item) => item.templateId === template.id),
+  );
+  unlinkedTemplates.forEach((template, index) => {
+    habits.push({
+      id: template.id,
+      name: template.title,
+      emoji: null,
+      color: "#64748b",
+      tag: null,
+      trackingType: template.trackingType,
+      targetCount: template.targetCount,
+      startDate: template.createdAt.slice(0, 10),
+      sortOrder: habits.length + index + 1,
+      createdAt: template.createdAt,
+      updatedAt: template.updatedAt,
+    });
+  });
+
+  for (const checkin of normalizeLegacyCheckins(getArray(raw, "routineCheckins"))) {
+    for (const [itemId, value] of Object.entries(checkin.itemProgress)) {
+      const habitId = itemToHabitId.get(itemId);
+      if (!habitId) {
+        continue;
+      }
+      habitCheckins.push({
+        date: checkin.date,
+        habitId,
+        value,
+        updatedAt: checkin.updatedAt,
+      });
+    }
+  }
+
+  const routines: Routine[] = legacyRoutines.map((routine) => ({
+    id: routine.id,
+    name: routine.name,
+    emoji: routine.emoji,
+    color: routine.color,
+    habitIds: legacyItems
+      .filter((item) => item.routineId === routine.id)
+      .sort((left, right) => left.sortOrder - right.sortOrder)
+      .map((item) => item.id),
+    notificationEnabled: false,
+    notificationTime: null,
+    notificationWeekdays: [],
+    createdAt: routine.createdAt,
+    updatedAt: routine.updatedAt,
+  }));
+
+  const tasks = normalizeLegacyTasks(getArray(raw, "todos"));
+
+  return {
+    data: {
+      habits: habits.length > 0 ? habits : seed.habits,
+      habitCheckins,
+      routines,
+      tasks,
+    },
+    migrated: true,
+  };
+}
+
+function getLegacyHabitStartDate(raw: Record<string, unknown>, itemId: string, fallbackTimestamp: string): string {
+  const checkins = normalizeLegacyCheckins(getArray(raw, "routineCheckins"))
+    .filter((entry) => Object.prototype.hasOwnProperty.call(entry.itemProgress, itemId))
+    .map((entry) => entry.date)
+    .sort();
+  return checkins[0] ?? fallbackTimestamp.slice(0, 10);
+}
+
+function normalizeHabits(entries: unknown[]): Habit[] {
+  return entries
+    .filter(isRecord)
+    .map((entry, index) => {
+      const trackingType = normalizeTrackingTypeValue(entry.trackingType);
+      return {
+        id: getString(entry, "id", `habit-${index + 1}`),
+        name: getString(entry, "name", `Habit ${index + 1}`),
+        emoji: getNullableString(entry, "emoji"),
+        color: normalizeColorValue(getString(entry, "color", "#16a34a")),
+        tag: getNullableString(entry, "tag"),
+        trackingType,
+        targetCount: getTargetCount(entry.targetCount, trackingType),
+        startDate: getDateString(entry, "startDate", "1970-01-01"),
+        sortOrder: getPositiveInteger(entry, "sortOrder", index + 1),
+        createdAt: getTimestamp(entry, "createdAt"),
+        updatedAt: getTimestamp(entry, "updatedAt"),
+      };
+    })
+    .sort((left, right) => left.sortOrder - right.sortOrder);
+}
+
+function normalizeHabitCheckins(entries: unknown[], habits: Habit[]): HabitCheckin[] {
+  const habitMap = new Map(habits.map((habit) => [habit.id, habit]));
+  return entries
+    .filter(isRecord)
+    .map((entry) => {
+      const habitId = getString(entry, "habitId", "");
+      const habit = habitMap.get(habitId);
+      if (!habit) {
+        return null;
+      }
+      return {
+        date: getDateString(entry, "date", "1970-01-01"),
+        habitId,
+        value: clampValue(entry.value, habit.targetCount),
+        updatedAt: getTimestamp(entry, "updatedAt"),
+      };
+    })
+    .filter((entry): entry is HabitCheckin => entry !== null);
+}
+
+function normalizeRoutines(entries: unknown[], habits: Habit[]): Routine[] {
+  const allowedHabitIds = habits.map((habit) => habit.id);
   return entries
     .filter(isRecord)
     .map((entry, index) => ({
       id: getString(entry, "id", `routine-${index + 1}`),
       name: getString(entry, "name", `Routine ${index + 1}`),
       emoji: getNullableString(entry, "emoji"),
-      color: normalizeRoutineColor(getString(entry, "color", "#f97316")),
-      isArchived: getBoolean(entry, "isArchived", false),
+      color: getNullableString(entry, "color"),
+      habitIds: sanitizeStringArray(entry.habitIds, allowedHabitIds),
+      notificationEnabled: getBoolean(entry, "notificationEnabled", false),
+      notificationTime: normalizeTimeString(getNullableString(entry, "notificationTime")),
+      notificationWeekdays: normalizeDays(entry.notificationWeekdays),
       createdAt: getTimestamp(entry, "createdAt"),
       updatedAt: getTimestamp(entry, "updatedAt"),
     }));
 }
 
-function normalizeRoutineTaskTemplates(entries: unknown[]): RoutineTaskTemplate[] {
-  return entries
-    .filter(isRecord)
-    .map((entry, index) => {
-      const trackingType = normalizeTrackingType(entry.trackingType);
-      return {
-        id: getString(entry, "id", `template-${index + 1}`),
-        title: getString(entry, "title", `Task ${index + 1}`),
-        trackingType,
-        targetCount: getTargetCount(entry.targetCount, trackingType),
-        isArchived: getBoolean(entry, "isArchived", false),
-        createdAt: getTimestamp(entry, "createdAt"),
-        updatedAt: getTimestamp(entry, "updatedAt"),
-      };
-    });
-}
-
-function migrateRoutineItemsWithTemplates(
-  entries: unknown[],
-  initialTemplates: RoutineTaskTemplate[],
-): {
-  routineItems: RoutineItem[];
-  routineTaskTemplates: RoutineTaskTemplate[];
-  migrated: boolean;
-} {
-  const routineTaskTemplates = [...initialTemplates];
-  const templateMap = new Map(routineTaskTemplates.map((template) => [template.id, template]));
-  let migrated = false;
-
-  const routineItems = entries
-    .filter(isRecord)
-    .map((entry, index) => {
-      const itemId = getString(entry, "id", `item-${index + 1}`);
-      const routineId = getString(entry, "routineId", "");
-      if (!routineId) {
-        return null;
-      }
-
-      const hasTemplateId = typeof entry.templateId === "string" && entry.templateId.trim() !== "";
-      let templateId = hasTemplateId ? String(entry.templateId).trim() : "";
-      if (!templateId || !templateMap.has(templateId)) {
-        const trackingType = normalizeTrackingType(entry.trackingType);
-        const fallbackTemplateId = templateId || `template-${itemId}`;
-        templateId = fallbackTemplateId;
-        if (!templateMap.has(templateId)) {
-          const template: RoutineTaskTemplate = {
-            id: templateId,
-            title: getString(entry, "title", `Task ${index + 1}`),
-            trackingType,
-            targetCount: getTargetCount(entry.targetCount, trackingType),
-            isArchived: false,
-            createdAt: getTimestamp(entry, "createdAt"),
-            updatedAt: getTimestamp(entry, "updatedAt"),
-          };
-          routineTaskTemplates.push(template);
-          templateMap.set(template.id, template);
-        }
-        migrated = true;
-      }
-
-      if ("title" in entry || "trackingType" in entry || "targetCount" in entry) {
-        migrated = true;
-      }
-
-      return {
-        id: itemId,
-        routineId,
-        templateId,
-        sortOrder: getPositiveInteger(entry, "sortOrder", index + 1),
-        isActive: getBoolean(entry, "isActive", true),
-      };
-    })
-    .filter((entry): entry is RoutineItem => entry !== null);
-
-  return {
-    routineItems,
-    routineTaskTemplates,
-    migrated,
-  };
-}
-
-function normalizeRoutineCheckins(
-  entries: unknown[],
-  routineItems: RoutineItem[],
-  routineTaskTemplates: RoutineTaskTemplate[],
-): RoutineCheckin[] {
-  const templateMap = buildRoutineTaskTemplateMap({ routineTaskTemplates });
-  return entries
-    .filter(isRecord)
-    .map((entry) => {
-      const routineId = getString(entry, "routineId", "");
-      const items = routineItems
-        .filter((item) => item.routineId === routineId && item.isActive)
-        .map((item) => resolveRoutineItem(item, templateMap))
-        .filter((item): item is NonNullable<ReturnType<typeof resolveRoutineItem>> => item !== null);
-      const itemProgress = isRecord(entry.itemProgress)
-        ? normalizeProgress(entry.itemProgress, items)
-        : normalizeLegacyCompletedItems(entry.completedItemIds, items);
-      return {
-        date: getString(entry, "date", "1970-01-01"),
-        routineId,
-        itemProgress,
-        updatedAt: getTimestamp(entry, "updatedAt"),
-      };
-    })
-    .filter((entry) => entry.routineId !== "");
-}
-
-function normalizeRoutineSets(entries: unknown[], routines: Routine[]): RoutineSet[] {
-  const routineIds = routines.map((routine) => routine.id);
-  return entries
-    .filter(isRecord)
-    .map((entry, index) => ({
-      id: getString(entry, "id", `set-${index + 1}`),
-      name: getString(entry, "name", `Set ${index + 1}`),
-      routineIds: sanitizeStringArray(entry.routineIds, routineIds),
-      createdAt: getTimestamp(entry, "createdAt"),
-      updatedAt: getTimestamp(entry, "updatedAt"),
-    }));
-}
-
-function deriveRoutineSets(sourceRoutines: unknown[], routines: Routine[]): RoutineSet[] {
-  const weekdayIds = new Set<string>();
-  const weekendIds = new Set<string>();
-  const routineIdSet = new Set(routines.map((routine) => routine.id));
-
-  sourceRoutines.filter(isRecord).forEach((entry, index) => {
-    const routineId = getString(entry, "id", `routine-${index + 1}`);
-    if (!routineIdSet.has(routineId)) {
-      return;
-    }
-
-    const activeDays = getNumberArray(entry, "activeDays");
-    if (activeDays.some((day) => day >= 1 && day <= 5)) {
-      weekdayIds.add(routineId);
-    }
-    if (activeDays.some((day) => day === 0 || day === 6)) {
-      weekendIds.add(routineId);
-    }
-  });
-
-  const timestamp = new Date(0).toISOString();
-  return [
-    {
-      id: "set-weekday",
-      name: "Weekday",
-      routineIds: [...weekdayIds],
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    },
-    {
-      id: "set-weekend",
-      name: "Weekend",
-      routineIds: [...weekendIds],
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    },
-  ];
-}
-
-function normalizeRoutineAssignmentRules(
-  entries: unknown[],
-  routineSets: RoutineSet[],
-): RoutineAssignmentRule[] {
-  const setIds = new Set(routineSets.map((routineSet) => routineSet.id));
-  return entries
-    .filter(isRecord)
-    .map((entry, index) => {
-      const ruleType = normalizeRuleType(entry.ruleType);
-      const setId = getString(entry, "setId", "");
-      if (!setIds.has(setId)) {
-        return null;
-      }
-      return {
-        id: getString(entry, "id", `assignment-${index + 1}`),
-        ruleType,
-        days: normalizeDays(ruleType, entry.days),
-        setId,
-        createdAt: getTimestamp(entry, "createdAt"),
-        updatedAt: getTimestamp(entry, "updatedAt"),
-      };
-    })
-    .filter((entry): entry is RoutineAssignmentRule => entry !== null);
-}
-
-function deriveRoutineAssignmentRules(routineSets: RoutineSet[]): RoutineAssignmentRule[] {
-  const timestamp = new Date(0).toISOString();
-  const rules: RoutineAssignmentRule[] = [];
-  for (const routineSet of routineSets) {
-    if (routineSet.id === "set-weekday") {
-      rules.push({
-        id: "assign-weekday",
-        ruleType: "weekday",
-        days: [1, 2, 3, 4, 5],
-        setId: routineSet.id,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      });
-      continue;
-    }
-    if (routineSet.id === "set-weekend") {
-      rules.push({
-        id: "assign-weekend",
-        ruleType: "weekend",
-        days: [0, 6],
-        setId: routineSet.id,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      });
-    }
-  }
-  return rules;
-}
-
-function normalizeRoutineDateOverrides(
-  entries: unknown[],
-  routines: Routine[],
-  routineSets: RoutineSet[],
-): RoutineDateOverride[] {
-  const routineIds = routines.map((routine) => routine.id);
-  const setIds = new Set(routineSets.map((routineSet) => routineSet.id));
-  return entries
-    .filter(isRecord)
-    .map((entry) => {
-      const setId = getNullableString(entry, "setId");
-      return {
-        date: getString(entry, "date", "1970-01-01"),
-        setId: setId !== null && setIds.has(setId) ? setId : null,
-        includeRoutineIds: sanitizeStringArray(entry.includeRoutineIds, routineIds),
-        excludeRoutineIds: sanitizeStringArray(entry.excludeRoutineIds, routineIds),
-        updatedAt: getTimestamp(entry, "updatedAt"),
-      };
-    });
-}
-
-function normalizeTodos(entries: unknown[]): Todo[] {
+function normalizeTasks(entries: unknown[]): Task[] {
   return entries
     .filter(isRecord)
     .map((entry, index) => {
       const status = entry.status === "done" ? "done" : "pending";
       return {
-        id: getString(entry, "id", `todo-${index + 1}`),
-        title: getString(entry, "title", `Todo ${index + 1}`),
+        id: getString(entry, "id", `task-${index + 1}`),
+        title: getString(entry, "title", `Task ${index + 1}`),
         emoji: getNullableString(entry, "emoji"),
         note: getNullableString(entry, "note"),
-        dueDate: getNullableString(entry, "dueDate"),
+        dueDate: getNullableDateString(entry, "dueDate"),
         status,
         completedAt: status === "done" ? getNullableString(entry, "completedAt") : null,
         createdAt: getTimestamp(entry, "createdAt"),
         updatedAt: getTimestamp(entry, "updatedAt"),
       };
     });
+}
+
+function normalizeLegacyRoutines(entries: unknown[]) {
+  return entries
+    .filter(isRecord)
+    .map((entry, index) => ({
+      id: getString(entry, "id", `routine-${index + 1}`),
+      name: getString(entry, "name", `Routine ${index + 1}`),
+      emoji: getNullableString(entry, "emoji"),
+      color: normalizeColorValue(getString(entry, "color", "#16a34a")),
+      createdAt: getTimestamp(entry, "createdAt"),
+      updatedAt: getTimestamp(entry, "updatedAt"),
+    }));
+}
+
+function normalizeLegacyTemplates(entries: unknown[]) {
+  return entries
+    .filter(isRecord)
+    .map((entry, index) => {
+      const trackingType = normalizeTrackingTypeValue(entry.trackingType);
+      return {
+        id: getString(entry, "id", `template-${index + 1}`),
+        title: getString(entry, "title", `Habit ${index + 1}`),
+        trackingType,
+        targetCount: getTargetCount(entry.targetCount, trackingType),
+        createdAt: getTimestamp(entry, "createdAt"),
+        updatedAt: getTimestamp(entry, "updatedAt"),
+      };
+    });
+}
+
+function normalizeLegacyItems(
+  entries: unknown[],
+  templates: Array<{ id: string; title: string; trackingType: TrackingType; targetCount: number }>,
+) {
+  return entries
+    .filter(isRecord)
+    .map((entry, index) => {
+      const trackingType = normalizeTrackingTypeValue(entry.trackingType);
+      const templateId = getString(entry, "templateId", getString(entry, "id", `item-${index + 1}`));
+      const template = templates.find((candidate) => candidate.id === templateId);
+      return {
+        id: getString(entry, "id", `item-${index + 1}`),
+        routineId: getString(entry, "routineId", ""),
+        templateId,
+        title: getString(entry, "title", template?.title ?? `Habit ${index + 1}`),
+        trackingType: template?.trackingType ?? trackingType,
+        targetCount: template?.targetCount ?? getTargetCount(entry.targetCount, trackingType),
+        sortOrder: getPositiveInteger(entry, "sortOrder", index + 1),
+      };
+    })
+    .filter((entry) => entry.routineId !== "");
+}
+
+function normalizeLegacyCheckins(entries: unknown[]) {
+  return entries
+    .filter(isRecord)
+    .map((entry) => ({
+      date: getDateString(entry, "date", "1970-01-01"),
+      routineId: getString(entry, "routineId", ""),
+      itemProgress: isRecord(entry.itemProgress)
+        ? normalizeLegacyProgress(entry.itemProgress)
+        : normalizeLegacyCompletedItems(entry.completedItemIds),
+      updatedAt: getTimestamp(entry, "updatedAt"),
+    }))
+    .filter((entry) => entry.routineId !== "");
+}
+
+function normalizeLegacyTasks(entries: unknown[]): Task[] {
+  return entries
+    .filter(isRecord)
+    .map((entry, index) => {
+      const status = entry.status === "done" ? "done" : "pending";
+      return {
+        id: getString(entry, "id", `task-${index + 1}`),
+        title: getString(entry, "title", `Task ${index + 1}`),
+        emoji: getNullableString(entry, "emoji"),
+        note: getNullableString(entry, "note"),
+        dueDate: getNullableDateString(entry, "dueDate"),
+        status,
+        completedAt: status === "done" ? getNullableString(entry, "completedAt") : null,
+        createdAt: getTimestamp(entry, "createdAt"),
+        updatedAt: getTimestamp(entry, "updatedAt"),
+      };
+    });
+}
+
+function getNodeErrorCode(error: unknown): string | undefined {
+  if (typeof error === "object" && error !== null && "code" in error) {
+    const code = (error as { code?: unknown }).code;
+    return typeof code === "string" ? code : undefined;
+  }
+  return undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -427,6 +398,16 @@ function getTimestamp(record: Record<string, unknown>, key: string): string {
   return typeof value === "string" && value ? value : new Date(0).toISOString();
 }
 
+function getDateString(record: Record<string, unknown>, key: string, fallback: string): string {
+  const value = record[key];
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : fallback;
+}
+
+function getNullableDateString(record: Record<string, unknown>, key: string): string | null {
+  const value = record[key];
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+}
+
 function getTargetCount(value: unknown, trackingType: TrackingType): number {
   if (trackingType === "binary") {
     return 1;
@@ -437,31 +418,14 @@ function getTargetCount(value: unknown, trackingType: TrackingType): number {
   return Number.isInteger(value) && (value as number) >= 1 ? (value as number) : 30;
 }
 
-function normalizeTrackingType(value: unknown): TrackingType {
+function normalizeTrackingTypeValue(value: unknown): TrackingType {
+  if (value === "count") return "count";
   if (value === "time") return "time";
-  return value === "count" ? "count" : "binary";
+  return "binary";
 }
 
-function normalizeProgress(
-  rawProgress: Record<string, unknown>,
-  items: Array<{ id: string; targetCount: number }>,
-): Record<string, number> {
-  return Object.fromEntries(
-    items.map((item) => {
-      const rawValue = rawProgress[item.id];
-      const currentCount =
-        Number.isFinite(rawValue) && typeof rawValue === "number" ? Math.trunc(rawValue) : 0;
-      return [item.id, Math.max(0, Math.min(currentCount, item.targetCount))];
-    }),
-  );
-}
-
-function normalizeLegacyCompletedItems(
-  rawCompletedItemIds: unknown,
-  items: Array<{ id: string }>,
-): Record<string, number> {
-  const completed = new Set(Array.isArray(rawCompletedItemIds) ? rawCompletedItemIds : []);
-  return Object.fromEntries(items.map((item) => [item.id, completed.has(item.id) ? 1 : 0]));
+function normalizeColorValue(value: string): string {
+  return /^#[0-9a-fA-F]{6}$/.test(value) ? value : "#16a34a";
 }
 
 function sanitizeStringArray(value: unknown, allowedIds: string[]): string[] {
@@ -474,34 +438,36 @@ function sanitizeStringArray(value: unknown, allowedIds: string[]): string[] {
   );
 }
 
-function getNumberArray(record: Record<string, unknown>, key: string): number[] {
-  const value = record[key];
+function normalizeDays(value: unknown): Array<0 | 1 | 2 | 3 | 4 | 5 | 6> {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value.filter((entry): entry is number => Number.isInteger(entry));
+  return [...new Set(value.filter((entry): entry is 0 | 1 | 2 | 3 | 4 | 5 | 6 => Number.isInteger(entry) && entry >= 0 && entry <= 6))];
 }
 
-function normalizeRuleType(value: unknown): AssignmentRuleType {
-  if (value === "weekday" || value === "weekend" || value === "custom-days") {
-    return value;
+function normalizeTimeString(value: string | null): string | null {
+  if (value === null) {
+    return null;
   }
-  return "custom-days";
+  return /^\d{2}:\d{2}$/.test(value) ? value : null;
 }
 
-function normalizeRoutineColor(value: string): string {
-  return /^#[0-9a-fA-F]{6}$/.test(value) ? value : "#f97316";
+function clampValue(value: unknown, targetCount: number): number {
+  const numeric = Number.isFinite(value) && typeof value === "number" ? Math.trunc(value) : 0;
+  return Math.max(0, Math.min(numeric, targetCount));
 }
 
-function normalizeDays(ruleType: AssignmentRuleType, value: unknown): ActiveDay[] {
-  if (ruleType === "weekday") {
-    return [1, 2, 3, 4, 5];
-  }
-  if (ruleType === "weekend") {
-    return [0, 6];
-  }
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return [...new Set(value.filter((entry): entry is ActiveDay => Number.isInteger(entry) && entry >= 0 && entry <= 6))];
+function normalizeLegacyProgress(raw: Record<string, unknown>): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(raw)
+      .filter(([, value]) => Number.isFinite(value))
+      .map(([key, value]) => [key, Math.max(0, Math.trunc(value as number))]),
+  );
+}
+
+function normalizeLegacyCompletedItems(rawCompletedItemIds: unknown): Record<string, number> {
+  const completed = Array.isArray(rawCompletedItemIds)
+    ? rawCompletedItemIds.filter((entry): entry is string => typeof entry === "string")
+    : [];
+  return Object.fromEntries(completed.map((itemId) => [itemId, 1]));
 }

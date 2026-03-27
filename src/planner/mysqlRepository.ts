@@ -1,14 +1,8 @@
 import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
 import { fromMySqlDateTime, toMySqlDateTime } from "../db/time.js";
 import { createDefaultPlannerData } from "./defaultData.js";
-import type {
-  PlannerData,
-  RoutineAssignmentRule,
-  RoutineTaskTemplate,
-  Todo,
-  TrackingType,
-  ActiveDay,
-} from "./types.js";
+import { normalizePlannerData } from "./repository.js";
+import type { PlannerData } from "./types.js";
 import type { PlannerRepository } from "./repository.js";
 
 export class MySqlPlannerRepository implements PlannerRepository {
@@ -21,15 +15,15 @@ export class MySqlPlannerRepository implements PlannerRepository {
   async read(): Promise<PlannerData> {
     const connection = await this.pool.getConnection();
     try {
-      const data = await this.readWithConnection(connection);
-      if (hasPlannerData(data)) {
-        return data;
+      const document = await this.readDocument(connection);
+      if (document) {
+        return document;
       }
-      const seed = this.seedFactory();
-      if (hasPlannerData(seed)) {
-        await this.writeWithConnection(connection, seed);
-      }
-      return seed;
+
+      const legacy = await this.readLegacyData(connection);
+      const { data } = normalizePlannerData(legacy, this.seedFactory);
+      await this.writeWithConnection(connection, data);
+      return data;
     } finally {
       connection.release();
     }
@@ -44,116 +38,222 @@ export class MySqlPlannerRepository implements PlannerRepository {
     }
   }
 
-  private async readWithConnection(connection: PoolConnection): Promise<PlannerData> {
-    const [routineRows] = await connection.query<
+  private async readDocument(connection: PoolConnection): Promise<PlannerData | null> {
+    const tableExists = await this.tableExists(connection, "planner_documents");
+    if (!tableExists) {
+      return null;
+    }
+
+    const [rows] = await connection.query<
+      (RowDataPacket & { dataJson: string | null })[]
+    >(
+      `SELECT data_json AS dataJson
+         FROM planner_documents
+        WHERE owner_user_id = ?
+        LIMIT 1`,
+      [this.ownerUserId],
+    );
+
+    if (!Array.isArray(rows) || rows.length === 0 || !rows[0].dataJson) {
+      return null;
+    }
+
+    const parsed = JSON.parse(rows[0].dataJson) as unknown;
+    return normalizePlannerData(parsed, this.seedFactory).data;
+  }
+
+  private async writeWithConnection(connection: PoolConnection, data: PlannerData) {
+    await connection.query(
+      `INSERT INTO planner_documents (owner_user_id, data_json, updated_at)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE data_json = VALUES(data_json), updated_at = VALUES(updated_at)`,
+      [this.ownerUserId, JSON.stringify(data), toMySqlDateTime(new Date().toISOString())],
+    );
+  }
+
+  private async readLegacyData(connection: PoolConnection): Promise<unknown> {
+    const legacyTables = await this.getExistingLegacyTables(connection);
+    if (legacyTables.size === 0) {
+      return this.seedFactory();
+    }
+
+    const routines = legacyTables.has("planner_routines")
+      ? await this.readLegacyRoutines(connection)
+      : [];
+    const templates = legacyTables.has("planner_routine_task_templates")
+      ? await this.readLegacyTemplates(connection)
+      : [];
+    const items = legacyTables.has("planner_routine_items")
+      ? await this.readLegacyItems(connection)
+      : [];
+    const checkins = legacyTables.has("planner_routine_checkins")
+      ? await this.readLegacyCheckins(connection)
+      : [];
+    const todos = legacyTables.has("planner_todos")
+      ? await this.readLegacyTodos(connection)
+      : [];
+
+    return {
+      routines,
+      routineTaskTemplates: templates,
+      routineItems: items,
+      routineCheckins: checkins,
+      todos,
+    };
+  }
+
+  private async getExistingLegacyTables(connection: PoolConnection): Promise<Set<string>> {
+    const candidateTables = [
+      "planner_routines",
+      "planner_routine_task_templates",
+      "planner_routine_items",
+      "planner_routine_checkins",
+      "planner_todos",
+    ];
+    const [rows] = await connection.query<(RowDataPacket & { tableName: string })[]>(
+      `SELECT table_name AS tableName
+         FROM information_schema.tables
+        WHERE table_schema = DATABASE()
+          AND table_name IN (${candidateTables.map(() => "?").join(", ")})`,
+      candidateTables,
+    );
+    return new Set(rows.map((row) => row.tableName));
+  }
+
+  private async tableExists(connection: PoolConnection, tableName: string) {
+    const [rows] = await connection.query(
+      `SELECT 1
+         FROM information_schema.tables
+        WHERE table_schema = DATABASE()
+          AND table_name = ?
+        LIMIT 1`,
+      [tableName],
+    );
+    return Array.isArray(rows) && rows.length > 0;
+  }
+
+  private async readLegacyRoutines(connection: PoolConnection) {
+    const [rows] = await connection.query<
       (RowDataPacket & {
         id: string;
         name: string;
         emoji: string | null;
         color: string;
-        isArchived: number;
         createdAt: string;
         updatedAt: string;
       })[]
     >(
-      `SELECT id, name, emoji, color, is_archived AS isArchived, created_at AS createdAt, updated_at AS updatedAt
-       FROM planner_routines WHERE owner_user_id = ? ORDER BY created_at, id`,
+      `SELECT id, name, emoji, color, created_at AS createdAt, updated_at AS updatedAt
+         FROM planner_routines
+        WHERE owner_user_id = ?
+        ORDER BY created_at, id`,
       [this.ownerUserId],
     );
-    const [templateRows] = await connection.query<
+
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      emoji: row.emoji,
+      color: row.color,
+      createdAt: fromMySqlDateTime(row.createdAt) ?? new Date(0).toISOString(),
+      updatedAt: fromMySqlDateTime(row.updatedAt) ?? new Date(0).toISOString(),
+    }));
+  }
+
+  private async readLegacyTemplates(connection: PoolConnection) {
+    const [rows] = await connection.query<
       (RowDataPacket & {
         id: string;
         title: string;
-        trackingType: TrackingType;
+        trackingType: string;
         targetCount: number;
-        isArchived: number;
         createdAt: string;
         updatedAt: string;
       })[]
     >(
       `SELECT id, title, tracking_type AS trackingType, target_count AS targetCount,
-              is_archived AS isArchived, created_at AS createdAt, updated_at AS updatedAt
-       FROM planner_routine_task_templates WHERE owner_user_id = ? ORDER BY created_at, id`,
+              created_at AS createdAt, updated_at AS updatedAt
+         FROM planner_routine_task_templates
+        WHERE owner_user_id = ?
+        ORDER BY created_at, id`,
       [this.ownerUserId],
     );
-    const [itemRows] = await connection.query<
+
+    return rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      trackingType: row.trackingType,
+      targetCount: row.targetCount,
+      createdAt: fromMySqlDateTime(row.createdAt) ?? new Date(0).toISOString(),
+      updatedAt: fromMySqlDateTime(row.updatedAt) ?? new Date(0).toISOString(),
+    }));
+  }
+
+  private async readLegacyItems(connection: PoolConnection) {
+    const [rows] = await connection.query<
       (RowDataPacket & {
         id: string;
         routineId: string;
         templateId: string | null;
         title: string;
         sortOrder: number;
-        isActive: number;
-        trackingType: TrackingType;
+        trackingType: string;
         targetCount: number;
       })[]
     >(
-      `SELECT id, routine_id AS routineId, template_id AS templateId, title, sort_order AS sortOrder,
-              is_active AS isActive, tracking_type AS trackingType, target_count AS targetCount
-       FROM planner_routine_items WHERE owner_user_id = ? ORDER BY routine_id, sort_order, id`,
+      `SELECT id, routine_id AS routineId, template_id AS templateId, title,
+              sort_order AS sortOrder, tracking_type AS trackingType, target_count AS targetCount
+         FROM planner_routine_items
+        WHERE owner_user_id = ?
+        ORDER BY routine_id, sort_order, id`,
       [this.ownerUserId],
     );
-    const [checkinRows] = await connection.query<
-      (RowDataPacket & { date: string; routineId: string; itemProgressJson: string; updatedAt: string })[]
-    >(
-      `SELECT date_key AS date, routine_id AS routineId, item_progress_json AS itemProgressJson, updated_at AS updatedAt
-       FROM planner_routine_checkins WHERE owner_user_id = ? ORDER BY date_key, routine_id`,
-      [this.ownerUserId],
-    );
-    const [setRows] = await connection.query<
-      (RowDataPacket & { id: string; name: string; createdAt: string; updatedAt: string })[]
-    >(
-      `SELECT id, name, created_at AS createdAt, updated_at AS updatedAt
-       FROM planner_routine_sets WHERE owner_user_id = ? ORDER BY created_at, id`,
-      [this.ownerUserId],
-    );
-    const [memberRows] = await connection.query<
-      (RowDataPacket & { routineSetId: string; routineId: string; sortOrder: number })[]
-    >(
-      `SELECT routine_set_id AS routineSetId, routine_id AS routineId, sort_order AS sortOrder
-       FROM planner_routine_set_members WHERE owner_user_id = ? ORDER BY routine_set_id, sort_order, routine_id`,
-      [this.ownerUserId],
-    );
-    const [assignmentRows] = await connection.query<
+
+    return rows.map((row) => ({
+      id: row.id,
+      routineId: row.routineId,
+      templateId: row.templateId,
+      title: row.title,
+      sortOrder: row.sortOrder,
+      trackingType: row.trackingType,
+      targetCount: row.targetCount,
+    }));
+  }
+
+  private async readLegacyCheckins(connection: PoolConnection) {
+    const [rows] = await connection.query<
       (RowDataPacket & {
-        id: string;
-        ruleType: RoutineAssignmentRule["ruleType"];
-        daysJson: string;
-        setId: string;
-        createdAt: string;
+        date: string;
+        routineId: string;
+        itemProgressJson: string;
         updatedAt: string;
       })[]
     >(
-      `SELECT id, rule_type AS ruleType, days_json AS daysJson, set_id AS setId,
-              created_at AS createdAt, updated_at AS updatedAt
-       FROM planner_assignment_rules WHERE owner_user_id = ? ORDER BY created_at, id`,
+      `SELECT date_key AS date, routine_id AS routineId, item_progress_json AS itemProgressJson,
+              updated_at AS updatedAt
+         FROM planner_routine_checkins
+        WHERE owner_user_id = ?
+        ORDER BY date_key, routine_id`,
       [this.ownerUserId],
     );
-    const [overrideRows] = await connection.query<
-      (RowDataPacket & { date: string; setId: string | null; updatedAt: string })[]
-    >(
-      `SELECT date_key AS date, set_id AS setId, updated_at AS updatedAt
-       FROM planner_date_overrides WHERE owner_user_id = ? ORDER BY date_key`,
-      [this.ownerUserId],
-    );
-    const [includeRows] = await connection.query<(RowDataPacket & { date: string; routineId: string })[]>(
-      `SELECT date_key AS date, routine_id AS routineId
-       FROM planner_override_includes WHERE owner_user_id = ? ORDER BY date_key, routine_id`,
-      [this.ownerUserId],
-    );
-    const [excludeRows] = await connection.query<(RowDataPacket & { date: string; routineId: string })[]>(
-      `SELECT date_key AS date, routine_id AS routineId
-       FROM planner_override_excludes WHERE owner_user_id = ? ORDER BY date_key, routine_id`,
-      [this.ownerUserId],
-    );
-    const [todoRows] = await connection.query<
+
+    return rows.map((row) => ({
+      date: row.date,
+      routineId: row.routineId,
+      itemProgress: normalizeRecord(row.itemProgressJson),
+      updatedAt: fromMySqlDateTime(row.updatedAt) ?? new Date(0).toISOString(),
+    }));
+  }
+
+  private async readLegacyTodos(connection: PoolConnection) {
+    const [rows] = await connection.query<
       (RowDataPacket & {
         id: string;
         title: string;
         emoji: string | null;
         note: string | null;
         dueDate: string | null;
-        status: Todo["status"];
+        status: "pending" | "done";
         completedAt: string | null;
         createdAt: string;
         updatedAt: string;
@@ -161,295 +261,24 @@ export class MySqlPlannerRepository implements PlannerRepository {
     >(
       `SELECT id, title, emoji, note, due_date AS dueDate, status,
               completed_at AS completedAt, created_at AS createdAt, updated_at AS updatedAt
-       FROM planner_todos WHERE owner_user_id = ? ORDER BY created_at, id`,
+         FROM planner_todos
+        WHERE owner_user_id = ?
+        ORDER BY created_at, id`,
       [this.ownerUserId],
     );
 
-    const templateMap = new Map<string, RoutineTaskTemplate>(
-      templateRows.map((row) => [
-        row.id,
-        {
-          id: row.id,
-          title: row.title,
-          trackingType: row.trackingType,
-          targetCount: row.targetCount,
-          isArchived: Boolean(row.isArchived),
-          createdAt: fromMySqlDateTime(row.createdAt) ?? new Date(0).toISOString(),
-          updatedAt: fromMySqlDateTime(row.updatedAt) ?? new Date(0).toISOString(),
-        },
-      ]),
-    );
-
-    for (const row of itemRows) {
-      const templateId = row.templateId?.trim() || `template-${row.id}`;
-      if (!templateMap.has(templateId)) {
-        templateMap.set(templateId, {
-          id: templateId,
-          title: row.title,
-          trackingType: row.trackingType,
-          targetCount: row.targetCount,
-          isArchived: false,
-          createdAt: new Date(0).toISOString(),
-          updatedAt: new Date(0).toISOString(),
-        });
-      }
-    }
-
-    const setMembers = memberRows.reduce<Record<string, string[]>>((acc, row) => {
-      acc[row.routineSetId] ??= [];
-      acc[row.routineSetId].push(row.routineId);
-      return acc;
-    }, {});
-    const includeMap = includeRows.reduce<Record<string, string[]>>((acc, row) => {
-      acc[row.date] ??= [];
-      acc[row.date].push(row.routineId);
-      return acc;
-    }, {});
-    const excludeMap = excludeRows.reduce<Record<string, string[]>>((acc, row) => {
-      acc[row.date] ??= [];
-      acc[row.date].push(row.routineId);
-      return acc;
-    }, {});
-
-    return {
-      routines: routineRows.map((row) => ({
-        id: row.id,
-        name: row.name,
-        emoji: row.emoji,
-        color: row.color,
-        isArchived: Boolean(row.isArchived),
-        createdAt: fromMySqlDateTime(row.createdAt) ?? new Date(0).toISOString(),
-        updatedAt: fromMySqlDateTime(row.updatedAt) ?? new Date(0).toISOString(),
-      })),
-      routineTaskTemplates: [...templateMap.values()],
-      routineItems: itemRows.map((row) => ({
-        id: row.id,
-        routineId: row.routineId,
-        templateId: row.templateId?.trim() || `template-${row.id}`,
-        sortOrder: row.sortOrder,
-        isActive: Boolean(row.isActive),
-      })),
-      routineCheckins: checkinRows.map((row) => ({
-        date: row.date,
-        routineId: row.routineId,
-        itemProgress: normalizeRecord(row.itemProgressJson),
-        updatedAt: fromMySqlDateTime(row.updatedAt) ?? new Date(0).toISOString(),
-      })),
-      routineSets: setRows.map((row) => ({
-        id: row.id,
-        name: row.name,
-        routineIds: setMembers[row.id] ?? [],
-        createdAt: fromMySqlDateTime(row.createdAt) ?? new Date(0).toISOString(),
-        updatedAt: fromMySqlDateTime(row.updatedAt) ?? new Date(0).toISOString(),
-      })),
-      routineAssignmentRules: assignmentRows.map((row) => ({
-        id: row.id,
-        ruleType: row.ruleType,
-        days: normalizeDays(row.daysJson),
-        setId: row.setId,
-        createdAt: fromMySqlDateTime(row.createdAt) ?? new Date(0).toISOString(),
-        updatedAt: fromMySqlDateTime(row.updatedAt) ?? new Date(0).toISOString(),
-      })),
-      routineDateOverrides: overrideRows.map((row) => ({
-        date: row.date,
-        setId: row.setId,
-        includeRoutineIds: includeMap[row.date] ?? [],
-        excludeRoutineIds: excludeMap[row.date] ?? [],
-        updatedAt: fromMySqlDateTime(row.updatedAt) ?? new Date(0).toISOString(),
-      })),
-      todos: todoRows.map((row) => ({
-        id: row.id,
-        title: row.title,
-        emoji: row.emoji,
-        note: row.note,
-        dueDate: row.dueDate,
-        status: row.status,
-        completedAt: row.status === "done" ? fromMySqlDateTime(row.completedAt) : null,
-        createdAt: fromMySqlDateTime(row.createdAt) ?? new Date(0).toISOString(),
-        updatedAt: fromMySqlDateTime(row.updatedAt) ?? new Date(0).toISOString(),
-      })),
-    };
+    return rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      emoji: row.emoji,
+      note: row.note,
+      dueDate: row.dueDate,
+      status: row.status,
+      completedAt: row.status === "done" ? fromMySqlDateTime(row.completedAt) : null,
+      createdAt: fromMySqlDateTime(row.createdAt) ?? new Date(0).toISOString(),
+      updatedAt: fromMySqlDateTime(row.updatedAt) ?? new Date(0).toISOString(),
+    }));
   }
-
-  private async writeWithConnection(connection: PoolConnection, data: PlannerData) {
-    const templateMap = new Map(data.routineTaskTemplates.map((template) => [template.id, template]));
-    await connection.beginTransaction();
-    try {
-      await connection.query(`DELETE FROM planner_override_excludes WHERE owner_user_id = ?`, [this.ownerUserId]);
-      await connection.query(`DELETE FROM planner_override_includes WHERE owner_user_id = ?`, [this.ownerUserId]);
-      await connection.query(`DELETE FROM planner_date_overrides WHERE owner_user_id = ?`, [this.ownerUserId]);
-      await connection.query(`DELETE FROM planner_assignment_rules WHERE owner_user_id = ?`, [this.ownerUserId]);
-      await connection.query(`DELETE FROM planner_routine_set_members WHERE owner_user_id = ?`, [this.ownerUserId]);
-      await connection.query(`DELETE FROM planner_routine_sets WHERE owner_user_id = ?`, [this.ownerUserId]);
-      await connection.query(`DELETE FROM planner_routine_checkins WHERE owner_user_id = ?`, [this.ownerUserId]);
-      await connection.query(`DELETE FROM planner_routine_items WHERE owner_user_id = ?`, [this.ownerUserId]);
-      await connection.query(`DELETE FROM planner_routine_task_templates WHERE owner_user_id = ?`, [this.ownerUserId]);
-      await connection.query(`DELETE FROM planner_routines WHERE owner_user_id = ?`, [this.ownerUserId]);
-      await connection.query(`DELETE FROM planner_todos WHERE owner_user_id = ?`, [this.ownerUserId]);
-
-      for (const routine of data.routines) {
-        await connection.query(
-          `INSERT INTO planner_routines (owner_user_id, id, name, emoji, color, is_archived, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            this.ownerUserId,
-            routine.id,
-            routine.name,
-            routine.emoji,
-            routine.color,
-            routine.isArchived ? 1 : 0,
-            toMySqlDateTime(routine.createdAt),
-            toMySqlDateTime(routine.updatedAt),
-          ],
-        );
-      }
-
-      for (const template of data.routineTaskTemplates) {
-        await connection.query(
-          `INSERT INTO planner_routine_task_templates
-            (owner_user_id, id, title, tracking_type, target_count, is_archived, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            this.ownerUserId,
-            template.id,
-            template.title,
-            template.trackingType,
-            template.targetCount,
-            template.isArchived ? 1 : 0,
-            toMySqlDateTime(template.createdAt),
-            toMySqlDateTime(template.updatedAt),
-          ],
-        );
-      }
-
-      for (const item of data.routineItems) {
-        const template = templateMap.get(item.templateId);
-        if (!template) {
-          throw new Error(`Missing routine task template for item ${item.id}`);
-        }
-        await connection.query(
-          `INSERT INTO planner_routine_items
-            (owner_user_id, id, routine_id, template_id, title, sort_order, is_active, tracking_type, target_count)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            this.ownerUserId,
-            item.id,
-            item.routineId,
-            item.templateId,
-            template.title,
-            item.sortOrder,
-            item.isActive ? 1 : 0,
-            template.trackingType,
-            template.targetCount,
-          ],
-        );
-      }
-
-      for (const checkin of data.routineCheckins) {
-        await connection.query(
-          `INSERT INTO planner_routine_checkins (owner_user_id, date_key, routine_id, item_progress_json, updated_at)
-           VALUES (?, ?, ?, ?, ?)`,
-          [
-            this.ownerUserId,
-            checkin.date,
-            checkin.routineId,
-            JSON.stringify(checkin.itemProgress),
-            toMySqlDateTime(checkin.updatedAt),
-          ],
-        );
-      }
-
-      for (const set of data.routineSets) {
-        await connection.query(
-          `INSERT INTO planner_routine_sets (owner_user_id, id, name, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?)`,
-          [
-            this.ownerUserId,
-            set.id,
-            set.name,
-            toMySqlDateTime(set.createdAt),
-            toMySqlDateTime(set.updatedAt),
-          ],
-        );
-        for (const [index, routineId] of set.routineIds.entries()) {
-          await connection.query(
-            `INSERT INTO planner_routine_set_members (owner_user_id, routine_set_id, routine_id, sort_order)
-             VALUES (?, ?, ?, ?)`,
-            [this.ownerUserId, set.id, routineId, index + 1],
-          );
-        }
-      }
-
-      for (const rule of data.routineAssignmentRules) {
-        await connection.query(
-          `INSERT INTO planner_assignment_rules (owner_user_id, id, rule_type, days_json, set_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [
-            this.ownerUserId,
-            rule.id,
-            rule.ruleType,
-            JSON.stringify(rule.days),
-            rule.setId,
-            toMySqlDateTime(rule.createdAt),
-            toMySqlDateTime(rule.updatedAt),
-          ],
-        );
-      }
-
-      for (const override of data.routineDateOverrides) {
-        await connection.query(
-          `INSERT INTO planner_date_overrides (owner_user_id, date_key, set_id, updated_at)
-           VALUES (?, ?, ?, ?)`,
-          [this.ownerUserId, override.date, override.setId, toMySqlDateTime(override.updatedAt)],
-        );
-        for (const routineId of override.includeRoutineIds) {
-          await connection.query(
-            `INSERT INTO planner_override_includes (owner_user_id, date_key, routine_id) VALUES (?, ?, ?)`,
-            [this.ownerUserId, override.date, routineId],
-          );
-        }
-        for (const routineId of override.excludeRoutineIds) {
-          await connection.query(
-            `INSERT INTO planner_override_excludes (owner_user_id, date_key, routine_id) VALUES (?, ?, ?)`,
-            [this.ownerUserId, override.date, routineId],
-          );
-        }
-      }
-
-      for (const todo of data.todos) {
-        await connection.query(
-          `INSERT INTO planner_todos (owner_user_id, id, title, emoji, note, due_date, status, completed_at, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            this.ownerUserId,
-            todo.id,
-            todo.title,
-            todo.emoji,
-            todo.note,
-            todo.dueDate,
-            todo.status,
-            todo.completedAt ? toMySqlDateTime(todo.completedAt) : null,
-            toMySqlDateTime(todo.createdAt),
-            toMySqlDateTime(todo.updatedAt),
-          ],
-        );
-      }
-
-      await connection.commit();
-    } catch (error) {
-      await connection.rollback();
-      throw error;
-    }
-  }
-}
-
-function hasPlannerData(data: PlannerData) {
-  return (
-    data.routines.length > 0 ||
-    data.routineTaskTemplates.length > 0 ||
-    data.todos.length > 0 ||
-    data.routineSets.length > 0
-  );
 }
 
 function normalizeRecord(value: unknown): Record<string, number> {
@@ -463,17 +292,5 @@ function normalizeRecord(value: unknown): Record<string, number> {
     );
   } catch {
     return {};
-  }
-}
-
-export function normalizeDays(value: unknown): ActiveDay[] {
-  try {
-    const parsed =
-      typeof value === "string" ? (JSON.parse(value) as number[]) : Array.isArray(value) ? value : [];
-    return parsed.filter(
-      (entry): entry is ActiveDay => Number.isInteger(entry) && entry >= 0 && entry <= 6,
-    );
-  } catch {
-    return [];
   }
 }

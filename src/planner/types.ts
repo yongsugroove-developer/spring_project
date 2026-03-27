@@ -2,160 +2,97 @@ export type ActiveDay = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 export type TrackingType = "binary" | "count" | "time";
 
-export interface Routine {
+export interface Habit {
   id: string;
   name: string;
   emoji: string | null;
   color: string;
-  isArchived: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface RoutineTaskTemplate {
-  id: string;
-  title: string;
+  tag: string | null;
   trackingType: TrackingType;
   targetCount: number;
-  isArchived: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface RoutineItem {
-  id: string;
-  routineId: string;
-  templateId: string;
+  startDate: string;
   sortOrder: number;
-  isActive: boolean;
-}
-
-export interface ResolvedRoutineItem extends RoutineItem {
-  title: string;
-  trackingType: TrackingType;
-  targetCount: number;
-}
-
-export interface RoutineCheckin {
-  date: string;
-  routineId: string;
-  itemProgress: Record<string, number>;
+  createdAt: string;
   updatedAt: string;
 }
 
-export interface RoutineSet {
+export interface HabitCheckin {
+  date: string;
+  habitId: string;
+  value: number;
+  updatedAt: string;
+}
+
+export interface Routine {
   id: string;
   name: string;
-  routineIds: string[];
+  emoji: string | null;
+  color: string | null;
+  habitIds: string[];
+  notificationEnabled: boolean;
+  notificationTime: string | null;
+  notificationWeekdays: ActiveDay[];
   createdAt: string;
   updatedAt: string;
 }
 
-export type AssignmentRuleType = "weekday" | "weekend" | "custom-days";
+export type TaskStatus = "pending" | "done";
 
-export interface RoutineAssignmentRule {
-  id: string;
-  ruleType: AssignmentRuleType;
-  days: ActiveDay[];
-  setId: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface RoutineDateOverride {
-  date: string;
-  setId: string | null;
-  includeRoutineIds: string[];
-  excludeRoutineIds: string[];
-  updatedAt: string;
-}
-
-export type TodoStatus = "pending" | "done";
-
-export interface Todo {
+export interface Task {
   id: string;
   title: string;
   emoji: string | null;
   note: string | null;
   dueDate: string | null;
-  status: TodoStatus;
+  status: TaskStatus;
   completedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface PlannerData {
+  habits: Habit[];
+  habitCheckins: HabitCheckin[];
   routines: Routine[];
-  routineTaskTemplates: RoutineTaskTemplate[];
-  routineItems: RoutineItem[];
-  routineCheckins: RoutineCheckin[];
-  routineSets: RoutineSet[];
-  routineAssignmentRules: RoutineAssignmentRule[];
-  routineDateOverrides: RoutineDateOverride[];
-  todos: Todo[];
+  tasks: Task[];
 }
 
-export interface RoutineItemState extends ResolvedRoutineItem {
-  currentCount: number;
+export interface TodayHabit extends Habit {
+  currentValue: number;
   isComplete: boolean;
   progressRate: number;
+  streak: number;
 }
 
-export interface RoutineProgress {
-  itemStates: RoutineItemState[];
-  completedUnits: number;
-  targetUnits: number;
-  completedItemCount: number;
-  totalItemCount: number;
-  rate: number;
+export interface HabitWithStats extends Habit {
+  currentStreak: number;
+  bestStreak: number;
 }
 
-export interface RoutineWithItems extends Routine {
-  items: ResolvedRoutineItem[];
-}
-
-export interface RoutineSetWithMeta extends RoutineSet {
-  routines: Routine[];
-}
-
-export interface ResolvedAssignment {
-  date: string;
-  baseSetId: string | null;
-  baseSetName: string | null;
-  source: "rule" | "override" | "none";
-  includeRoutineIds: string[];
-  excludeRoutineIds: string[];
-  activeRoutineIds: string[];
-}
-
-export interface TodayRoutine extends Routine {
-  items: RoutineItemState[];
-  progress: RoutineProgress;
+export interface RoutineWithHabits extends Routine {
+  habits: Habit[];
 }
 
 export interface CalendarDaySummary {
   date: string;
-  routineProgressRate: number;
-  completedUnits: number;
-  targetUnits: number;
-  todoCount: number;
-  completedTodoCount: number;
-  setId: string | null;
-  setName: string | null;
-  overrideApplied: boolean;
+  habitProgressRate: number;
+  completedHabits: number;
+  totalHabits: number;
+  taskCount: number;
+  completedTaskCount: number;
 }
 
-export interface RankedRoutineStat {
-  routineId: string;
+export interface RankedHabitStat {
+  habitId: string;
   name: string;
   emoji: string | null;
   color: string;
   completionRate: number;
-  completedUnits: number;
-  targetUnits: number;
+  completedDays: number;
+  trackedDays: number;
 }
 
-export interface TodoCompletionStat {
+export interface TaskCompletionStat {
   completed: number;
   total: number;
   rate: number;
@@ -167,68 +104,41 @@ export interface StatsSummary {
   monthlyRate: number;
   currentStreak: number;
   bestStreak: number;
-  topRoutines: RankedRoutineStat[];
-  todoCompletion: TodoCompletionStat;
+  topHabits: RankedHabitStat[];
+  taskCompletion: TaskCompletionStat;
 }
 
 export interface TodayResponse {
   ok: true;
   date: string;
-  assignment: ResolvedAssignment;
   summary: {
-    routineRate: number;
-    completedUnits: number;
-    targetUnits: number;
-    completedItemCount: number;
-    totalItemCount: number;
-    dueTodayCount: number;
-    inboxCount: number;
-    completedTodoCount: number;
+    habitRate: number;
+    completedHabits: number;
+    totalHabits: number;
+    remainingHabits: number;
   };
-  routines: TodayRoutine[];
-  todos: {
-    dueToday: Todo[];
-    inbox: Todo[];
-  };
+  habits: TodayHabit[];
 }
 
-export interface CheckinsResponse {
+export interface HabitCheckinsResponse {
   ok: true;
   date: string;
-  assignment: ResolvedAssignment;
-  routines: TodayRoutine[];
+  habits: TodayHabit[];
+}
+
+export interface HabitsResponse {
+  ok: true;
+  habits: HabitWithStats[];
 }
 
 export interface RoutinesResponse {
   ok: true;
-  routines: RoutineWithItems[];
+  routines: RoutineWithHabits[];
 }
 
-export interface RoutineTaskTemplatesResponse {
+export interface TasksResponse {
   ok: true;
-  routineTaskTemplates: RoutineTaskTemplate[];
-}
-
-export interface RoutineSetsResponse {
-  ok: true;
-  routineSets: RoutineSetWithMeta[];
-}
-
-export interface AssignmentsResponse {
-  ok: true;
-  assignments: RoutineAssignmentRule[];
-}
-
-export interface OverrideResponse {
-  ok: true;
-  date: string;
-  override: RoutineDateOverride;
-  resolvedAssignment: ResolvedAssignment;
-}
-
-export interface TodosResponse {
-  ok: true;
-  todos: Todo[];
+  tasks: Task[];
 }
 
 export interface CalendarResponse {

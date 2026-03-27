@@ -16,117 +16,39 @@ afterEach(async () => {
 });
 
 describe("planner API", () => {
-  it("supports routine sets, assignments, and date overrides", async () => {
+  it("returns habits-only today payloads and accepts explicit dates", async () => {
     const temp = await createTempPlannerFile();
     cleanups.push(temp.cleanup);
     const app = createApp({
       dataFile: temp.filePath,
       now: () => new Date("2026-03-22T09:00:00+09:00"),
     });
-
-    const createRoutine = await request(app).post("/api/routines").send({
-      name: "Sunday Special",
-      emoji: "☀️",
-      color: "#7c3aed",
-    });
-    expect(createRoutine.status).toBe(201);
-    expect(createRoutine.body.routine.emoji).toBe("☀️");
-    const routineId = createRoutine.body.routine.id as string;
-
-    const createSet = await request(app).post("/api/routine-sets").send({
-      name: "Special Sunday",
-      routineIds: [routineId],
-    });
-    expect(createSet.status).toBe(201);
-    const setId = createSet.body.routineSet.id as string;
-
-    const assignments = await request(app).put("/api/assignments").send({
-      assignments: [
-        { ruleType: "weekday", setId: "set-weekday" },
-        { ruleType: "weekend", setId: setId },
-      ],
-    });
-    expect(assignments.status).toBe(200);
-
-    const override = await request(app).put("/api/overrides/2026-03-22").send({
-      includeRoutineIds: ["routine-focus"],
-      excludeRoutineIds: [],
-      setId: setId,
-    });
-    expect(override.status).toBe(200);
-    expect(override.body.resolvedAssignment.baseSetId).toBe(setId);
 
     const today = await request(app).get("/api/today");
     expect(today.status).toBe(200);
-    expect(today.body.assignment.baseSetId).toBe(setId);
-  });
+    expect(today.body.date).toBe("2026-03-22");
+    expect(today.body.habits.map((habit: { id: string }) => habit.id)).toEqual([
+      "habit-water",
+      "habit-plan",
+      "habit-focus",
+    ]);
+    expect(today.body.summary.totalHabits).toBe(3);
+    expect(today.body.todos).toBeUndefined();
 
-  it("supports selected-date today queries and rejects invalid today dates", async () => {
-    const temp = await createTempPlannerFile();
-    cleanups.push(temp.cleanup);
-    const app = createApp({
-      dataFile: temp.filePath,
-      now: () => new Date("2026-03-22T09:00:00+09:00"),
-    });
-
-    const createTodo = await request(app).post("/api/todos").send({
-      title: "Prepare Monday brief",
-      dueDate: "2026-03-23",
-      emoji: "🗂️",
-    });
-    expect(createTodo.status).toBe(201);
-
-    const selectedDate = await request(app).get("/api/today").query({ date: "2026-03-23" });
+    const selectedDate = await request(app).get("/api/today").query({ date: "2026-03-20" });
     expect(selectedDate.status).toBe(200);
-    expect(selectedDate.body.date).toBe("2026-03-23");
-    expect(selectedDate.body.assignment.baseSetName).toBe("Weekday");
-    expect(selectedDate.body.todos.dueToday.map((todo: { title: string }) => todo.title)).toContain("Prepare Monday brief");
+    expect(selectedDate.body.date).toBe("2026-03-20");
+    expect(selectedDate.body.habits.map((habit: { id: string }) => habit.id)).toEqual([
+      "habit-water",
+      "habit-plan",
+    ]);
 
     const invalidDate = await request(app).get("/api/today").query({ date: "2026-03-99" });
     expect(invalidDate.status).toBe(400);
     expect(invalidDate.body.ok).toBe(false);
   });
 
-  it("supports count-based and time-based checkins and updated statistics", async () => {
-    const temp = await createTempPlannerFile();
-    cleanups.push(temp.cleanup);
-    const app = createApp({
-      dataFile: temp.filePath,
-      now: () => new Date("2026-03-22T09:00:00+09:00"),
-    });
-
-    const checkin = await request(app)
-      .put("/api/checkins/2026-03-22/routines/routine-weekend")
-      .send({
-        itemProgress: {
-          "item-laundry": 1,
-          "item-walk": 2,
-        },
-      });
-    expect(checkin.status).toBe(200);
-    expect(checkin.body.routine.progress.rate).toBe(1);
-
-    const calendar = await request(app).get("/api/calendar").query({ month: "2026-03" });
-    expect(calendar.status).toBe(200);
-    expect(calendar.body.days.find((day: { date: string }) => day.date === "2026-03-22")).toBeTruthy();
-
-    const stats = await request(app).get("/api/stats").query({ range: "month" });
-    expect(stats.status).toBe(200);
-    expect(stats.body.summary.monthlyRate).toBeGreaterThan(0);
-
-    const timeItem = await request(app)
-      .post("/api/routines/routine-weekend/items")
-      .send({
-        title: "Read quietly",
-        trackingType: "time",
-        targetCount: 30,
-      });
-
-    expect(timeItem.status).toBe(201);
-    expect(timeItem.body.item.trackingType).toBe("time");
-  });
-
-  it("supports routine task template CRUD and routine creation from saved templates", async () => {
+  it("supports habit CRUD, reorder, and checkin updates", async () => {
     const temp = await createTempPlannerFile(createDefaultPlannerData());
     cleanups.push(temp.cleanup);
     const app = createApp({
@@ -134,137 +56,137 @@ describe("planner API", () => {
       now: () => new Date("2026-03-27T09:00:00+09:00"),
     });
 
-    const createTemplate = await request(app).post("/api/routine-task-templates").send({
-      title: "Morning stretch",
+    const createHabit = await request(app).post("/api/habits").send({
+      name: "Morning stretch",
+      emoji: "🤸",
+      color: "#16a34a",
+      tag: "건강",
+      trackingType: "time",
+      targetCount: 10,
+      startDate: "2026-03-27",
+    });
+    expect(createHabit.status).toBe(201);
+    expect(createHabit.body.habit).toMatchObject({
+      name: "Morning stretch",
+      emoji: "🤸",
+      tag: "건강",
       trackingType: "time",
       targetCount: 10,
     });
-    expect(createTemplate.status).toBe(201);
-    const templateId = createTemplate.body.routineTaskTemplate.id as string;
+
+    const habitId = createHabit.body.habit.id as string;
+
+    const updateCheckin = await request(app)
+      .put(`/api/habit-checkins/2026-03-27/habits/${habitId}`)
+      .send({ value: 10 });
+    expect(updateCheckin.status).toBe(200);
+    expect(updateCheckin.body.habit.isComplete).toBe(true);
+
+    const secondHabit = await request(app).post("/api/habits").send({
+      name: "Drink water",
+      trackingType: "count",
+      targetCount: 3,
+      color: "#0ea5e9",
+    });
+    const secondHabitId = secondHabit.body.habit.id as string;
+
+    const reorder = await request(app).post("/api/habits/reorder").send({
+      habitIds: [secondHabitId, habitId],
+    });
+    expect(reorder.status).toBe(200);
+    expect(reorder.body.habits.map((habit: { id: string }) => habit.id)).toEqual([
+      secondHabitId,
+      habitId,
+    ]);
+
+    const listHabits = await request(app).get("/api/habits");
+    expect(listHabits.status).toBe(200);
+    expect(listHabits.body.habits.map((habit: { id: string }) => habit.id)).toEqual([
+      secondHabitId,
+      habitId,
+    ]);
+  });
+
+  it("supports routine bundles with notification metadata", async () => {
+    const temp = await createTempPlannerFile();
+    cleanups.push(temp.cleanup);
+    const app = createApp({
+      dataFile: temp.filePath,
+      now: () => new Date("2026-03-22T09:00:00+09:00"),
+    });
 
     const createRoutine = await request(app).post("/api/routines").send({
       name: "Morning reset",
       emoji: "🌤️",
-      color: "#16a34a",
-      taskTemplateIds: [templateId],
+      color: "#f97316",
+      habitIds: ["habit-water", "habit-plan"],
+      notificationEnabled: true,
+      notificationTime: "07:30",
+      notificationWeekdays: [1, 2, 3, 4, 5],
     });
     expect(createRoutine.status).toBe(201);
-    expect(createRoutine.body.routine.items).toHaveLength(1);
-    expect(createRoutine.body.routine.items[0]).toMatchObject({
-      templateId,
-      title: "Morning stretch",
-    });
-
-    const updateTemplate = await request(app).patch(`/api/routine-task-templates/${templateId}`).send({
-      title: "Morning mobility",
-      trackingType: "time",
-      targetCount: 15,
-    });
-    expect(updateTemplate.status).toBe(200);
-    expect(updateTemplate.body.routineTaskTemplate).toMatchObject({
-      title: "Morning mobility",
-      targetCount: 15,
-    });
-
-    const listTemplates = await request(app).get("/api/routine-task-templates");
-    expect(listTemplates.status).toBe(200);
-    expect(listTemplates.body.routineTaskTemplates).toHaveLength(1);
-    expect(listTemplates.body.routineTaskTemplates[0].title).toBe("Morning mobility");
-  });
-
-  it("accepts checkins for an existing routine even when it is not in the resolved set for that date", async () => {
-    const temp = await createTempPlannerFile();
-    cleanups.push(temp.cleanup);
-    const app = createApp({
-      dataFile: temp.filePath,
-      now: () => new Date("2026-03-22T09:00:00+09:00"),
-    });
-
-    const response = await request(app)
-      .put("/api/checkins/2026-03-22/routines/routine-weekday")
-      .send({
-        itemProgress: {
-          "item-plan": 1,
-          "item-water": 2,
-          "item-inbox": 1,
-        },
-      });
-
-    expect(response.status).toBe(200);
-    expect(response.body.ok).toBe(true);
-    expect(response.body.routine.id).toBe("routine-weekday");
-    expect(response.body.routine.progress.completedItemCount).toBe(2);
-  });
-
-  it("rejects overlapping include and exclude overrides", async () => {
-    const temp = await createTempPlannerFile();
-    cleanups.push(temp.cleanup);
-    const app = createApp({
-      dataFile: temp.filePath,
-      now: () => new Date("2026-03-22T09:00:00+09:00"),
-    });
-
-    const response = await request(app).put("/api/overrides/2026-03-22").send({
-      includeRoutineIds: ["routine-focus"],
-      excludeRoutineIds: ["routine-focus"],
-    });
-
-    expect(response.status).toBe(400);
-    expect(response.body.ok).toBe(false);
-  });
-
-  it("round-trips emoji fields for routines and todos", async () => {
-    const temp = await createTempPlannerFile();
-    cleanups.push(temp.cleanup);
-    const app = createApp({
-      dataFile: temp.filePath,
-      now: () => new Date("2026-03-22T09:00:00+09:00"),
-    });
-
-    const createRoutine = await request(app).post("/api/routines").send({
-      name: "Inbox Zero",
-      emoji: "📥",
-      color: "#4f46e5",
-    });
-    expect(createRoutine.status).toBe(201);
-    expect(createRoutine.body.routine).toMatchObject({
-      name: "Inbox Zero",
-      emoji: "📥",
-    });
+    expect(createRoutine.body.routine.habits).toHaveLength(2);
+    expect(createRoutine.body.routine.notificationEnabled).toBe(true);
 
     const routineId = createRoutine.body.routine.id as string;
     const updateRoutine = await request(app).patch(`/api/routines/${routineId}`).send({
-      emoji: "🧑‍💻",
+      emoji: "☀️",
+      habitIds: ["habit-focus"],
+      notificationEnabled: false,
     });
     expect(updateRoutine.status).toBe(200);
-    expect(updateRoutine.body.routine.emoji).toBe("🧑‍💻");
+    expect(updateRoutine.body.routine.emoji).toBe("☀️");
+    expect(updateRoutine.body.routine.habits).toHaveLength(1);
+    expect(updateRoutine.body.routine.notificationEnabled).toBe(false);
+  });
 
-    const createTodo = await request(app).post("/api/todos").send({
+  it("round-trips emoji fields for habits and tasks", async () => {
+    const temp = await createTempPlannerFile();
+    cleanups.push(temp.cleanup);
+    const app = createApp({
+      dataFile: temp.filePath,
+      now: () => new Date("2026-03-22T09:00:00+09:00"),
+    });
+
+    const createHabit = await request(app).post("/api/habits").send({
+      name: "Inbox Zero",
+      emoji: "🧼",
+      color: "#4f46e5",
+      trackingType: "binary",
+    });
+    expect(createHabit.status).toBe(201);
+    expect(createHabit.body.habit.emoji).toBe("🧼");
+
+    const habitId = createHabit.body.habit.id as string;
+    const updateHabit = await request(app).patch(`/api/habits/${habitId}`).send({
+      emoji: "🧘‍♀️",
+    });
+    expect(updateHabit.status).toBe(200);
+    expect(updateHabit.body.habit.emoji).toBe("🧘‍♀️");
+
+    const createTask = await request(app).post("/api/tasks").send({
       title: "Plan next sprint",
       emoji: "🏳️‍🌈",
       dueDate: "2026-03-23",
     });
-    expect(createTodo.status).toBe(201);
-    expect(createTodo.body.todo.emoji).toBe("🏳️‍🌈");
+    expect(createTask.status).toBe(201);
+    expect(createTask.body.task.emoji).toBe("🏳️‍🌈");
 
-    const todoId = createTodo.body.todo.id as string;
-    const updateTodo = await request(app).patch(`/api/todos/${todoId}`).send({
-      emoji: "❤️‍🔥",
+    const taskId = createTask.body.task.id as string;
+    const updateTask = await request(app).patch(`/api/tasks/${taskId}`).send({
+      emoji: "🏴‍☠️",
       status: "done",
     });
-    expect(updateTodo.status).toBe(200);
-    expect(updateTodo.body.todo).toMatchObject({
-      emoji: "❤️‍🔥",
-      status: "done",
-    });
-    const completedAt = updateTodo.body.todo.completedAt as string;
+    expect(updateTask.status).toBe(200);
+    expect(updateTask.body.task.emoji).toBe("🏴‍☠️");
+    const completedAt = updateTask.body.task.completedAt as string;
 
-    const updateTodoAgain = await request(app).patch(`/api/todos/${todoId}`).send({
-      emoji: "🎉",
+    const updateTaskAgain = await request(app).patch(`/api/tasks/${taskId}`).send({
+      emoji: "🚀",
       status: "done",
     });
-    expect(updateTodoAgain.status).toBe(200);
-    expect(updateTodoAgain.body.todo.completedAt).toBe(completedAt);
+    expect(updateTaskAgain.status).toBe(200);
+    expect(updateTaskAgain.body.task.completedAt).toBe(completedAt);
   });
 
   it("returns empty planner collections for a new empty store", async () => {
@@ -275,24 +197,23 @@ describe("planner API", () => {
       now: () => new Date("2026-03-27T09:00:00+09:00"),
     });
 
-    const [today, routines, routineSets, templates] = await Promise.all([
+    const [today, habits, routines, tasks] = await Promise.all([
       request(app).get("/api/today"),
+      request(app).get("/api/habits"),
       request(app).get("/api/routines"),
-      request(app).get("/api/routine-sets"),
-      request(app).get("/api/routine-task-templates"),
+      request(app).get("/api/tasks"),
     ]);
 
     expect(today.status).toBe(200);
-    expect(today.body.routines).toEqual([]);
+    expect(today.body.habits).toEqual([]);
     expect(today.body.summary).toMatchObject({
-      completedUnits: 0,
-      targetUnits: 0,
-      completedItemCount: 0,
-      totalItemCount: 0,
+      completedHabits: 0,
+      totalHabits: 0,
+      remainingHabits: 0,
     });
+    expect(habits.body.habits).toEqual([]);
     expect(routines.body.routines).toEqual([]);
-    expect(routineSets.body.routineSets).toEqual([]);
-    expect(templates.body.routineTaskTemplates).toEqual([]);
+    expect(tasks.body.tasks).toEqual([]);
   });
 
   it("returns localized JSON for unknown API routes", async () => {

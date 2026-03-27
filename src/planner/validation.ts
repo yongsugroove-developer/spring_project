@@ -1,11 +1,9 @@
 import type {
   ActiveDay,
-  AssignmentRuleType,
+  Habit,
+  HabitCheckin,
   PlannerData,
-  RoutineCheckin,
-  RoutineItem,
-  ResolvedRoutineItem,
-  Todo,
+  Task,
   TrackingType,
 } from "./types.js";
 import { isValidDateKey } from "./date.js";
@@ -19,22 +17,22 @@ export function validateDateKey(value: string | undefined, label: string): asser
 }
 
 export function requireText(value: string, label: string): string {
-  const text = value.trim();
+  const text = String(value ?? "").trim();
   if (!text) {
     throw new PlannerValidationError(`${label} is required`);
   }
   return text;
 }
 
-export function normalizeOptionalText(value: string | null): string | null {
-  if (value === null) {
+export function normalizeOptionalText(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) {
     return null;
   }
-  const text = value.trim();
+  const text = String(value).trim();
   return text === "" ? null : text;
 }
 
-export function normalizeOptionalEmoji(value: string | null): string | null {
+export function normalizeOptionalEmoji(value: string | null | undefined): string | null {
   const text = normalizeOptionalText(value);
   if (text === null) {
     return null;
@@ -45,34 +43,30 @@ export function normalizeOptionalEmoji(value: string | null): string | null {
   return text;
 }
 
-export function normalizeColor(value: string): string {
-  const color = requireText(value, "Routine color");
+export function normalizeColor(value: string, label = "color"): string {
+  const color = requireText(value, label);
   if (!/^#[0-9a-fA-F]{6}$/.test(color)) {
-    throw new PlannerValidationError("Routine color must use #RRGGBB format");
+    throw new PlannerValidationError(`${label} must use #RRGGBB format`);
   }
   return color;
 }
 
-export function normalizeOptionalDate(value: string | null, label: string): string | null {
-  if (value === null || value === "") {
+export function normalizeOptionalDate(
+  value: string | null | undefined,
+  label: string,
+): string | null {
+  if (value === null || value === undefined || value === "") {
     return null;
   }
   validateDateKey(value, label);
   return value;
 }
 
-export function normalizeTodoStatus(value: string): "pending" | "done" {
-  if (value !== "pending" && value !== "done") {
-    throw new PlannerValidationError("Todo status must be pending or done");
+export function normalizeTrackingType(value: TrackingType | undefined): TrackingType {
+  if (value === "count" || value === "time" || value === "binary") {
+    return value;
   }
-  return value;
-}
-
-export function normalizeTrackingType(value: TrackingType): TrackingType {
-  if (value !== "binary" && value !== "count" && value !== "time") {
-    throw new PlannerValidationError("trackingType must be binary, count, or time");
-  }
-  return value;
+  throw new PlannerValidationError("trackingType must be binary, count, or time");
 }
 
 export function normalizeTargetCount(
@@ -82,11 +76,14 @@ export function normalizeTargetCount(
   if (trackingType === "binary") {
     return 1;
   }
-  if (trackingType === "count" && (!Number.isInteger(targetCount) || (targetCount ?? 0) < 2)) {
-    throw new PlannerValidationError("count items require targetCount of at least 2");
+  if (trackingType === "count") {
+    if (!Number.isInteger(targetCount) || (targetCount ?? 0) < 2) {
+      throw new PlannerValidationError("count habits require targetCount of at least 2");
+    }
+    return targetCount as number;
   }
-  if (trackingType === "time" && (!Number.isInteger(targetCount) || (targetCount ?? 0) < 1)) {
-    throw new PlannerValidationError("time items require targetCount of at least 1 minute");
+  if (!Number.isInteger(targetCount) || (targetCount ?? 0) < 1) {
+    throw new PlannerValidationError("time habits require targetCount of at least 1 minute");
   }
   return targetCount as number;
 }
@@ -96,6 +93,40 @@ export function normalizePositiveInteger(value: number, label: string): number {
     throw new PlannerValidationError(`${label} must be a positive integer`);
   }
   return value;
+}
+
+export function normalizeTaskStatus(value: string): "pending" | "done" {
+  if (value !== "pending" && value !== "done") {
+    throw new PlannerValidationError("Task status must be pending or done");
+  }
+  return value;
+}
+
+export function normalizeNotificationTime(value: string | null | undefined): string | null {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    return null;
+  }
+  const text = String(value).trim();
+  if (!/^\d{2}:\d{2}$/.test(text)) {
+    throw new PlannerValidationError("notificationTime must use HH:MM format");
+  }
+  const [hours, minutes] = text.split(":").map(Number);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    throw new PlannerValidationError("notificationTime must use a valid 24-hour time");
+  }
+  return text;
+}
+
+export function normalizeWeekdays(days: number[] | undefined): ActiveDay[] {
+  if (!Array.isArray(days)) {
+    return [];
+  }
+  return [...new Set(days)].map((day) => {
+    if (!Number.isInteger(day) || day < 0 || day > 6) {
+      throw new PlannerValidationError("notificationWeekdays must contain values 0-6");
+    }
+    return day as ActiveDay;
+  });
 }
 
 export function sanitizeIds<T extends string>(values: T[], allowedIds: string[]): T[] {
@@ -109,67 +140,11 @@ export function sanitizeIds<T extends string>(values: T[], allowedIds: string[])
   return unique;
 }
 
-export function sanitizeDays(days: number[]): ActiveDay[] {
-  return [...new Set(days)].map((day) => {
-    if (!Number.isInteger(day) || day < 0 || day > 6) {
-      throw new PlannerValidationError("days must contain values 0-6");
-    }
-    return day as ActiveDay;
-  });
-}
-
-export function normalizeRuleType(ruleType: AssignmentRuleType): AssignmentRuleType {
-  if (ruleType !== "weekday" && ruleType !== "weekend" && ruleType !== "custom-days") {
-    throw new PlannerValidationError("Invalid assignment rule type");
+export function normalizeHabitIds(habitIds: string[], data: Pick<PlannerData, "habits">): string[] {
+  if (!Array.isArray(habitIds)) {
+    throw new PlannerValidationError("habitIds must be an array");
   }
-  return ruleType;
-}
-
-export function normalizeRuleDays(ruleType: AssignmentRuleType, days?: number[]): ActiveDay[] {
-  if (ruleType === "weekday") {
-    return [1, 2, 3, 4, 5];
-  }
-  if (ruleType === "weekend") {
-    return [0, 6];
-  }
-  if (!Array.isArray(days) || days.length === 0) {
-    throw new PlannerValidationError("custom-days rules require at least one day");
-  }
-  return sanitizeDays(days);
-}
-
-export function normalizeRoutineIds(routineIds: string[], data: PlannerData): string[] {
-  if (!Array.isArray(routineIds)) {
-    throw new PlannerValidationError("routineIds must be an array");
-  }
-  return sanitizeIds(routineIds, data.routines.map((entry) => entry.id));
-}
-
-export function normalizeRoutineTaskTemplateIds(
-  templateIds: string[],
-  data: Pick<PlannerData, "routineTaskTemplates">,
-): string[] {
-  if (!Array.isArray(templateIds)) {
-    throw new PlannerValidationError("taskTemplateIds must be an array");
-  }
-  return sanitizeIds(
-    templateIds,
-    data.routineTaskTemplates.filter((entry) => !entry.isArchived).map((entry) => entry.id),
-  );
-}
-
-export function requireExistingSetId(setId: string, data: PlannerData): string {
-  if (!data.routineSets.some((routineSet) => routineSet.id === setId)) {
-    throw new PlannerValidationError("Referenced routine set was not found");
-  }
-  return setId;
-}
-
-export function normalizeExistingSetIdOrNull(setId: string | null, data: PlannerData): string | null {
-  if (setId === null || setId === "") {
-    return null;
-  }
-  return requireExistingSetId(setId, data);
+  return sanitizeIds(habitIds, data.habits.map((habit) => habit.id));
 }
 
 export function clampProgressValue(value: number, targetCount: number): number {
@@ -177,38 +152,21 @@ export function clampProgressValue(value: number, targetCount: number): number {
   return Math.min(Math.max(normalized, 0), targetCount);
 }
 
-export function normalizeStoredItemProgress(
-  rawProgress: Record<string, number>,
-  items: ResolvedRoutineItem[],
-): Record<string, number> {
-  const progress: Record<string, number> = {};
-  for (const item of items) {
-    progress[item.id] = clampProgressValue(rawProgress[item.id] ?? 0, item.targetCount);
-  }
-  return progress;
+export function normalizeStoredHabitValue(value: number, habit: Habit): number {
+  return clampProgressValue(value, habit.targetCount);
 }
 
-export function normalizeCheckinsForRoutineItems(
-  checkins: RoutineCheckin[],
-  routineItems: ResolvedRoutineItem[],
-  routineId: string,
-) {
-  const items = routineItems.filter((item) => item.routineId === routineId && item.isActive);
-  for (const checkin of checkins.filter((entry) => entry.routineId === routineId)) {
-    checkin.itemProgress = normalizeStoredItemProgress(checkin.itemProgress, items);
-  }
+export function normalizeCheckinsForHabits(checkins: HabitCheckin[], habits: Habit[]) {
+  const habitMap = new Map(habits.map((habit) => [habit.id, habit]));
+  return checkins
+    .filter((checkin) => habitMap.has(checkin.habitId))
+    .map((checkin) => ({
+      ...checkin,
+      value: normalizeStoredHabitValue(checkin.value, habitMap.get(checkin.habitId)!),
+    }));
 }
 
-export function normalizeRoutineItemOrder(items: RoutineItem[], routineId: string) {
-  items
-    .filter((item) => item.routineId === routineId)
-    .sort((left, right) => left.sortOrder - right.sortOrder)
-    .forEach((item, index) => {
-      item.sortOrder = index + 1;
-    });
-}
-
-export function sortTodos(left: Todo, right: Todo): number {
+export function sortTasks(left: Task, right: Task): number {
   const leftKey = left.dueDate ?? "9999-12-31";
   const rightKey = right.dueDate ?? "9999-12-31";
   if (left.status !== right.status) {
