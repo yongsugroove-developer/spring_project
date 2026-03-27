@@ -495,11 +495,11 @@ function renderShellOnly() {
 
 function renderPanels() {
   const renderers = {
-    today: renderTodayPage,
+    today: renderTodayDensePage,
     habits: renderHabitsPage,
     tasks: renderTasksPage,
     routines: renderRoutinesPage,
-    calendar: renderCalendarPage,
+    calendar: renderCalendarMonthPage,
     stats: renderStatsPage,
     settings: renderSettingsPage,
   };
@@ -851,6 +851,168 @@ function settingsLink(route, title, copy) {
 function trackingOption(value, selectedValue) {
   const labelKey = value === "binary" ? "typeBinary" : value === "count" ? "typeCount" : "typeTime";
   return `<option value="${value}" ${selectedValue === value || (!selectedValue && value === "binary") ? "selected" : ""}>${esc(t(labelKey))}</option>`;
+}
+
+function renderTodayDensePage() {
+  if (!state.today) return "";
+  const weekDates = buildWeekDates(state.selectedHomeDate);
+  return `<div class="today-home-layout today-home-layout--dense">
+    <section class="content-card today-home-overview">
+      <div class="today-home-overview-head">
+        <div class="today-home-topbar-main">
+          <p class="eyebrow">${esc(t("homeTitle"))}</p>
+          <h2>${esc(formatMonthLabel(state.selectedHomeDate))}</h2>
+          <p class="muted today-home-date-copy">${esc(formatFullDate(state.selectedHomeDate))}</p>
+        </div>
+        <div class="today-home-topbar-side">
+          <div class="actions today-home-topbar-actions">
+            <button class="btn-soft compact-action" type="button" data-route="/habits">${esc(t("manageHabits"))}</button>
+            <button class="btn-soft compact-action" type="button" data-route="/routines">${esc(t("goRoutines"))}</button>
+          </div>
+        </div>
+      </div>
+      <div class="today-home-summary-row">
+        ${renderHomeMiniStat(t("homeSummaryRate"), percent(state.today.summary.habitRate))}
+        ${renderHomeMiniStat(t("completedHabits"), `${state.today.summary.completedHabits}/${state.today.summary.totalHabits}`)}
+        ${renderHomeMiniStat(t("remainingHabits"), String(state.today.summary.remainingHabits))}
+      </div>
+    </section>
+    <section class="content-card today-home-week">
+      <div class="route-inline-head today-home-week-head">
+        <h3>${esc(t("month"))}</h3>
+        <div class="actions">
+          <button class="btn-soft compact-action" type="button" data-action="shift-week" data-direction="-1">${esc(t("weekPrevious"))}</button>
+          <button class="btn-soft compact-action" type="button" data-action="shift-week" data-direction="1">${esc(t("weekNext"))}</button>
+        </div>
+      </div>
+      <div class="today-home-week-grid">${weekDates.map((date) => weekChip(date)).join("")}</div>
+    </section>
+    <section class="content-card today-home-board today-home-board--dense">
+      <div class="today-home-board-head">
+        <div>${esc(t("progress"))}</div>
+        <div>${esc(t("habits"))}</div>
+        <div>${esc(t("status"))}</div>
+      </div>
+      <div class="today-home-board-body">
+        ${state.today.habits.length ? state.today.habits.map(renderHomeHabitRowDense).join("") : renderHomeEmpty()}
+      </div>
+    </section>
+  </div>`;
+}
+
+function renderCalendarMonthPage() {
+  const days = state.calendar?.days ?? [];
+  const monthGrid = buildCalendarMonthGrid(state.selectedMonth, days);
+  const monthRate =
+    days.length === 0 ? 0 : days.reduce((sum, day) => sum + Number(day.habitProgressRate || 0), 0) / days.length;
+  const selectedDay = days.find((day) => day.date === state.selectedHomeDate) ?? null;
+
+  return `<div class="route-screen-layout">
+    <section class="content-card calendar-shell">
+      <div class="route-inline-head">
+        <h3>${esc(formatMonthTitle(state.selectedMonth))}</h3>
+        <div class="actions">
+          <button class="btn-soft compact-action" type="button" data-action="shift-month" data-direction="-1">${esc(t("weekPrevious"))}</button>
+          <button class="btn-soft compact-action" type="button" data-action="shift-month" data-direction="1">${esc(t("weekNext"))}</button>
+        </div>
+      </div>
+      <div class="calendar-focus-inline">
+        <span class="calendar-focus-stat">${esc(t("homeSummaryRate"))} ${percent(monthRate)}</span>
+        ${
+          selectedDay
+            ? `<span class="calendar-focus-stat">${esc(formatFullDate(selectedDay.date))}</span>`
+            : `<span class="calendar-focus-stat">${esc(formatMonthTitle(state.selectedMonth))}</span>`
+        }
+      </div>
+      <div class="calendar-grid calendar-grid--month">
+        ${["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((label) => `<span class="weekday">${label}</span>`).join("")}
+        ${monthGrid.length ? monthGrid.map((cell) => renderCalendarMonthCell(cell)).join("") : `<p class="muted">${esc(t("noCalendarData"))}</p>`}
+      </div>
+    </section>
+  </div>`;
+}
+
+function renderHomeMiniStat(label, value) {
+  return `<article class="today-home-summary-card"><span>${esc(label)}</span><strong>${esc(value)}</strong></article>`;
+}
+
+function renderHomeHabitRowDense(habit) {
+  const unitLabel = habit.trackingType === "time" ? t("timeUnit") : habit.trackingType === "count" ? t("countUnit") : "";
+  const progress = habit.trackingType === "binary"
+    ? `<button class="btn-soft compact-action home-binary-toggle" type="button" data-action="toggle-binary" data-habit-id="${habit.id}" data-complete="${String(habit.isComplete)}">${habit.isComplete ? esc(t("markPending")) : esc(t("markDone"))}</button>`
+    : `<div class="home-counter">
+        <button class="btn-soft compact-action" type="button" data-action="adjust-habit" data-habit-id="${habit.id}" data-delta="-1">-</button>
+        <strong class="home-counter-value ${habit.isComplete ? "is-complete" : ""}">${habit.currentValue}/${habit.targetCount}${unitLabel}</strong>
+        <button class="btn-soft compact-action" type="button" data-action="adjust-habit" data-habit-id="${habit.id}" data-delta="1">+</button>
+      </div>`;
+
+  return `<article class="home-board-group ${habit.isComplete ? "" : "is-pending"}" style="--routine-accent:${esc(habit.color)};">
+    <div class="home-board-row home-board-row--item" draggable="true" data-habit-row="${habit.id}">
+      <div class="home-board-cell home-board-cell--index">
+        <span class="home-order-badge">${habit.sortOrder}</span>
+        <span class="muted">::</span>
+      </div>
+      <div class="home-board-cell home-board-cell--main">
+        <div class="home-routine-main">
+          <span class="emoji-badge ${habit.emoji ? "" : "emoji-badge--empty"}">${habit.emoji ? esc(habit.emoji) : ""}</span>
+          <div class="home-item-copy">
+            <strong>${esc(habit.name)}</strong>
+            <span class="muted">${esc([habit.tag, `${t("streak")} ${habit.streak}`, `${t("startDate")} ${habit.startDate}`].filter(Boolean).join(" | "))}</span>
+          </div>
+        </div>
+      </div>
+      <div class="home-board-cell home-board-cell--status">${progress}</div>
+    </div>
+  </article>`;
+}
+
+function buildCalendarMonthGrid(monthKey, days) {
+  if (!days.length) {
+    return [];
+  }
+
+  const [year, month] = monthKey.split("-").map(Number);
+  const firstDay = new Date(Date.UTC(year, month - 1, 1));
+  const firstWeekday = firstDay.getUTCDay();
+  const mondayIndex = firstWeekday === 0 ? 6 : firstWeekday - 1;
+  const cells = Array.from({ length: mondayIndex }, () => null);
+
+  for (const day of days) {
+    cells.push(day);
+  }
+
+  const remainder = cells.length % 7;
+  if (remainder !== 0) {
+    cells.push(...Array.from({ length: 7 - remainder }, () => null));
+  }
+
+  return cells;
+}
+
+function renderCalendarMonthCell(cell) {
+  if (!cell) {
+    return `<div class="day-card is-empty" aria-hidden="true"></div>`;
+  }
+
+  const isSelected = cell.date === state.selectedHomeDate;
+  const isToday = cell.date === dateKeyLocal();
+  const progressValue = Math.max(0, Math.min(1, Number(cell.habitProgressRate || 0)));
+  return `<button
+      class="day-card calendar-day-button ${isSelected ? "is-selected" : ""} ${isToday ? "is-today" : ""}"
+      type="button"
+      data-route="${buildTodayRoute(cell.date)}"
+      style="--progress:${String(progressValue)};"
+    >
+      <div class="day-card-head">
+        <strong>${esc(String(Number(cell.date.slice(-2))))}</strong>
+        ${isToday ? `<span class="calendar-flag"><span class="calendar-flag-text">Today</span></span>` : ""}
+      </div>
+      <div class="calendar-meta">
+        <span>${esc(percent(cell.habitProgressRate))}</span>
+        <span>${esc(`${cell.completedHabits}/${cell.totalHabits} ${t("habits")}`)}</span>
+        <span>${esc(`${cell.completedTaskCount}/${cell.taskCount} ${t("tasks")}`)}</span>
+      </div>
+    </button>`;
 }
 
 function setPanel(name, html) {
