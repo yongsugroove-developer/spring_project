@@ -209,7 +209,6 @@ export async function ensureMySqlSchema(pool: Pool) {
       PRIMARY KEY (owner_user_id, id),
       CONSTRAINT fk_planner_routine_items_user FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
     )`,
-    `ALTER TABLE planner_routine_items ADD COLUMN IF NOT EXISTS template_id VARCHAR(36) NULL AFTER routine_id`,
     `CREATE TABLE IF NOT EXISTS planner_routine_checkins (
       owner_user_id VARCHAR(36) NOT NULL,
       date_key CHAR(10) NOT NULL,
@@ -288,4 +287,31 @@ export async function ensureMySqlSchema(pool: Pool) {
   for (const statement of statements) {
     await pool.query(statement);
   }
+
+  await ensureColumnExists(pool, "planner_routine_items", "template_id", "VARCHAR(36) NULL", "routine_id");
+}
+
+async function ensureColumnExists(
+  pool: Pool,
+  tableName: string,
+  columnName: string,
+  columnDefinition: string,
+  afterColumn?: string,
+) {
+  const [rows] = await pool.query(
+    `SELECT 1
+       FROM information_schema.columns
+      WHERE table_schema = DATABASE()
+        AND table_name = ?
+        AND column_name = ?
+      LIMIT 1`,
+    [tableName, columnName],
+  );
+
+  if (Array.isArray(rows) && rows.length > 0) {
+    return;
+  }
+
+  const afterClause = afterColumn ? ` AFTER \`${afterColumn}\`` : "";
+  await pool.query(`ALTER TABLE \`${tableName}\` ADD COLUMN \`${columnName}\` ${columnDefinition}${afterClause}`);
 }
