@@ -1,15 +1,14 @@
 # Status Board (Lite)
 
 ## todo
-- [ ] Add browser-level regression coverage for emoji picker and personalization flows
-- [ ] Run browser validation for the hamburger-free mobile utility bar, dense-row Today routines, merged todo panel, and compact month calendar at phone widths
+- [ ] Run manual browser validation for the expanded emoji picker on desktop and mobile layouts
 - [ ] Replace manual billing placeholders with a real provider checkout/subscription flow
 - [ ] Decide app packaging path for web-to-mobile release
 
 ## in_progress
 - [x] Requirements, README, and status docs updated for emoji decoration and personalization scope
 - [x] JSON-backed planner API now persists routine/todo emoji fields with migration support
-- [x] Responsive planner UI now supports emoji picker, live preview, today quick add, calendar focus cards, and theme/density personalization
+- [x] Responsive planner UI now supports a flat Unicode emoji picker, live preview, today quick add, calendar focus cards, and theme/density personalization
 - [x] Build, lint, unit, and integration verification completed for the emoji UX slice
 - [x] Mobile-first UI refinement now uses a phone bottom tab bar, reordered Today scan flow, and compact calendar detail stacking
 - [x] Third-pass mobile tightening now removes planner hamburger navigation on phones, hides hero chrome, and routes admin entry through Account
@@ -28,6 +27,7 @@
 
 ## done (user approved only)
 - [x] Emoji decoration and UX refresh for the single-user planner MVP
+- [ ] Unicode emoji expansion and flat picker rollout
 
 ## Notes
 - Project: 마이 플래너

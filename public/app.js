@@ -1,4 +1,4 @@
-import { ROUTINE_COLOR_SWATCHES, ROUTINE_EMOJI_GROUPS, TODO_EMOJI_GROUPS } from "./emojiCatalog.js";
+import { EMOJI_CATALOG, ROUTINE_COLOR_SWATCHES } from "./emojiCatalog.js";
 import { LANGUAGE_LABELS, MESSAGES } from "./translations.js";
 
 const LOCALE_KEY = "my-planner-locale";
@@ -207,15 +207,6 @@ function sanitizeEmojiInput(value) {
   return Array.from(String(value ?? "").trim()).slice(0, 16).join("");
 }
 
-function emojiGroups(kind) {
-  return kind === "todo" ? TODO_EMOJI_GROUPS : ROUTINE_EMOJI_GROUPS;
-}
-
-function emojiLabelForGroup(key) {
-  const labelKey = `emojiGroup${key.slice(0, 1).toUpperCase()}${key.slice(1)}`;
-  return t(labelKey);
-}
-
 function t(key, params = {}) {
   const bundle = MESSAGES[state.locale] ?? MESSAGES.ko;
   const fallback = MESSAGES.ko;
@@ -293,8 +284,13 @@ function emojiBadge(value, size = "md") {
 function emojiPickerSection(label, items, selectedEmoji) {
   return `<div class="emoji-picker-section">
     <div class="emoji-picker-label">${esc(label)}</div>
-    <div class="emoji-grid">${items.map((emoji) => emojiPickerButton(emoji, selectedEmoji)).join("")}</div>
+    ${emojiPickerGrid(items, selectedEmoji)}
   </div>`;
+}
+
+function emojiPickerGrid(items, selectedEmoji, className = "") {
+  const gridClassName = ["emoji-grid", className].filter(Boolean).join(" ");
+  return `<div class="${gridClassName}">${items.map((emoji) => emojiPickerButton(emoji, selectedEmoji)).join("")}</div>`;
 }
 
 function emojiPickerButton(emoji, selectedEmoji) {
@@ -302,7 +298,7 @@ function emojiPickerButton(emoji, selectedEmoji) {
   return `<button class="emoji-option ${isSelected ? "is-selected" : ""}" type="button" data-action="pick-emoji" data-emoji="${esc(emoji)}" aria-pressed="${String(isSelected)}">${esc(emoji)}</button>`;
 }
 
-function emojiField(selectedEmoji = "", kind = "routine") {
+function emojiField(selectedEmoji = "") {
   const emoji = sanitizeEmojiInput(selectedEmoji);
   const recent = getRecentEmojis();
   return `<label class="field field-wide emoji-field">
@@ -321,9 +317,9 @@ function emojiField(selectedEmoji = "", kind = "routine") {
         </summary>
         <div class="emoji-picker-panel">
           ${recent.length ? emojiPickerSection(t("recentEmojis"), recent, emoji) : ""}
-          ${emojiGroups(kind)
-            .map((group) => emojiPickerSection(emojiLabelForGroup(group.key), group.items, emoji))
-            .join("")}
+          <div class="emoji-picker-all" role="group" aria-label="${esc(t("emoji"))}">
+            ${emojiPickerGrid(EMOJI_CATALOG, emoji, "emoji-grid--catalog")}
+          </div>
           <button class="btn-soft emoji-clear" type="button" data-action="clear-emoji">${t("clearEmoji")}</button>
         </div>
       </details>
@@ -1176,7 +1172,7 @@ function renderToday() {
             <div class="form-grid">
               <label class="field field-wide"><span>${t("title")}</span><input name="title" required /></label>
               <label class="field"><span>${t("date")}</span><input name="dueDate" type="date" value="${esc(state.today.date)}" /></label>
-              ${emojiField("", "todo")}
+              ${emojiField("")}
             </div>
             ${inlineFeedback("today-quick")}
             <div class="actions"><button class="btn" type="submit">${t("quickCreateTodo")}</button></div>
@@ -1306,7 +1302,7 @@ function renderRoutines() {
 
 function routineFields(routine = {}) {
   return `<div class="form-grid">
-    ${emojiField(routine.emoji ?? "", "routine")}
+    ${emojiField(routine.emoji ?? "")}
     <label class="field"><span>${t("name")}</span><input name="name" required value="${esc(routine.name ?? "")}" /></label>
     <label class="field field-color"><span>${t("color")}</span><div class="color-input-shell"><input class="color-input" name="color" type="color" value="${esc(routine.color ?? "#6366f1")}" /></div>${colorSwatches(routine.color ?? "#6366f1")}</label>
     <label class="field"><span>${t("status")}</span><select name="isArchived"><option value="false" ${routine.isArchived ? "" : "selected"}>${t("active")}</option><option value="true" ${routine.isArchived ? "selected" : ""}>${t("archived")}</option></select></label>
@@ -1419,7 +1415,7 @@ function renderTodos() {
         <div class="create-flow">
           <div class="stack">
             <div class="form-grid">
-              ${emojiField("", "todo")}
+              ${emojiField("")}
               <label class="field"><span>${t("title")}</span><input name="title" required /></label>
               <label class="field"><span>${t("date")}</span><input name="dueDate" type="date" /></label>
               <label class="field-wide"><span>${t("note")}</span><textarea name="note"></textarea></label>
@@ -1480,7 +1476,7 @@ function todoEditor(todo) {
     </div>
     ${inlineFeedback(`todo-${todo.id}`)}
     <div class="form-grid top-gap-sm">
-      ${emojiField(todo.emoji ?? "", "todo")}
+      ${emojiField(todo.emoji ?? "")}
       <label class="field"><span>${t("title")}</span><input name="title" required value="${esc(todo.title)}" /></label>
       <label class="field"><span>${t("date")}</span><input name="dueDate" type="date" value="${esc(todo.dueDate ?? "")}" /></label>
       <label class="field"><span>${t("status")}</span><select name="status"><option value="pending" ${todo.status === "pending" ? "selected" : ""}>${t("pending")}</option><option value="done" ${todo.status === "done" ? "selected" : ""}>${t("done")}</option></select></label>

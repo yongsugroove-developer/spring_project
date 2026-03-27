@@ -161,27 +161,27 @@ describe("planner API", () => {
 
     const routineId = createRoutine.body.routine.id as string;
     const updateRoutine = await request(app).patch(`/api/routines/${routineId}`).send({
-      emoji: "⚡",
+      emoji: "🧑‍💻",
     });
     expect(updateRoutine.status).toBe(200);
-    expect(updateRoutine.body.routine.emoji).toBe("⚡");
+    expect(updateRoutine.body.routine.emoji).toBe("🧑‍💻");
 
     const createTodo = await request(app).post("/api/todos").send({
       title: "Plan next sprint",
-      emoji: "📝",
+      emoji: "🏳️‍🌈",
       dueDate: "2026-03-23",
     });
     expect(createTodo.status).toBe(201);
-    expect(createTodo.body.todo.emoji).toBe("📝");
+    expect(createTodo.body.todo.emoji).toBe("🏳️‍🌈");
 
     const todoId = createTodo.body.todo.id as string;
     const updateTodo = await request(app).patch(`/api/todos/${todoId}`).send({
-      emoji: "✅",
+      emoji: "❤️‍🔥",
       status: "done",
     });
     expect(updateTodo.status).toBe(200);
     expect(updateTodo.body.todo).toMatchObject({
-      emoji: "✅",
+      emoji: "❤️‍🔥",
       status: "done",
     });
     const completedAt = updateTodo.body.todo.completedAt as string;
