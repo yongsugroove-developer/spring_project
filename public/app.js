@@ -1018,9 +1018,9 @@ function renderQuickCreateLayer() {
 
   if (!config) return "";
 
-  return `<div class="quick-create-layer" role="dialog" aria-modal="true" aria-label="${esc(config.title)}">
+  return `<div class="quick-create-layer quick-create-layer--${state.quickCreateKind}" role="dialog" aria-modal="true" aria-label="${esc(config.title)}">
     <button class="quick-create-backdrop" type="button" data-action="close-quick-create" aria-label="${esc(t("closeMenu"))}"></button>
-    <section class="content-card quick-create-card">
+    <section class="content-card quick-create-card quick-create-card--${state.quickCreateKind}">
       <div class="quick-create-head">
         <div>
           <p class="eyebrow">${esc(t("addMenu"))}</p>

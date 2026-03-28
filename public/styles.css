@@ -4211,3 +4211,98 @@ body.is-overlay-open {
     padding: 1rem 0.95rem 1.1rem;
   }
 }
+
+.app-nav-toggle {
+  display: inline-grid !important;
+}
+
+.app-nav-backdrop {
+  display: block !important;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease, visibility 180ms ease;
+}
+
+.app-nav-shell.is-open .app-nav-backdrop {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.app-nav-drawer {
+  display: grid !important;
+}
+
+.quick-create-layer {
+  place-items: center;
+  align-items: center;
+  overflow: hidden;
+  padding: 28px;
+}
+
+.quick-create-card {
+  width: min(560px, calc(100vw - 48px));
+  max-height: none;
+  overflow: visible;
+  padding: 1rem 1rem 1.1rem;
+}
+
+.quick-create-card .form-grid {
+  gap: 12px;
+}
+
+.quick-create-card fieldset {
+  padding: 0.8rem 0.9rem 0.9rem;
+}
+
+.quick-create-card--task {
+  width: min(500px, calc(100vw - 48px));
+}
+
+.quick-create-card--habit {
+  width: min(560px, calc(100vw - 48px));
+}
+
+.quick-create-card--routine {
+  width: min(680px, calc(100vw - 48px));
+}
+
+.quick-create-card--routine .choice-list--stacked {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.quick-create-card--routine .choice-item {
+  min-width: 0;
+}
+
+.quick-create-card--routine .choice-item span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 560px) {
+  .app-nav-toggle {
+    width: 48px;
+    height: 48px;
+    border-radius: 16px;
+  }
+
+  .quick-create-layer {
+    padding: 18px;
+  }
+
+  .quick-create-card,
+  .quick-create-card--task,
+  .quick-create-card--habit,
+  .quick-create-card--routine {
+    width: min(480px, calc(100vw - 24px));
+    border-radius: 22px;
+    padding: 1rem 0.95rem 1.05rem;
+  }
+
+  .quick-create-card--routine .choice-list--stacked {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
