@@ -28,6 +28,7 @@
 - [x] Bottom navigation is restored with Home, Habits, Tasks, Routines, and Calendar, while account/settings/stats now live in a top-right account dropdown
 - [x] Habit, task, and routine list screens now expose explicit View, Edit, and Delete actions instead of summary-only rows
 - [x] Bottom navigation now behaves as a fixed footer, the home timetable uses a larger fixed-height scrollable board, and the floating + action stays above the footer
+- [x] The home timetable now reserves more vertical space, clamps row height, and scrolls internally; mobile quick-create cards now shrink and keep their action buttons reachable
 - [x] MySQL planner snapshot reads now tolerate JSON columns returned either as strings or parsed objects, and legacy column checks remain version-safe
 - [x] Build, lint, unit, and integration verification completed for the habit-first slice
 
