@@ -158,23 +158,39 @@ function bindEvents() {
   });
 
   document.addEventListener("dragstart", (event) => {
-    const row = event.target instanceof HTMLElement ? event.target.closest("[data-habit-row]") : null;
+    const row = event.target instanceof HTMLElement ? event.target.closest("[data-home-habit-row]") : null;
     if (!(row instanceof HTMLElement)) return;
-    state.draggedHabitId = row.dataset.habitRow ?? "";
-    event.dataTransfer?.setData("text/plain", state.draggedHabitId);
+    state.draggedHabitId = row.dataset.homeHabitRow ?? "";
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", state.draggedHabitId);
+    }
   });
 
-  document.addEventListener("dragover", (event) => {
-    const row = event.target instanceof HTMLElement ? event.target.closest("[data-habit-row]") : null;
+  document.addEventListener("dragend", () => {
+    state.draggedHabitId = "";
+  });
+
+  document.addEventListener("dragenter", (event) => {
+    const row = event.target instanceof HTMLElement ? event.target.closest("[data-home-habit-row]") : null;
     if (row) event.preventDefault();
   });
 
+  document.addEventListener("dragover", (event) => {
+    const row = event.target instanceof HTMLElement ? event.target.closest("[data-home-habit-row]") : null;
+    if (!row) return;
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = "move";
+    }
+  });
+
   document.addEventListener("drop", (event) => {
-    const row = event.target instanceof HTMLElement ? event.target.closest("[data-habit-row]") : null;
+    const row = event.target instanceof HTMLElement ? event.target.closest("[data-home-habit-row]") : null;
     if (!(row instanceof HTMLElement)) return;
     event.preventDefault();
     const draggedId = state.draggedHabitId || event.dataTransfer?.getData("text/plain") || "";
-    const targetId = row.dataset.habitRow ?? "";
+    const targetId = row.dataset.homeHabitRow ?? "";
     if (!draggedId || !targetId || draggedId === targetId) return;
     void reorderHabits(draggedId, targetId);
   });
@@ -531,7 +547,12 @@ function syncTodayState() {
 }
 
 async function reorderHabits(draggedId, targetId) {
-  const nextIds = moveId(state.habits.map((habit) => habit.id), draggedId, targetId);
+  const visibleIds = state.today?.habits?.map((habit) => habit.id) ?? state.habits.map((habit) => habit.id);
+  const baseIds = state.habits.map((habit) => habit.id);
+  const nextVisibleIds = moveId(visibleIds, draggedId, targetId);
+  const visibleIdSet = new Set(nextVisibleIds);
+  let visibleIndex = 0;
+  const nextIds = baseIds.map((id) => (visibleIdSet.has(id) ? nextVisibleIds[visibleIndex++] : id));
   await request("/api/habits/reorder", { method: "POST", body: { habitIds: nextIds } });
   await refreshAll();
   showFeedback("saveDone");
@@ -812,10 +833,10 @@ function renderAccountPage() {
 
 function renderHomeHabitRow(habit) {
   const progress = habit.trackingType === "binary"
-    ? `<button class="home-emoji-toggle" type="button" data-action="toggle-binary" data-habit-id="${habit.id}" data-complete="${String(habit.isComplete)}" aria-label="${esc(habit.isComplete ? t("markPending") : t("markDone"))}">${habit.isComplete ? "✅" : "⬜"}</button>`
+    ? `<button class="home-status-toggle ${habit.isComplete ? "is-complete" : ""}" type="button" data-action="toggle-binary" data-habit-id="${habit.id}" data-complete="${String(habit.isComplete)}" aria-label="${esc(habit.isComplete ? t("markPending") : t("markDone"))}">${habit.isComplete ? "✅" : ""}</button>`
     : `<button class="home-progress-chip ${habit.isComplete ? "is-complete" : ""}" type="button" data-action="advance-habit" data-habit-id="${habit.id}" aria-label="${esc(`${habit.name} ${habit.currentValue}/${habit.targetCount}`)}">${habit.currentValue}/${habit.targetCount}</button>`;
-  return `<article class="home-board-group ${habit.isComplete ? "" : "is-pending"}" style="--routine-accent:${esc(habit.color)};">
-    <div class="home-board-row home-board-row--item" draggable="true" data-habit-row="${habit.id}">
+  return `<article class="home-board-group ${habit.isComplete ? "" : "is-pending"}" data-home-habit-row="${habit.id}" draggable="true" style="--routine-accent:${esc(habit.color)};">
+    <div class="home-board-row home-board-row--item">
       <div class="home-board-cell home-board-cell--index"><span class="home-order-badge">${habit.sortOrder}</span><span class="muted">::</span></div>
       <div class="home-board-cell home-board-cell--main">
         <div class="home-routine-main">
@@ -1256,11 +1277,11 @@ function renderHomeMiniStat(label, value) {
 
 function renderHomeHabitRowDense(habit) {
   const progress = habit.trackingType === "binary"
-    ? `<button class="home-emoji-toggle" type="button" data-action="toggle-binary" data-habit-id="${habit.id}" data-complete="${String(habit.isComplete)}" aria-label="${esc(habit.isComplete ? t("markPending") : t("markDone"))}">${habit.isComplete ? "✅" : "⬜"}</button>`
+    ? `<button class="home-status-toggle ${habit.isComplete ? "is-complete" : ""}" type="button" data-action="toggle-binary" data-habit-id="${habit.id}" data-complete="${String(habit.isComplete)}" aria-label="${esc(habit.isComplete ? t("markPending") : t("markDone"))}">${habit.isComplete ? "✅" : ""}</button>`
     : `<button class="home-progress-chip ${habit.isComplete ? "is-complete" : ""}" type="button" data-action="advance-habit" data-habit-id="${habit.id}" aria-label="${esc(`${habit.name} ${habit.currentValue}/${habit.targetCount}`)}">${habit.currentValue}/${habit.targetCount}</button>`;
 
-  return `<article class="home-board-group ${habit.isComplete ? "" : "is-pending"}" style="--routine-accent:${esc(habit.color)};">
-    <div class="home-board-row home-board-row--item" draggable="true" data-habit-row="${habit.id}">
+  return `<article class="home-board-group ${habit.isComplete ? "" : "is-pending"}" data-home-habit-row="${habit.id}" draggable="true" style="--routine-accent:${esc(habit.color)};">
+    <div class="home-board-row home-board-row--item">
       <div class="home-board-cell home-board-cell--index">
         <span class="home-order-badge">${habit.sortOrder}</span>
         <span class="muted">::</span>
