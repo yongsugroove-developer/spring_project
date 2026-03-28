@@ -31,6 +31,7 @@
 - [x] The home timetable now reserves more vertical space, clamps row height, and scrolls internally; mobile quick-create cards now shrink and keep their action buttons reachable
 - [x] Home habit rows are now fixed-height and the board body hides its scrollbar while remaining internally scrollable
 - [x] Home habit status controls now use compact check-emoji toggles and single-tap count chips instead of wide text buttons and +/- steppers
+- [x] Binary habit status now uses a centered touch area that only reveals a check emoji on completion, and home drag-and-drop targets the full habit card for reordering
 - [x] MySQL planner snapshot reads now tolerate JSON columns returned either as strings or parsed objects, and legacy column checks remain version-safe
 - [x] Build, lint, unit, and integration verification completed for the habit-first slice
 
