@@ -3903,6 +3903,8 @@ textarea {
 }
 
 .home-fab-option {
+  display: inline-flex;
+  align-items: center;
   min-width: 144px;
   justify-content: flex-start;
   border-radius: 18px;
@@ -3926,6 +3928,58 @@ textarea {
 
 .home-fab-trigger:hover {
   transform: translateY(-1px);
+}
+
+.quick-create-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.quick-create-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(15, 23, 42, 0.32);
+  backdrop-filter: blur(8px);
+}
+
+.quick-create-card {
+  position: relative;
+  z-index: 1;
+  width: min(760px, calc(100vw - 32px));
+  max-height: min(88vh, 900px);
+  overflow: auto;
+  padding: 1.1rem 1.1rem 1.2rem;
+  box-shadow: 0 28px 64px rgba(15, 23, 42, 0.18);
+}
+
+.quick-create-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+}
+
+.quick-create-head h3 {
+  margin: 0.2rem 0 0.15rem;
+}
+
+.quick-create-close {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.quick-create-actions {
+  justify-content: flex-end;
+  margin-top: 0.8rem;
 }
 
 .calendar-shell {
@@ -4040,5 +4094,22 @@ textarea {
 
   .home-fab-option {
     min-width: 132px;
+  }
+
+  .quick-create-layer {
+    align-items: end;
+    padding: 12px;
+  }
+
+  .quick-create-card {
+    width: min(100vw - 12px, 720px);
+    max-height: min(82vh, 900px);
+    border-bottom-left-radius: 24px;
+    border-bottom-right-radius: 24px;
+    padding: 1rem 0.95rem 1.1rem;
+  }
+
+  .quick-create-head {
+    gap: 0.75rem;
   }
 }

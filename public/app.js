@@ -60,6 +60,7 @@ const state = {
   feedbackIsError: false,
   appNavOpen: false,
   homeQuickActionsOpen: false,
+  quickCreateKind: "",
   draggedHabitId: "",
 };
 
@@ -187,6 +188,19 @@ async function handleAction(action, target) {
     render();
     return;
   }
+  if (action === "open-quick-create") {
+    const kind = target.dataset.kind ?? "";
+    if (!["habit", "task", "routine"].includes(kind)) return;
+    state.homeQuickActionsOpen = false;
+    state.quickCreateKind = kind;
+    render();
+    return;
+  }
+  if (action === "close-quick-create") {
+    state.quickCreateKind = "";
+    render();
+    return;
+  }
   if (action === "close-home-fab") {
     state.homeQuickActionsOpen = false;
     render();
@@ -287,6 +301,8 @@ async function handleSubmit(form) {
     if (kind === "habit-create") {
       await request("/api/habits", { method: "POST", body: serializeHabitForm(data, true) });
       form.reset();
+      state.quickCreateKind = "";
+      state.homeQuickActionsOpen = false;
       await refreshAll();
       showFeedback("createHabitDone");
       return;
@@ -300,6 +316,8 @@ async function handleSubmit(form) {
     if (kind === "task-create") {
       await request("/api/tasks", { method: "POST", body: serializeTaskForm(data) });
       form.reset();
+      state.quickCreateKind = "";
+      state.homeQuickActionsOpen = false;
       await refreshAll();
       showFeedback("createTaskDone");
       return;
@@ -313,6 +331,8 @@ async function handleSubmit(form) {
     if (kind === "routine-create") {
       await request("/api/routines", { method: "POST", body: serializeRoutineForm(data) });
       form.reset();
+      state.quickCreateKind = "";
+      state.homeQuickActionsOpen = false;
       await refreshAll();
       showFeedback("createRoutineDone");
       return;
@@ -407,6 +427,7 @@ function syncRouteFromHash() {
 function navigate(route) {
   state.appNavOpen = false;
   state.homeQuickActionsOpen = false;
+  state.quickCreateKind = "";
   const target = normalizeHashPath(route);
   const nextHash = target === "/today" ? buildTodayRoute(state.selectedHomeDate) : target;
   if (location.hash !== `#${nextHash}`) {
@@ -907,6 +928,7 @@ function renderTodayDensePage() {
       </div>
     </section>
     ${renderHomeFab()}
+    ${renderQuickCreateLayer()}
   </div>`;
 }
 
@@ -914,11 +936,68 @@ function renderHomeFab() {
   return `<div class="home-fab-shell ${state.homeQuickActionsOpen ? "is-open" : ""}">
     ${state.homeQuickActionsOpen ? `<button class="home-fab-backdrop" type="button" data-action="close-home-fab" aria-label="${esc(t("closeMenu"))}"></button>` : ""}
     <div class="home-fab-menu" aria-hidden="${state.homeQuickActionsOpen ? "false" : "true"}">
-      <button class="home-fab-option btn-soft" type="button" data-route="/habits">${esc(t("createHabit"))}</button>
-      <button class="home-fab-option btn-soft" type="button" data-route="/tasks">${esc(t("createTask"))}</button>
-      <button class="home-fab-option btn-soft" type="button" data-route="/routines">${esc(t("createRoutine"))}</button>
+      <button class="home-fab-option btn-soft" type="button" data-action="open-quick-create" data-kind="habit">${esc(t("createHabit"))}</button>
+      <button class="home-fab-option btn-soft" type="button" data-action="open-quick-create" data-kind="task">${esc(t("createTask"))}</button>
+      <button class="home-fab-option btn-soft" type="button" data-action="open-quick-create" data-kind="routine">${esc(t("createRoutine"))}</button>
     </div>
     <button class="home-fab-trigger" type="button" data-action="toggle-home-fab" aria-label="${esc(t("addMenu"))}">+</button>
+  </div>`;
+}
+
+function renderQuickCreateLayer() {
+  if (!state.quickCreateKind) return "";
+
+  const config = {
+    habit: {
+      title: t("createHabit"),
+      copy: t("quickCreateHabitCopy"),
+      form: `<form class="form-grid" data-form="habit-create">
+        ${habitFields("quick-habit-create", null, true)}
+        <div class="actions quick-create-actions">
+          <button class="btn-soft" type="button" data-action="close-quick-create">${esc(t("cancel"))}</button>
+          <button class="btn" type="submit">${esc(t("createHabit"))}</button>
+        </div>
+      </form>`,
+    },
+    task: {
+      title: t("createTask"),
+      copy: t("quickCreateTaskCopy"),
+      form: `<form class="form-grid" data-form="task-create">
+        ${taskFields("quick-task-create", null)}
+        <div class="actions quick-create-actions">
+          <button class="btn-soft" type="button" data-action="close-quick-create">${esc(t("cancel"))}</button>
+          <button class="btn" type="submit">${esc(t("createTask"))}</button>
+        </div>
+      </form>`,
+    },
+    routine: {
+      title: t("createRoutine"),
+      copy: t("quickCreateRoutineCopy"),
+      form: `<form class="form-grid" data-form="routine-create">
+        ${routineFields("quick-routine-create", null)}
+        <div class="actions quick-create-actions">
+          <button class="btn-soft" type="button" data-action="close-quick-create">${esc(t("cancel"))}</button>
+          <button class="btn" type="submit">${esc(t("createRoutine"))}</button>
+        </div>
+      </form>`,
+    },
+  }[state.quickCreateKind];
+
+  if (!config) return "";
+
+  return `<div class="quick-create-layer" role="dialog" aria-modal="true" aria-label="${esc(config.title)}">
+    <button class="quick-create-backdrop" type="button" data-action="close-quick-create" aria-label="${esc(t("closeMenu"))}"></button>
+    <section class="content-card quick-create-card">
+      <div class="quick-create-head">
+        <div>
+          <p class="eyebrow">${esc(t("addMenu"))}</p>
+          <h3>${esc(config.title)}</h3>
+          <p class="muted">${esc(config.copy)}</p>
+        </div>
+        <button class="btn-soft quick-create-close" type="button" data-action="close-quick-create" aria-label="${esc(t("closeMenu"))}">×</button>
+      </div>
+      ${config.form}
+    </section>
   </div>`;
 }
 
