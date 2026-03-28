@@ -142,9 +142,15 @@ describe("planner service", () => {
     });
     expect(override.override?.modeId).toBe(mode?.id);
 
+    const modes = await service.listRoutineModes();
+    expect(modes.modes.find((entry) => entry.id === mode?.id)?.reservedDates).toEqual(["2026-03-22"]);
+
     const today = await service.getToday("2026-03-22");
     expect(today.activeMode?.id).toBe(mode?.id);
     expect(today.habits.map((habit) => habit.id)).toEqual(["habit-water"]);
+
+    const fallbackToday = await service.getToday("2026-03-23");
+    expect(fallbackToday.activeMode?.id).toBe("mode-default");
   });
 
   it("preserves completedAt when editing an already completed task", async () => {

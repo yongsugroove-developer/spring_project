@@ -6047,6 +6047,108 @@ body.is-overlay-open {
   transform: rotate(180deg);
 }
 
+.mode-date-field-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.7rem;
+}
+
+.mode-date-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  min-height: 2rem;
+}
+
+.mode-date-chip-list--selection {
+  margin-top: 1rem;
+}
+
+.mode-date-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.mode-date-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(15, 23, 42, 0.32);
+  backdrop-filter: blur(8px);
+}
+
+.mode-date-card {
+  position: relative;
+  z-index: 1;
+  width: min(720px, calc(100vw - 32px));
+  max-height: min(88vh, 900px);
+  overflow: auto;
+}
+
+.mode-date-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.mode-date-head h3 {
+  margin: 0.12rem 0 0;
+}
+
+.mode-date-grid {
+  gap: 0.45rem;
+}
+
+.mode-date-button {
+  width: 100%;
+  min-height: 72px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+  box-shadow: var(--shadow-sm);
+}
+
+.mode-date-button.is-selected {
+  border-color: var(--line-strong);
+  background: linear-gradient(180deg, rgba(238, 242, 255, 0.96), rgba(255, 255, 255, 0.94));
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12), var(--shadow-sm);
+}
+
+.mode-date-button.is-today:not(.is-selected) {
+  border-color: color-mix(in srgb, var(--teal) 32%, transparent);
+}
+
+.mode-date-button strong {
+  font-size: 1rem;
+}
+
+@media (max-width: 560px) {
+  .mode-date-layer {
+    padding: 14px 12px;
+  }
+
+  .mode-date-card {
+    width: min(440px, calc(100vw - 20px));
+  }
+
+  .mode-date-button {
+    min-height: 58px;
+    border-radius: 16px;
+  }
+}
+
 .calendar-day-button--water {
   min-height: 112px;
   gap: 0.55rem;

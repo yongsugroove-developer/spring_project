@@ -166,6 +166,12 @@ describe("planner API", () => {
     expect(updateOverride.status).toBe(200);
     expect(updateOverride.body.override.modeId).toBe(modeId);
 
+    const modes = await request(app).get("/api/routine-modes");
+    expect(modes.status).toBe(200);
+    expect(modes.body.modes.find((entry: { id: string }) => entry.id === modeId)?.reservedDates).toEqual([
+      "2026-03-22",
+    ]);
+
     const today = await request(app).get("/api/today").query({ date: "2026-03-22" });
     expect(today.status).toBe(200);
     expect(today.body.activeMode).toMatchObject({ id: modeId, name: "Weekend mode" });
