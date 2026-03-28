@@ -231,6 +231,19 @@ async function handleAction(action, target) {
     await refreshTodayOnly();
     return;
   }
+  if (action === "cycle-count") {
+    const habit = state.today?.habits?.find((entry) => entry.id === target.dataset.habitId);
+    if (!habit) return;
+    const targetCount = Math.max(1, Number(habit.targetCount || 1));
+    const nextValue = habit.currentValue >= targetCount ? Math.min(1, targetCount) : Math.min(targetCount, habit.currentValue + 1);
+    await request(`/api/habit-checkins/${state.selectedHomeDate}/habits/${habit.id}`, {
+      method: "PUT",
+      body: { value: nextValue },
+    });
+    markAchievementPulse();
+    await refreshTodayOnly();
+    return;
+  }
   if (action === "log-time") {
     const habitId = target.dataset.habitId ?? "";
     await request(`/api/habit-checkins/${state.selectedHomeDate}/habits/${habitId}`, {
@@ -932,7 +945,7 @@ function renderHomeHabitRow(habit, index) {
     .filter(Boolean)
     .join(" | ");
   return `<article class="home-board-group" data-home-habit-row="${habit.id}" draggable="true" style="--routine-accent:${esc(habit.color)};">
-    <div class="home-board-row home-board-row--item ${habit.isComplete ? "is-complete" : ""}">
+    <div class="home-board-row home-board-row--item home-board-row--${habit.trackingType} ${habit.isComplete ? "is-complete" : ""}">
       <div class="home-board-cell home-board-cell--index">
         <span class="home-order-badge">${esc(String(index + 1))}</span>
       </div>
@@ -953,15 +966,13 @@ function renderHomeHabitRow(habit, index) {
 }
 
 function renderBinaryAction(habit) {
-  return `<button class="home-status-toggle ${habit.isComplete ? "is-complete" : ""}" type="button" data-action="toggle-binary" data-habit-id="${habit.id}" data-complete="${String(habit.isComplete)}">${habit.isComplete ? "✓" : ""}</button>`;
+  return `<button class="home-status-toggle home-status-toggle--emoji ${habit.isComplete ? "is-complete" : ""}" type="button" data-action="toggle-binary" data-habit-id="${habit.id}" data-complete="${String(habit.isComplete)}" aria-label="${esc(habit.isComplete ? tx("markPending", "Mark pending") : tx("markDone", "Mark done"))}">${habit.isComplete ? "✅" : "○"}</button>`;
 }
 
 function renderCountAction(habit) {
-  return `<div class="home-count-controls">
-    <button class="btn-soft compact-action" type="button" data-action="adjust-habit" data-habit-id="${habit.id}" data-delta="-1">-</button>
-    <span class="home-count-value">${esc(`${habit.currentValue}/${habit.targetCount}`)}</span>
-    <button class="btn compact-action" type="button" data-action="adjust-habit" data-habit-id="${habit.id}" data-delta="1">+</button>
-  </div>`;
+  const targetCount = Math.max(1, Number(habit.targetCount || 1));
+  const label = habit.currentValue >= targetCount ? "✅" : `${Math.max(0, habit.currentValue)}/${targetCount}`;
+  return `<button class="home-progress-chip home-progress-chip--cycle ${habit.isComplete ? "is-complete" : ""}" type="button" data-action="cycle-count" data-habit-id="${habit.id}" aria-label="${esc(`${habit.name} ${label}`)}">${esc(label)}</button>`;
 }
 
 function renderTimeAction(habit) {
@@ -1065,7 +1076,7 @@ renderHomeTaskRow = function (task) {
 };
 
 renderBinaryAction = function (habit) {
-  return `<button class="home-status-toggle ${habit.isComplete ? "is-complete" : ""}" type="button" data-action="toggle-binary" data-habit-id="${habit.id}" data-complete="${String(habit.isComplete)}">${esc(habit.isComplete ? tx("doneShort", "Done") : tx("checkShort", "Check"))}</button>`;
+  return `<button class="home-status-toggle home-status-toggle--emoji ${habit.isComplete ? "is-complete" : ""}" type="button" data-action="toggle-binary" data-habit-id="${habit.id}" data-complete="${String(habit.isComplete)}" aria-label="${esc(habit.isComplete ? tx("markPending", "Mark pending") : tx("markDone", "Mark done"))}">${habit.isComplete ? "✅" : "○"}</button>`;
 };
 
 function habitFields(habit = null) {
