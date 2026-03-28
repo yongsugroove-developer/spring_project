@@ -24,6 +24,7 @@
 - [x] Bottom tab navigation and the old left drawer have been replaced by a top-right hamburger menu
 - [x] Hamburger navigation now exposes account, list-style habit/task/routine views, calendar, stats, and display settings
 - [x] The hamburger trigger is back on the top-left and quick-create overlays now render as smaller centered layer popups
+- [x] The top-left hamburger trigger is forced visible above legacy responsive hides, and quick-create popups now use measured card widths with no internal scroll area
 - [x] MySQL planner snapshot reads now tolerate JSON columns returned either as strings or parsed objects, and legacy column checks remain version-safe
 - [x] Build, lint, unit, and integration verification completed for the habit-first slice
 
