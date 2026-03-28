@@ -863,7 +863,7 @@ function renderHabitManagerCard(habit) {
   return `<details class="route-list-card" data-habit-row="${habit.id}" draggable="true">
     <summary class="route-list-row route-list-row--wide">
       <div class="route-list-copy"><strong>${esc(`${habit.emoji ?? ""} ${habit.name}`.trim())}</strong><span>${esc([habit.tag, habit.startDate, `${habit.currentStreak}/${habit.bestStreak} streak`].filter(Boolean).join(" · "))}</span></div>
-      <span class="route-list-meta">${esc(habit.trackingType)}</span>
+      <span class="route-list-meta">${esc(trackingTypeLabel(habit.trackingType))}</span>
     </summary>
     <form class="form-grid" data-form="habit-update" data-id="${habit.id}">
       ${habitFields(`habit-${habit.id}`, habit, false)}
@@ -952,7 +952,7 @@ function renderHabitOverview(habit) {
   return renderDetailGrid([
     { label: t("name"), value: `${habit.emoji ?? ""} ${habit.name}`.trim() },
     { label: t("tag"), value: habit.tag || "-" },
-    { label: t("type"), value: t(habit.trackingType === "binary" ? "typeBinary" : habit.trackingType === "count" ? "typeCount" : "typeTime") },
+    { label: t("type"), value: trackingTypeLabel(habit.trackingType) },
     { label: t("targetValue"), value: String(habit.targetCount || 1) },
     { label: t("startDate"), value: habit.startDate || "-" },
     { label: t("streak"), value: `${habit.currentStreak}/${habit.bestStreak}` },
@@ -985,7 +985,7 @@ function renderHabitEditor(habit) {
     <div class="route-list-row route-list-row--wide">
       <div class="route-list-copy"><strong>${esc(`${habit.emoji ?? ""} ${habit.name}`.trim())}</strong><span>${esc([habit.tag, habit.startDate, `${habit.currentStreak}/${habit.bestStreak} streak`].filter(Boolean).join(" · "))}</span></div>
       <div class="route-list-side route-list-side--actions">
-        <span class="route-list-meta">${esc(habit.trackingType)}</span>
+        <span class="route-list-meta">${esc(trackingTypeLabel(habit.trackingType))}</span>
         ${renderRowActionButtons("habit", habit.id, isViewing, isEditing, "delete-habit")}
       </div>
     </div>
@@ -1123,8 +1123,12 @@ function settingsLink(route, title, copy) {
 }
 
 function trackingOption(value, selectedValue) {
+  return `<option value="${value}" ${selectedValue === value || (!selectedValue && value === "binary") ? "selected" : ""}>${esc(trackingTypeLabel(value))}</option>`;
+}
+
+function trackingTypeLabel(value) {
   const labelKey = value === "binary" ? "typeBinary" : value === "count" ? "typeCount" : "typeTime";
-  return `<option value="${value}" ${selectedValue === value || (!selectedValue && value === "binary") ? "selected" : ""}>${esc(t(labelKey))}</option>`;
+  return t(labelKey);
 }
 
 function renderTodayDensePage() {
