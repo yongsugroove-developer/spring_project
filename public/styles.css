@@ -4615,10 +4615,27 @@ body.is-overlay-open {
   overflow-x: hidden;
   overscroll-behavior: contain;
   padding-right: 0.35rem;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  align-content: start;
+  grid-auto-rows: 76px;
+}
+
+.today-home-board--dense .today-home-board-body::-webkit-scrollbar {
+  display: none;
+}
+
+.today-home-board--dense .home-board-group {
+  height: 76px;
+}
+
+.today-home-board--dense .home-board-row {
+  height: 100%;
 }
 
 .today-home-board--dense .home-board-row,
 .today-home-board--dense .home-board-cell {
+  height: 76px;
   min-height: 76px;
 }
 
@@ -4682,8 +4699,17 @@ body.is-overlay-open {
     max-height: clamp(420px, 54vh, 580px);
   }
 
+  .today-home-board--dense .today-home-board-body {
+    grid-auto-rows: 72px;
+  }
+
+  .today-home-board--dense .home-board-group {
+    height: 72px;
+  }
+
   .today-home-board--dense .home-board-row,
   .today-home-board--dense .home-board-cell {
+    height: 72px;
     min-height: 72px;
   }
 
