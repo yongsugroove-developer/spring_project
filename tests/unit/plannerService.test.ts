@@ -46,14 +46,32 @@ describe("planner service", () => {
       value: 3,
     });
     const updatedTime = await service.upsertHabitCheckin("2026-03-22", "habit-focus", {
-      value: 90,
+      action: "append-time",
     });
 
     expect(updatedCount?.isComplete).toBe(true);
     expect(updatedCount?.currentValue).toBe(3);
     expect(updatedCount?.streak).toBe(2);
     expect(updatedTime?.isComplete).toBe(true);
-    expect(updatedTime?.currentValue).toBe(90);
+    expect(updatedTime?.currentValue).toBe(2);
+    expect(updatedTime?.timeEntries).toHaveLength(2);
+  });
+
+  it("removes time entries from time-tracked habits", async () => {
+    const temp = await createTempPlannerFile(createSamplePlannerData());
+    cleanups.push(temp.cleanup);
+    const service = new PlannerService(new JsonPlannerRepository(temp.filePath), {
+      now: () => new Date("2026-03-22T21:00:00+09:00"),
+    });
+
+    const updatedTime = await service.upsertHabitCheckin("2026-03-22", "habit-focus", {
+      action: "remove-time",
+      entryIndex: 0,
+    });
+
+    expect(updatedTime?.currentValue).toBe(0);
+    expect(updatedTime?.timeEntries).toEqual([]);
+    expect(updatedTime?.isComplete).toBe(false);
   });
 
   it("reorders habits and persists the new sort order", async () => {
@@ -102,6 +120,31 @@ describe("planner service", () => {
     expect(routine?.notificationEnabled).toBe(true);
     expect(routine?.notificationTime).toBe("07:30");
     expect(routine?.notificationWeekdays).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it("applies date overrides to routine modes", async () => {
+    const temp = await createTempPlannerFile(createSamplePlannerData());
+    cleanups.push(temp.cleanup);
+    const service = new PlannerService(new JsonPlannerRepository(temp.filePath), {
+      now: () => new Date("2026-03-22T09:00:00+09:00"),
+    });
+
+    const mode = await service.createRoutineMode({
+      name: "Weekend mode",
+      routineIds: [],
+      habitIds: ["habit-water"],
+      activeDays: [0, 6],
+    });
+    expect(mode?.habits.map((habit) => habit.id)).toEqual(["habit-water"]);
+
+    const override = await service.upsertRoutineModeOverride("2026-03-22", {
+      modeId: mode?.id,
+    });
+    expect(override.override?.modeId).toBe(mode?.id);
+
+    const today = await service.getToday("2026-03-22");
+    expect(today.activeMode?.id).toBe(mode?.id);
+    expect(today.habits.map((habit) => habit.id)).toEqual(["habit-water"]);
   });
 
   it("preserves completedAt when editing an already completed task", async () => {

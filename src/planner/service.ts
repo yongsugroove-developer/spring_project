@@ -11,6 +11,7 @@ import {
   buildCalendarDay,
   buildHabitCollection,
   buildRoutineCollection,
+  buildRoutineModeCollection,
   buildTodayHabit,
   buildTodayHabits,
   buildTodayResponse,
@@ -22,6 +23,7 @@ import {
 } from "./views.js";
 import {
   PlannerValidationError,
+  normalizeActiveDays,
   normalizeColor,
   normalizeHabitIds,
   normalizeNotificationTime,
@@ -29,6 +31,8 @@ import {
   normalizeOptionalEmoji,
   normalizeOptionalText,
   normalizePositiveInteger,
+  normalizeRoutineIds,
+  normalizeStoredHabitCheckin,
   normalizeStoredHabitValue,
   normalizeTargetCount,
   normalizeTaskStatus,
@@ -44,6 +48,8 @@ import type {
   HabitCheckinsResponse,
   HabitsResponse,
   Routine,
+  RoutineMode,
+  RoutineModesResponse,
   RoutinesResponse,
   StatsResponse,
   Task,
@@ -76,6 +82,8 @@ interface HabitReorderInput {
 interface HabitCheckinInput {
   value?: number;
   completed?: boolean;
+  action?: "append-time" | "remove-time";
+  entryIndex?: number;
 }
 
 interface RoutineInput {
@@ -86,6 +94,17 @@ interface RoutineInput {
   notificationEnabled?: boolean;
   notificationTime?: string | null;
   notificationWeekdays?: number[];
+}
+
+interface RoutineModeInput {
+  name: string;
+  routineIds?: string[];
+  habitIds?: string[];
+  activeDays?: number[];
+}
+
+interface RoutineModeOverrideInput {
+  modeId?: string | null;
 }
 
 interface TaskInput {
@@ -125,6 +144,9 @@ export class PlannerService {
     const habit = this.buildHabit(input, data.habits.length + 1);
     data.habits.push(habit);
     data.habits = sortHabits(data.habits);
+    if (data.routineModes.length === 0) {
+      data.routineModes = [buildDefaultMode(data.habits, this.now().toISOString())];
+    }
     await this.repository.write(data);
     return habit;
   }
@@ -171,7 +193,7 @@ export class PlannerService {
       checkin.habitId === habit.id
         ? {
             ...checkin,
-            value: normalizeStoredHabitValue(checkin.value, habit),
+            ...normalizeStoredHabitCheckin(checkin, habit),
           }
         : checkin,
     );
@@ -194,6 +216,11 @@ export class PlannerService {
     data.routines = data.routines.map((routine) => ({
       ...routine,
       habitIds: routine.habitIds.filter((entry) => entry !== habitId),
+      updatedAt: this.now().toISOString(),
+    }));
+    data.routineModes = data.routineModes.map((mode) => ({
+      ...mode,
+      habitIds: mode.habitIds.filter((entry) => entry !== habitId),
       updatedAt: this.now().toISOString(),
     }));
     await this.repository.write(data);
@@ -238,34 +265,57 @@ export class PlannerService {
       return null;
     }
 
-    const value =
-      typeof input.value === "number"
-        ? normalizeStoredHabitValue(input.value, habit)
-        : input.completed === true
-          ? habit.targetCount
-          : input.completed === false
-            ? 0
-            : undefined;
-
-    if (value === undefined) {
-      throw new PlannerValidationError("Habit checkin requires value or completed");
-    }
-
     const timestamp = this.now().toISOString();
     const existing = data.habitCheckins.find(
       (entry) => entry.date === date && entry.habitId === habitId,
     );
-
-    if (existing) {
-      existing.value = value;
-      existing.updatedAt = timestamp;
-    } else {
-      data.habitCheckins.push({
+    const checkin =
+      existing ??
+      {
         date,
         habitId,
-        value,
+        value: 0,
+        timeEntries: [],
         updatedAt: timestamp,
-      });
+      };
+
+    if (habit.trackingType === "time") {
+      if (input.action === "append-time") {
+        checkin.timeEntries = [...checkin.timeEntries, timestamp];
+      } else if (input.action === "remove-time") {
+        if (!Number.isInteger(input.entryIndex) || (input.entryIndex ?? -1) < 0) {
+          throw new PlannerValidationError("entryIndex must be a non-negative integer");
+        }
+        if ((input.entryIndex ?? -1) >= checkin.timeEntries.length) {
+          throw new PlannerValidationError("time entry does not exist");
+        }
+        checkin.timeEntries = checkin.timeEntries.filter((_, index) => index !== input.entryIndex);
+      } else {
+        throw new PlannerValidationError("time habits require a valid action");
+      }
+      checkin.value = Math.min(checkin.timeEntries.length, habit.targetCount);
+    } else {
+      const value =
+        typeof input.value === "number"
+          ? normalizeStoredHabitValue(input.value, habit)
+          : input.completed === true
+            ? habit.targetCount
+            : input.completed === false
+              ? 0
+              : undefined;
+
+      if (value === undefined) {
+        throw new PlannerValidationError("Habit checkin requires value or completed");
+      }
+
+      checkin.value = value;
+      checkin.timeEntries = [];
+    }
+
+    checkin.updatedAt = timestamp;
+
+    if (!existing) {
+      data.habitCheckins.push(checkin);
     }
 
     await this.repository.write(data);
@@ -340,8 +390,104 @@ export class PlannerService {
     }
 
     data.routines = nextRoutines;
+    data.routineModes = data.routineModes.map((mode) => ({
+      ...mode,
+      routineIds: mode.routineIds.filter((entry) => entry !== routineId),
+      updatedAt: this.now().toISOString(),
+    }));
     await this.repository.write(data);
     return true;
+  }
+
+  async listRoutineModes(): Promise<RoutineModesResponse> {
+    const data = await this.repository.read();
+    return { ok: true, modes: buildRoutineModeCollection(data) };
+  }
+
+  async createRoutineMode(input: RoutineModeInput) {
+    const data = await this.repository.read();
+    const timestamp = this.now().toISOString();
+    const mode: RoutineMode = {
+      id: randomUUID(),
+      name: requireText(input.name, "Mode name"),
+      routineIds: normalizeRoutineIds(input.routineIds ?? [], data),
+      habitIds: normalizeHabitIds(input.habitIds ?? [], data),
+      activeDays: requireActiveDays(input.activeDays),
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+
+    data.routineModes.push(mode);
+    await this.repository.write(data);
+    return buildRoutineModeCollection(data).find((entry) => entry.id === mode.id) ?? null;
+  }
+
+  async updateRoutineMode(modeId: string, input: Partial<RoutineModeInput>) {
+    const data = await this.repository.read();
+    const mode = data.routineModes.find((entry) => entry.id === modeId);
+    if (!mode) {
+      return null;
+    }
+
+    if (input.name !== undefined) {
+      mode.name = requireText(input.name, "Mode name");
+    }
+    if (input.routineIds !== undefined) {
+      mode.routineIds = normalizeRoutineIds(input.routineIds, data);
+    }
+    if (input.habitIds !== undefined) {
+      mode.habitIds = normalizeHabitIds(input.habitIds, data);
+    }
+    if (input.activeDays !== undefined) {
+      mode.activeDays = requireActiveDays(input.activeDays);
+    }
+    mode.updatedAt = this.now().toISOString();
+
+    await this.repository.write(data);
+    return buildRoutineModeCollection(data).find((entry) => entry.id === mode.id) ?? null;
+  }
+
+  async deleteRoutineMode(modeId: string): Promise<boolean> {
+    const data = await this.repository.read();
+    const nextModes = data.routineModes.filter((entry) => entry.id !== modeId);
+    if (nextModes.length === data.routineModes.length) {
+      return false;
+    }
+
+    data.routineModes = nextModes;
+    data.routineModeOverrides = data.routineModeOverrides.filter((entry) => entry.modeId !== modeId);
+    await this.repository.write(data);
+    return true;
+  }
+
+  async upsertRoutineModeOverride(date: string, input: RoutineModeOverrideInput) {
+    validateDateKey(date, "date");
+    const data = await this.repository.read();
+    const nextModeId = normalizeOverrideModeId(input.modeId, data.routineModes);
+    const existingIndex = data.routineModeOverrides.findIndex((entry) => entry.date === date);
+
+    if (nextModeId === null) {
+      if (existingIndex >= 0) {
+        data.routineModeOverrides.splice(existingIndex, 1);
+      }
+      await this.repository.write(data);
+      return { ok: true, override: null };
+    }
+
+    const nextOverride = {
+      date,
+      modeId: nextModeId,
+      updatedAt: this.now().toISOString(),
+    };
+    if (existingIndex >= 0) {
+      data.routineModeOverrides.splice(existingIndex, 1, nextOverride);
+    } else {
+      data.routineModeOverrides.push(nextOverride);
+      data.routineModeOverrides.sort((left, right) => left.date.localeCompare(right.date));
+    }
+
+    await this.repository.write(data);
+    return { ok: true, override: nextOverride };
   }
 
   async listTasks(): Promise<TasksResponse> {
@@ -510,4 +656,35 @@ function getCustomBounds(startDate?: string, endDate?: string) {
     throw new PlannerValidationError("start must be on or before end");
   }
   return { startDate, endDate };
+}
+
+function requireActiveDays(days: number[] | undefined) {
+  const activeDays = normalizeActiveDays(days);
+  if (activeDays.length === 0) {
+    throw new PlannerValidationError("activeDays must contain at least one day");
+  }
+  return activeDays;
+}
+
+function normalizeOverrideModeId(modeId: string | null | undefined, modes: RoutineMode[]) {
+  if (modeId === null || modeId === undefined || String(modeId).trim() === "") {
+    return null;
+  }
+  const normalized = String(modeId);
+  if (!modes.some((mode) => mode.id === normalized)) {
+    throw new PlannerValidationError("modeId references an unknown mode");
+  }
+  return normalized;
+}
+
+function buildDefaultMode(habits: Habit[], timestamp: string): RoutineMode {
+  return {
+    id: "mode-default",
+    name: "Default Mode",
+    routineIds: [],
+    habitIds: habits.map((habit) => habit.id),
+    activeDays: [0, 1, 2, 3, 4, 5, 6],
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
 }

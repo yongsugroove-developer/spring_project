@@ -19,18 +19,56 @@
       <div class="app-nav-shell">
         <div class="app-nav-bar">
           <div class="app-utility-start">
-            <button id="app-utility-title" class="app-utility-title app-home-link" type="button" data-action="go-home">My Planner</button>
+            <button
+              id="app-utility-title"
+              class="app-utility-title app-home-link"
+              type="button"
+              data-action="go-home"
+            >
+              My Planner
+            </button>
           </div>
           <div class="app-utility-actions">
             <div class="account-menu-shell">
-              <button id="account-menu-trigger" class="account-menu-trigger" type="button" data-action="toggle-account-menu" aria-haspopup="menu" aria-expanded="false">
+              <button
+                id="account-menu-trigger"
+                class="account-menu-trigger"
+                type="button"
+                data-action="toggle-account-menu"
+                aria-haspopup="menu"
+                aria-expanded="false"
+              >
                 <span id="account-menu-name">Account</span>
                 <small id="account-menu-meta">Account / Settings / Stats</small>
               </button>
               <div class="account-menu-panel" role="menu" aria-label="Account menu">
-                <button id="tab-button-account" class="account-menu-link" type="button" data-route="/account" data-label-key="accountMenu">Account</button>
-                <button id="tab-button-settings" class="account-menu-link" type="button" data-route="/settings" data-label-key="settingsMenu">Display Settings</button>
-                <button id="tab-button-stats" class="account-menu-link" type="button" data-route="/stats" data-label-key="stats">Stats</button>
+                <button
+                  id="tab-button-account"
+                  class="account-menu-link"
+                  type="button"
+                  data-route="/account"
+                  data-label-key="accountMenu"
+                >
+                  Account
+                </button>
+                <button
+                  id="tab-button-settings"
+                  class="account-menu-link"
+                  type="button"
+                  data-route="/settings"
+                  data-label-key="settingsMenu"
+                >
+                  Display Settings
+                </button>
+                <button
+                  id="tab-button-stats"
+                  class="account-menu-link"
+                  type="button"
+                  data-route="/stats"
+                  data-label-key="stats"
+                >
+                  Stats
+                </button>
               </div>
             </div>
           </div>
@@ -40,8 +78,8 @@
       <header class="planner-topbar">
         <div class="planner-topbar-copy">
           <p id="screen-label" class="eyebrow">my planner</p>
-          <h1 id="screen-title" class="planner-screen-title">습관 타임테이블</h1>
-          <p id="screen-copy" class="planner-screen-copy">습관을 메인 흐름으로 관리하고, 루틴은 묶음으로만 사용합니다.</p>
+          <h1 id="screen-title" class="planner-screen-title">My Planner</h1>
+          <p id="screen-copy" class="planner-screen-copy">Personal planner</p>
         </div>
       </header>
 
@@ -57,11 +95,21 @@
       <section id="tab-settings" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-settings" hidden></section>
 
       <nav class="mobile-tab-bar" aria-label="Primary navigation">
-        <button id="tab-button-today" class="mobile-tab-button" type="button" data-route="/today">홈</button>
-        <button id="tab-button-habits" class="mobile-tab-button" type="button" data-route="/habits" data-label-key="habitsMenu">Habits</button>
-        <button id="tab-button-tasks" class="mobile-tab-button" type="button" data-route="/tasks" data-label-key="tasksMenu">Tasks</button>
-        <button id="tab-button-routines" class="mobile-tab-button" type="button" data-route="/routines" data-label-key="routinesMenu">Routines</button>
-        <button id="tab-button-calendar" class="mobile-tab-button" type="button" data-route="/calendar" data-label-key="calendar">Calendar</button>
+        <button id="tab-button-today" class="mobile-tab-button" type="button" data-route="/today" data-label-key="today">
+          Home
+        </button>
+        <button id="tab-button-habits" class="mobile-tab-button" type="button" data-route="/habits" data-label-key="habitsMenu">
+          Habits
+        </button>
+        <button id="tab-button-tasks" class="mobile-tab-button" type="button" data-route="/tasks" data-label-key="tasksMenu">
+          Tasks
+        </button>
+        <button id="tab-button-routines" class="mobile-tab-button" type="button" data-route="/routines" data-label-key="routinesMenu">
+          Routines
+        </button>
+        <button id="tab-button-calendar" class="mobile-tab-button" type="button" data-route="/calendar" data-label-key="calendar">
+          Calendar
+        </button>
       </nav>
     </main>
   </body>

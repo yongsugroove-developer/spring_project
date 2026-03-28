@@ -20,6 +20,7 @@ export interface HabitCheckin {
   date: string;
   habitId: string;
   value: number;
+  timeEntries: string[];
   updatedAt: string;
 }
 
@@ -33,6 +34,22 @@ export interface Routine {
   notificationTime: string | null;
   notificationWeekdays: ActiveDay[];
   createdAt: string;
+  updatedAt: string;
+}
+
+export interface RoutineMode {
+  id: string;
+  name: string;
+  routineIds: string[];
+  habitIds: string[];
+  activeDays: ActiveDay[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RoutineModeOverride {
+  date: string;
+  modeId: string | null;
   updatedAt: string;
 }
 
@@ -54,6 +71,8 @@ export interface PlannerData {
   habits: Habit[];
   habitCheckins: HabitCheckin[];
   routines: Routine[];
+  routineModes: RoutineMode[];
+  routineModeOverrides: RoutineModeOverride[];
   tasks: Task[];
 }
 
@@ -62,6 +81,8 @@ export interface TodayHabit extends Habit {
   isComplete: boolean;
   progressRate: number;
   streak: number;
+  timeEntries: string[];
+  latestTimeEntry: string | null;
 }
 
 export interface HabitWithStats extends Habit {
@@ -70,6 +91,11 @@ export interface HabitWithStats extends Habit {
 }
 
 export interface RoutineWithHabits extends Routine {
+  habits: Habit[];
+}
+
+export interface RoutineModeWithDetails extends RoutineMode {
+  routines: RoutineWithHabits[];
   habits: Habit[];
 }
 
@@ -111,6 +137,7 @@ export interface StatsSummary {
 export interface TodayResponse {
   ok: true;
   date: string;
+  activeMode: { id: string; name: string } | null;
   summary: {
     habitRate: number;
     completedHabits: number;
@@ -134,6 +161,11 @@ export interface HabitsResponse {
 export interface RoutinesResponse {
   ok: true;
   routines: RoutineWithHabits[];
+}
+
+export interface RoutineModesResponse {
+  ok: true;
+  modes: RoutineModeWithDetails[];
 }
 
 export interface TasksResponse {
