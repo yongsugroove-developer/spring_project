@@ -605,6 +605,40 @@
   gap: 0.55rem;
 }
 
+.home-emoji-toggle,
+.home-progress-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
+}
+
+.home-emoji-toggle {
+  width: 42px;
+  padding: 0;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.home-progress-chip {
+  min-width: 4.5rem;
+  font-size: 0.9rem;
+}
+
+.home-progress-chip.is-complete {
+  color: #0f766e;
+  border-color: rgba(15, 118, 110, 0.22);
+  background: rgba(240, 253, 250, 0.92);
+}
+
 .home-todo-title {
   display: flex;
   align-items: center;
@@ -3767,9 +3801,11 @@ textarea {
 }
 
 .today-home-board .home-board-cell--status .btn-soft,
-.today-home-board .home-board-cell--status .home-counter {
-  width: 100%;
-  justify-content: flex-end;
+.today-home-board .home-board-cell--status .home-counter,
+.today-home-board .home-board-cell--status .home-emoji-toggle,
+.today-home-board .home-board-cell--status .home-progress-chip {
+  width: auto;
+  justify-content: center;
 }
 
 .settings-control-list {
@@ -4563,6 +4599,10 @@ body.is-overlay-open {
 .today-home-board--dense .home-board-cell {
   min-height: 64px;
   padding: 0.88rem 0.95rem;
+}
+
+.today-home-board--dense .home-board-cell--status {
+  flex-wrap: nowrap;
 }
 
 .today-home-board--dense .home-item-copy strong {

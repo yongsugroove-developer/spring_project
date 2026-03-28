@@ -268,6 +268,18 @@ async function handleAction(action, target) {
     showFeedback("saveDone");
     return;
   }
+  if (action === "advance-habit") {
+    const habit = state.today?.habits?.find((entry) => entry.id === target.dataset.habitId);
+    if (!habit) return;
+    const nextValue = habit.isComplete ? 0 : Math.min(habit.targetCount, habit.currentValue + 1);
+    await request(`/api/habit-checkins/${state.selectedHomeDate}/habits/${habit.id}`, {
+      method: "PUT",
+      body: { value: nextValue },
+    });
+    await refreshTodayOnly();
+    showFeedback("saveDone");
+    return;
+  }
   if (action === "delete-habit") {
     await request(`/api/habits/${target.dataset.deleteId}`, { method: "DELETE" });
     await refreshAll();
@@ -800,12 +812,8 @@ function renderAccountPage() {
 
 function renderHomeHabitRow(habit) {
   const progress = habit.trackingType === "binary"
-    ? `<button class="btn-soft compact-action home-binary-toggle" type="button" data-action="toggle-binary" data-habit-id="${habit.id}" data-complete="${String(habit.isComplete)}">${habit.isComplete ? esc(t("markPending")) : esc(t("markDone"))}</button>`
-    : `<div class="home-counter">
-        <button class="btn-soft compact-action" type="button" data-action="adjust-habit" data-habit-id="${habit.id}" data-delta="-1">-</button>
-        <strong class="home-counter-value ${habit.isComplete ? "is-complete" : ""}">${habit.currentValue}/${habit.targetCount}${habit.trackingType === "time" ? t("timeUnit") : habit.trackingType === "count" ? t("countUnit") : ""}</strong>
-        <button class="btn-soft compact-action" type="button" data-action="adjust-habit" data-habit-id="${habit.id}" data-delta="1">+</button>
-      </div>`;
+    ? `<button class="home-emoji-toggle" type="button" data-action="toggle-binary" data-habit-id="${habit.id}" data-complete="${String(habit.isComplete)}" aria-label="${esc(habit.isComplete ? t("markPending") : t("markDone"))}">${habit.isComplete ? "✅" : "⬜"}</button>`
+    : `<button class="home-progress-chip ${habit.isComplete ? "is-complete" : ""}" type="button" data-action="advance-habit" data-habit-id="${habit.id}" aria-label="${esc(`${habit.name} ${habit.currentValue}/${habit.targetCount}`)}">${habit.currentValue}/${habit.targetCount}</button>`;
   return `<article class="home-board-group ${habit.isComplete ? "" : "is-pending"}" style="--routine-accent:${esc(habit.color)};">
     <div class="home-board-row home-board-row--item" draggable="true" data-habit-row="${habit.id}">
       <div class="home-board-cell home-board-cell--index"><span class="home-order-badge">${habit.sortOrder}</span><span class="muted">::</span></div>
@@ -1247,14 +1255,9 @@ function renderHomeMiniStat(label, value) {
 }
 
 function renderHomeHabitRowDense(habit) {
-  const unitLabel = habit.trackingType === "time" ? t("timeUnit") : habit.trackingType === "count" ? t("countUnit") : "";
   const progress = habit.trackingType === "binary"
-    ? `<button class="btn-soft compact-action home-binary-toggle" type="button" data-action="toggle-binary" data-habit-id="${habit.id}" data-complete="${String(habit.isComplete)}">${habit.isComplete ? esc(t("markPending")) : esc(t("markDone"))}</button>`
-    : `<div class="home-counter">
-        <button class="btn-soft compact-action" type="button" data-action="adjust-habit" data-habit-id="${habit.id}" data-delta="-1">-</button>
-        <strong class="home-counter-value ${habit.isComplete ? "is-complete" : ""}">${habit.currentValue}/${habit.targetCount}${unitLabel}</strong>
-        <button class="btn-soft compact-action" type="button" data-action="adjust-habit" data-habit-id="${habit.id}" data-delta="1">+</button>
-      </div>`;
+    ? `<button class="home-emoji-toggle" type="button" data-action="toggle-binary" data-habit-id="${habit.id}" data-complete="${String(habit.isComplete)}" aria-label="${esc(habit.isComplete ? t("markPending") : t("markDone"))}">${habit.isComplete ? "✅" : "⬜"}</button>`
+    : `<button class="home-progress-chip ${habit.isComplete ? "is-complete" : ""}" type="button" data-action="advance-habit" data-habit-id="${habit.id}" aria-label="${esc(`${habit.name} ${habit.currentValue}/${habit.targetCount}`)}">${habit.currentValue}/${habit.targetCount}</button>`;
 
   return `<article class="home-board-group ${habit.isComplete ? "" : "is-pending"}" style="--routine-accent:${esc(habit.color)};">
     <div class="home-board-row home-board-row--item" draggable="true" data-habit-row="${habit.id}">
