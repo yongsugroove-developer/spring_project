@@ -34,6 +34,7 @@
 - [x] Binary habit status now uses a centered touch area that only reveals a check emoji on completion, and home drag-and-drop targets the full habit card for reordering
 - [x] MySQL planner snapshot reads now tolerate JSON columns returned either as strings or parsed objects, and legacy column checks remain version-safe
 - [x] Calendar month cells now show only achievement rate with animated progress fills instead of habit/task count detail copy
+- [x] Calendar achievement animation now fills each date cell like rising water with a subtle wave instead of a direct progress bar
 - [x] Build, lint, unit, and integration verification completed for the habit-first slice
 
 ## done (user approved only)
