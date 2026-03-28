@@ -1592,7 +1592,7 @@ function renderCalendarMonthCell(cell) {
   const selected = summary.date === state.selectedHomeDate;
   const today = summary.date === dateKeyLocal();
 
-  return `<button class="calendar-day-button ${selected ? "is-selected" : ""} ${today ? "is-today" : ""}" type="button" data-route="${buildTodayRoute(summary.date)}" style="--progress:${String(summary.habitProgressRate)};">
+  return `<button class="day-card calendar-day-button calendar-day-button--water ${selected ? "is-selected" : ""} ${today ? "is-today" : ""}" type="button" data-route="${buildTodayRoute(summary.date)}" style="--progress:${String(summary.habitProgressRate)};">
     <div class="calendar-water-pool calendar-water-pool--cell" aria-hidden="true">
       <div class="calendar-water-fill">
         <span class="calendar-water-wave calendar-water-wave--back"></span>
@@ -1601,15 +1601,8 @@ function renderCalendarMonthCell(cell) {
     </div>
     <div class="day-card-head">
       <strong>${esc(String(Number(summary.date.slice(-2))))}</strong>
-      <span class="calendar-flag">${esc(`${summary.completedHabits}/${summary.totalHabits}`)}</span>
     </div>
-    <div class="calendar-rate-block">
-      <span class="calendar-rate-value">${esc(percent(summary.habitProgressRate))}</span>
-      <div class="calendar-rate-track"><span class="calendar-rate-fill"></span></div>
-      <div class="calendar-meta">
-        <span>${esc(`${summary.completedTaskCount}/${summary.taskCount} ${tx("tasks", "tasks")}`)}</span>
-      </div>
-    </div>
+    <span class="calendar-rate">${esc(percent(summary.habitProgressRate))}</span>
   </button>`;
 }
 
