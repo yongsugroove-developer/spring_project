@@ -1256,9 +1256,16 @@ function renderCalendarMonthPage() {
       </div>
       <div class="calendar-focus-inline">
         <article class="calendar-focus-rate" style="--progress:${String(monthRate)};">
-          <span>${esc(t("homeSummaryRate"))}</span>
-          <strong>${esc(percent(monthRate))}</strong>
-          <div class="calendar-rate-track" aria-hidden="true"><div class="calendar-rate-fill"></div></div>
+          <div class="calendar-focus-copy">
+            <span>${esc(t("homeSummaryRate"))}</span>
+            <strong>${esc(percent(monthRate))}</strong>
+          </div>
+          <div class="calendar-water-pool calendar-water-pool--summary" aria-hidden="true">
+            <div class="calendar-water-fill">
+              <span class="calendar-water-wave calendar-water-wave--back"></span>
+              <span class="calendar-water-wave calendar-water-wave--front"></span>
+            </div>
+          </div>
         </article>
       </div>
       <div class="calendar-grid calendar-grid--month">
@@ -1336,13 +1343,18 @@ function renderCalendarMonthCell(cell) {
       style="--progress:${String(progressValue)};"
       aria-label="${esc(`${cell.date} ${percent(cell.habitProgressRate)}`)}"
     >
+      <span class="calendar-water-pool calendar-water-pool--cell" aria-hidden="true">
+        <span class="calendar-water-fill">
+          <span class="calendar-water-wave calendar-water-wave--back"></span>
+          <span class="calendar-water-wave calendar-water-wave--front"></span>
+        </span>
+      </span>
       <div class="day-card-head">
         <strong>${esc(String(Number(cell.date.slice(-2))))}</strong>
         ${isToday ? `<span class="calendar-flag"><span class="calendar-flag-text">Today</span></span>` : ""}
       </div>
       <div class="calendar-rate-block">
         <span class="calendar-rate-value">${esc(percent(cell.habitProgressRate))}</span>
-        <div class="calendar-rate-track" aria-hidden="true"><div class="calendar-rate-fill"></div></div>
       </div>
     </button>`;
 }
