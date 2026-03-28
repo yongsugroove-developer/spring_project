@@ -458,16 +458,25 @@ Object.assign(MESSAGES.en, {
   addMenu: "Open add menu",
   closeMenu: "Close add menu",
   homeQuickCreateHint: "Use the + button at the bottom left to add habits, tasks, or routines.",
+  quickCreateHabitCopy: "Create a habit without leaving the home timetable.",
+  quickCreateTaskCopy: "Add a one-off task without changing tabs.",
+  quickCreateRoutineCopy: "Create a routine bundle from the current habit library.",
 });
 
 Object.assign(MESSAGES.ja, {
   addMenu: "追加メニューを開く",
   closeMenu: "追加メニューを閉じる",
   homeQuickCreateHint: "左下の + ボタンから習慣、タスク、ルーティンを追加できます。",
+  quickCreateHabitCopy: "ホームのタイムテーブルを離れずに習慣を追加できます。",
+  quickCreateTaskCopy: "タブ移動なしで単発タスクを追加できます。",
+  quickCreateRoutineCopy: "現在の習慣ライブラリからルーティンを作成できます。",
 });
 
 Object.assign(MESSAGES.ko, {
   addMenu: "추가 메뉴 열기",
   closeMenu: "추가 메뉴 닫기",
   homeQuickCreateHint: "왼쪽 아래 + 버튼에서 습관, 할 일, 루틴을 추가할 수 있습니다.",
+  quickCreateHabitCopy: "홈 타임테이블을 벗어나지 않고 바로 습관을 등록합니다.",
+  quickCreateTaskCopy: "탭 이동 없이 일회성 할 일을 바로 추가합니다.",
+  quickCreateRoutineCopy: "현재 습관 목록을 바탕으로 루틴 묶음을 바로 만듭니다.",
 });
