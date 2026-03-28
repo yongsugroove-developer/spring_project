@@ -4604,3 +4604,109 @@ body.is-overlay-open {
     bottom: calc(88px + env(safe-area-inset-bottom, 0px));
   }
 }
+
+.today-home-board--dense {
+  min-height: clamp(500px, 62vh, 760px);
+  max-height: clamp(500px, 62vh, 760px);
+}
+
+.today-home-board--dense .today-home-board-body {
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding-right: 0.35rem;
+}
+
+.today-home-board--dense .home-board-row,
+.today-home-board--dense .home-board-cell {
+  min-height: 76px;
+}
+
+.today-home-board--dense .home-board-cell--main {
+  overflow: hidden;
+}
+
+.today-home-board--dense .home-item-copy strong,
+.today-home-board--dense .home-item-copy span {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-home-board--dense .home-board-cell--status .btn-soft {
+  min-width: 92px;
+  justify-content: center;
+}
+
+.quick-create-layer {
+  overflow: auto;
+  padding: 24px 20px calc(112px + env(safe-area-inset-bottom, 0px));
+}
+
+.quick-create-card {
+  width: min(540px, calc(100vw - 40px));
+  max-height: min(calc(100dvh - 156px), 720px);
+  overflow: auto;
+}
+
+.quick-create-actions {
+  position: sticky;
+  bottom: -1rem;
+  z-index: 2;
+  justify-content: flex-end;
+  margin-top: 1rem;
+  margin-inline: -1rem;
+  padding: 0.85rem 1rem 0.2rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.98) 28%);
+  backdrop-filter: blur(8px);
+}
+
+.quick-create-card--routine .choice-list--stacked {
+  max-height: 220px;
+  overflow: auto;
+  padding-right: 0.2rem;
+  align-content: start;
+}
+
+@media (max-width: 720px) {
+  .today-home-board--dense {
+    min-height: clamp(430px, 56vh, 640px);
+    max-height: clamp(430px, 56vh, 640px);
+  }
+}
+
+@media (max-width: 560px) {
+  .today-home-board--dense {
+    min-height: clamp(420px, 54vh, 580px);
+    max-height: clamp(420px, 54vh, 580px);
+  }
+
+  .today-home-board--dense .home-board-row,
+  .today-home-board--dense .home-board-cell {
+    min-height: 72px;
+  }
+
+  .quick-create-layer {
+    padding: 14px 12px calc(106px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .quick-create-card,
+  .quick-create-card--task,
+  .quick-create-card--habit,
+  .quick-create-card--routine {
+    width: min(440px, calc(100vw - 20px));
+    max-height: min(calc(100dvh - 126px), 640px);
+    padding: 0.9rem 0.85rem 0.95rem;
+  }
+
+  .quick-create-actions {
+    bottom: -0.95rem;
+    margin-inline: -0.85rem;
+    padding: 0.75rem 0.85rem calc(0.2rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .quick-create-card--routine .choice-list--stacked {
+    max-height: 172px;
+  }
+}
