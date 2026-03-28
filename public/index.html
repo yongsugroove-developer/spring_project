@@ -19,34 +19,33 @@
       <div class="app-nav-shell">
         <div class="app-nav-bar">
           <div class="app-utility-start">
+            <button id="app-utility-title" class="app-utility-title app-home-link" type="button" data-action="go-home">My Planner</button>
+          </div>
+          <div class="app-utility-actions">
             <button class="app-nav-toggle" type="button" data-action="toggle-app-nav" aria-label="Open menu">
               <span></span><span></span><span></span>
             </button>
-            <strong id="app-utility-title" class="app-utility-title">My Planner</strong>
-          </div>
-          <div class="app-utility-actions">
-            <button id="settings-button" class="settings-shortcut" type="button" data-route="/settings">Settings</button>
           </div>
         </div>
         <button class="app-nav-backdrop" type="button" data-action="close-app-nav" aria-label="Close menu"></button>
         <aside class="app-nav-drawer" aria-label="Planner sections">
           <div class="app-nav-head">
-            <button class="app-nav-toggle" type="button" data-action="close-app-nav" aria-label="Close menu">
-              <span></span><span></span><span></span>
-            </button>
             <div class="app-nav-title">
               <span id="app-nav-label">Menu</span>
               <strong id="app-nav-title">My Planner</strong>
             </div>
+            <button class="app-nav-toggle" type="button" data-action="close-app-nav" aria-label="Close menu">
+              <span></span><span></span><span></span>
+            </button>
           </div>
-          <nav class="app-nav-list" role="tablist">
-            <button id="tab-button-today" class="app-nav-button is-active" data-tab="today" data-route="/today" type="button" role="tab" aria-controls="tab-today" aria-selected="true">Home</button>
-            <button id="tab-button-habits" class="app-nav-button" data-tab="habits" data-route="/habits" type="button" role="tab" aria-controls="tab-habits" aria-selected="false">Habits</button>
-            <button id="tab-button-tasks" class="app-nav-button" data-tab="tasks" data-route="/tasks" type="button" role="tab" aria-controls="tab-tasks" aria-selected="false">Tasks</button>
-            <button id="tab-button-routines" class="app-nav-button" data-tab="routines" data-route="/routines" type="button" role="tab" aria-controls="tab-routines" aria-selected="false">Routines</button>
-            <button id="tab-button-calendar" class="app-nav-button" data-tab="calendar" data-route="/calendar" type="button" role="tab" aria-controls="tab-calendar" aria-selected="false">Calendar</button>
-            <button id="tab-button-stats" class="app-nav-button" data-tab="stats" data-route="/stats" type="button" role="tab" aria-controls="tab-stats" aria-selected="false">Stats</button>
-            <button id="tab-button-settings" class="app-nav-button" data-tab="settings" data-route="/settings" type="button" role="tab" aria-controls="tab-settings" aria-selected="false">Settings</button>
+          <nav class="app-nav-list">
+            <button id="tab-button-account" class="app-nav-button" data-tab="account" data-route="/account" data-label-key="accountMenu" type="button">Account</button>
+            <button id="tab-button-habits" class="app-nav-button" data-tab="habits" data-route="/habits" data-label-key="habitsMenu" type="button">Habits</button>
+            <button id="tab-button-routines" class="app-nav-button" data-tab="routines" data-route="/routines" data-label-key="routinesMenu" type="button">Routines</button>
+            <button id="tab-button-tasks" class="app-nav-button" data-tab="tasks" data-route="/tasks" data-label-key="tasksMenu" type="button">Tasks</button>
+            <button id="tab-button-calendar" class="app-nav-button" data-tab="calendar" data-route="/calendar" data-label-key="calendar" type="button">Calendar</button>
+            <button id="tab-button-stats" class="app-nav-button" data-tab="stats" data-route="/stats" data-label-key="stats" type="button">Stats</button>
+            <button id="tab-button-settings" class="app-nav-button" data-tab="settings" data-route="/settings" data-label-key="settingsMenu" type="button">Settings</button>
           </nav>
         </aside>
       </div>
@@ -61,21 +60,14 @@
 
       <p id="feedback" class="feedback" aria-live="polite" hidden></p>
 
-      <section id="tab-today" class="tab-panel is-active" role="tabpanel" aria-labelledby="tab-button-today"></section>
+      <section id="tab-today" class="tab-panel is-active" role="tabpanel"></section>
+      <section id="tab-account" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-account" hidden></section>
       <section id="tab-habits" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-habits" hidden></section>
       <section id="tab-tasks" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-tasks" hidden></section>
       <section id="tab-routines" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-routines" hidden></section>
       <section id="tab-calendar" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-calendar" hidden></section>
       <section id="tab-stats" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-stats" hidden></section>
       <section id="tab-settings" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-settings" hidden></section>
-
-      <nav class="mobile-tab-bar" data-role="mobile-tab-bar">
-        <button class="mobile-tab-button is-active" type="button" data-route="/today" aria-pressed="true">Home</button>
-        <button class="mobile-tab-button" type="button" data-route="/habits" aria-pressed="false">Habits</button>
-        <button class="mobile-tab-button" type="button" data-route="/tasks" aria-pressed="false">Tasks</button>
-        <button class="mobile-tab-button" type="button" data-route="/calendar" aria-pressed="false">Calendar</button>
-        <button class="mobile-tab-button" type="button" data-route="/stats" aria-pressed="false">Stats</button>
-      </nav>
     </main>
   </body>
 </html>

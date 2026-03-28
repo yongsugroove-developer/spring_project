@@ -17,9 +17,12 @@
 - [x] Home now shows a week strip plus a drag-sortable habit timetable with inline progress controls
 - [x] Calendar now renders as a month-style grid instead of a broken card list layout
 - [x] The main home screen has been tightened into a denser summary + timetable layout with reduced spacing
-- [x] Home creation actions have been moved out of the top summary card into a bottom-left floating + menu
+- [x] Home creation actions have been moved out of the top summary card into a bottom-right floating + menu
 - [x] Frontend action result messages are now hidden from the page and emitted to console/system logs instead
 - [x] Home floating actions now open quick-create layer popups for habits, tasks, and routines without tab changes
+- [x] The floating + action now sits on the bottom-right and quick-create overlays use the full viewport more effectively
+- [x] Bottom tab navigation and the old left drawer have been replaced by a top-right hamburger menu
+- [x] Hamburger navigation now exposes account, list-style habit/task/routine views, calendar, stats, and display settings
 - [x] MySQL planner snapshot reads now tolerate JSON columns returned either as strings or parsed objects, and legacy column checks remain version-safe
 - [x] Build, lint, unit, and integration verification completed for the habit-first slice
 

@@ -28,6 +28,7 @@ const DENSITY_OPTIONS = [
 
 const ROUTE_META = {
   "/today": { tab: "today", titleKey: "homeTitle", copyKey: "homeCopy" },
+  "/account": { tab: "account", titleKey: "accountTitle", copyKey: "accountCopy" },
   "/habits": { tab: "habits", titleKey: "habitsTitle", copyKey: "habitsCopy" },
   "/tasks": { tab: "tasks", titleKey: "tasksTitle", copyKey: "tasksCopy" },
   "/routines": { tab: "routines", titleKey: "routinesTitle", copyKey: "routinesCopy" },
@@ -181,6 +182,10 @@ async function handleAction(action, target) {
   if (action === "close-app-nav") {
     state.appNavOpen = false;
     renderShellOnly();
+    return;
+  }
+  if (action === "go-home") {
+    navigate("/today");
     return;
   }
   if (action === "toggle-home-fab") {
@@ -505,6 +510,7 @@ function renderShellOnly() {
   document.documentElement.lang = state.locale;
   document.title = `My Planner | ${t(ROUTE_META[state.routePath].titleKey)}`;
   document.querySelector(".app-nav-shell")?.classList.toggle("is-open", state.appNavOpen);
+  document.body.classList.toggle("is-overlay-open", Boolean(state.appNavOpen || state.quickCreateKind));
 
   for (const button of document.querySelectorAll("[data-tab]")) {
     if (!(button instanceof HTMLElement)) continue;
@@ -535,6 +541,7 @@ function renderShellOnly() {
 function renderPanels() {
   const renderers = {
     today: renderTodayDensePage,
+    account: renderAccountPage,
     habits: renderHabitsPage,
     tasks: renderTasksPage,
     routines: renderRoutinesPage,
@@ -596,18 +603,11 @@ function renderTodayPage() {
 
 function renderHabitsPage() {
   return `<div class="route-screen-layout route-screen-layout--library">
-    <section class="content-card content-card--form">
-      <div class="route-section-heading">
-        <h3>${esc(t("createHabit"))}</h3>
-        <p class="muted">${esc(t("habitsCopy"))}</p>
-      </div>
-      <form class="form-grid" data-form="habit-create">
-        ${habitFields("habit-create", null, true)}
-        <div class="actions"><button class="btn" type="submit">${esc(t("createHabit"))}</button></div>
-      </form>
-    </section>
     <section class="content-card">
-      <div class="route-section-heading"><h3>${esc(t("habits"))}</h3></div>
+      <div class="route-section-heading">
+        <h3>${esc(t("habitsMenu"))}</h3>
+        <p class="muted">${esc(t("listOnlyHint"))}</p>
+      </div>
       <div class="route-list-stack">
         ${state.habits.length ? state.habits.map(renderHabitEditor).join("") : `<p class="muted">${esc(t("noHabits"))}</p>`}
       </div>
@@ -617,18 +617,11 @@ function renderHabitsPage() {
 
 function renderTasksPage() {
   return `<div class="route-screen-layout route-screen-layout--library">
-    <section class="content-card content-card--form">
-      <div class="route-section-heading">
-        <h3>${esc(t("createTask"))}</h3>
-        <p class="muted">${esc(t("tasksCopy"))}</p>
-      </div>
-      <form class="form-grid" data-form="task-create">
-        ${taskFields("task-create", null)}
-        <div class="actions"><button class="btn" type="submit">${esc(t("createTask"))}</button></div>
-      </form>
-    </section>
     <section class="content-card">
-      <div class="route-section-heading"><h3>${esc(t("tasks"))}</h3></div>
+      <div class="route-section-heading">
+        <h3>${esc(t("tasksMenu"))}</h3>
+        <p class="muted">${esc(t("listOnlyHint"))}</p>
+      </div>
       <div class="route-list-stack">
         ${state.tasks.length ? state.tasks.map(renderTaskEditor).join("") : `<p class="muted">${esc(t("noTasks"))}</p>`}
       </div>
@@ -638,18 +631,11 @@ function renderTasksPage() {
 
 function renderRoutinesPage() {
   return `<div class="route-screen-layout route-screen-layout--creator">
-    <section class="content-card content-card--form">
-      <div class="route-section-heading">
-        <h3>${esc(t("createRoutine"))}</h3>
-        <p class="muted">${esc(t("routinesCopy"))}</p>
-      </div>
-      <form class="form-grid" data-form="routine-create">
-        ${routineFields("routine-create", null)}
-        <div class="actions"><button class="btn" type="submit">${esc(t("createRoutine"))}</button></div>
-      </form>
-    </section>
     <section class="content-card">
-      <div class="route-section-heading"><h3>${esc(t("routines"))}</h3></div>
+      <div class="route-section-heading">
+        <h3>${esc(t("routinesMenu"))}</h3>
+        <p class="muted">${esc(t("listOnlyHint"))}</p>
+      </div>
       <div class="route-list-stack">
         ${state.routines.length ? state.routines.map(renderRoutineEditor).join("") : `<p class="muted">${esc(t("noRoutines"))}</p>`}
       </div>
@@ -711,16 +697,63 @@ function renderSettingsPage() {
         <label class="settings-control-item"><span>${esc(t("density"))}</span><select id="settings-density">${DENSITY_OPTIONS.map((option) => `<option value="${option.value}" ${option.value === state.density ? "selected" : ""}>${esc(t(option.labelKey))}</option>`).join("")}</select></label>
       </div>
     </section>
+  </div>`;
+}
+
+function renderAccountPage() {
+  if (!state.authAvailable) {
+    return `<div class="route-screen-layout route-screen-layout--settings">
+      <section class="content-card">
+        <div class="route-section-heading">
+          <h3>${esc(t("authUnavailableTitle"))}</h3>
+          <p class="muted">${esc(t("authUnavailableCopy"))}</p>
+        </div>
+      </section>
+    </div>`;
+  }
+
+  if (!state.currentUser) {
+    return `<div class="route-screen-layout route-screen-layout--settings">
+      <section class="content-card">
+        <div class="route-section-heading">
+          <h3>${esc(t("authRequiredTitle"))}</h3>
+          <p class="muted">${esc(t("authRequiredCopy"))}</p>
+        </div>
+        <div class="actions">
+          <a class="btn" href="/login">${esc(t("login"))}</a>
+        </div>
+      </section>
+    </div>`;
+  }
+
+  return `<div class="route-screen-layout route-screen-layout--settings">
     <section class="content-card">
-      <div class="route-section-heading"><h3>${esc(t("plannerSections"))}</h3></div>
-      <div class="settings-link-list">
-        ${settingsLink("/habits", t("habits"), t("habitsCopy"))}
-        ${settingsLink("/routines", t("routines"), t("routinesCopy"))}
-        ${settingsLink("/tasks", t("tasks"), t("tasksCopy"))}
-        ${settingsLink("/calendar", t("calendar"), t("calendarCopy"))}
-        ${settingsLink("/stats", t("stats"), t("statsCopy"))}
+      <div class="route-section-heading">
+        <h3>${esc(t("accountMenu"))}</h3>
+        <p class="muted">${esc(t("accountCopy"))}</p>
       </div>
-      ${state.authAvailable ? `<div class="actions"><button class="btn-soft" type="button" data-action="logout">Logout</button></div>` : ""}
+      <div class="route-list-stack">
+        <article class="route-list-stack-item">
+          <div class="route-list-row">
+            <div class="route-list-copy">
+              <strong>${esc(state.currentUser.displayName || t("accountMenu"))}</strong>
+              <span>${esc(state.currentUser.email || "")}</span>
+            </div>
+            <span class="route-list-meta">${esc(state.currentUser.role || "")}</span>
+          </div>
+        </article>
+        <article class="route-list-stack-item">
+          <div class="route-list-row">
+            <div class="route-list-copy">
+              <strong>${esc(t("status"))}</strong>
+              <span>${esc(state.currentUser.status || "")}</span>
+            </div>
+          </div>
+        </article>
+      </div>
+      <div class="actions">
+        <button class="btn-soft" type="button" data-action="logout">${esc(t("logout"))}</button>
+      </div>
     </section>
   </div>`;
 }
@@ -1167,15 +1200,11 @@ function applyShellText() {
   text("screen-label", "my planner");
   text("screen-title", t(meta.titleKey));
   text("screen-copy", t(meta.copyKey));
-  text("settings-button", t("settings"));
-
-  for (const button of document.querySelectorAll("[data-route='/today']")) button.textContent = t("today");
-  for (const button of document.querySelectorAll("[data-route='/habits']")) button.textContent = t("habits");
-  for (const button of document.querySelectorAll("[data-route='/tasks']")) button.textContent = t("tasks");
-  for (const button of document.querySelectorAll("[data-route='/routines']")) button.textContent = t("routines");
-  for (const button of document.querySelectorAll("[data-route='/calendar']")) button.textContent = t("calendar");
-  for (const button of document.querySelectorAll("[data-route='/stats']")) button.textContent = t("stats");
-  for (const button of document.querySelectorAll("[data-route='/settings']")) button.textContent = t("settings");
+  for (const button of document.querySelectorAll("[data-label-key]")) {
+    if (button instanceof HTMLElement) {
+      button.textContent = t(button.dataset.labelKey || "");
+    }
+  }
 }
 
 function showFeedback(message, isError = false) {
