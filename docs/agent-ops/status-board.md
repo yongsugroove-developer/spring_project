@@ -23,6 +23,7 @@
 - [x] The floating + action now sits on the bottom-right and quick-create overlays use the full viewport more effectively
 - [x] Bottom tab navigation and the old left drawer have been replaced by a top-right hamburger menu
 - [x] Hamburger navigation now exposes account, list-style habit/task/routine views, calendar, stats, and display settings
+- [x] The hamburger trigger is back on the top-left and quick-create overlays now render as smaller centered layer popups
 - [x] MySQL planner snapshot reads now tolerate JSON columns returned either as strings or parsed objects, and legacy column checks remain version-safe
 - [x] Build, lint, unit, and integration verification completed for the habit-first slice
 
