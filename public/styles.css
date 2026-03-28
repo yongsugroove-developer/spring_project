@@ -5718,6 +5718,235 @@ body.is-overlay-open {
   }
 }
 
+.home-screen {
+  display: grid;
+  gap: 1rem;
+}
+
+.home-date-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+}
+
+.home-date-month {
+  margin: 0;
+  font-size: clamp(1.5rem, 2.9vw, 2rem);
+  line-height: 1.05;
+  white-space: nowrap;
+}
+
+.home-date-rail {
+  min-width: 0;
+  padding: 0.05rem 0 0.15rem;
+}
+
+.achievement-card {
+  grid-template-columns: minmax(120px, 170px) minmax(0, 1fr);
+  align-items: center;
+  gap: 0.85rem;
+  min-height: 0;
+  padding: 1rem 1.1rem;
+}
+
+.achievement-copy {
+  display: grid;
+  gap: 0.18rem;
+  align-content: center;
+}
+
+.achievement-card h3 {
+  margin: 0;
+  font-size: clamp(2rem, 4.2vw, 3rem);
+}
+
+.achievement-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.achievement-stat {
+  gap: 0.14rem;
+  padding: 0.72rem 0.8rem;
+}
+
+.home-panel {
+  min-height: 0;
+}
+
+.home-panel-head {
+  align-items: center;
+}
+
+.home-panel-head > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.home-panel-head > div:first-child p {
+  margin: 0;
+}
+
+.today-home-board--dense {
+  min-height: clamp(280px, 42vh, 460px);
+  max-height: clamp(280px, 42vh, 460px);
+}
+
+.today-home-board--dense .today-home-board-head,
+.today-home-board--dense .home-board-row {
+  grid-template-columns: 70px minmax(0, 1fr) minmax(150px, 0.95fr);
+}
+
+.today-home-board--dense .today-home-board-body {
+  gap: 0.45rem;
+  grid-auto-rows: 70px;
+}
+
+.today-home-board--dense .home-board-group {
+  height: 70px;
+}
+
+.today-home-board--dense .home-board-row,
+.today-home-board--dense .home-board-cell {
+  height: 70px;
+  min-height: 70px;
+}
+
+.today-home-board--dense .home-board-cell {
+  padding: 0.75rem 0.85rem;
+}
+
+.today-home-board--dense .home-board-cell--status {
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.today-home-board .home-status-toggle {
+  width: auto;
+  height: auto;
+  padding: 0.55rem 0.85rem;
+  font-size: 0.95rem;
+}
+
+.today-home-board .home-count-controls {
+  width: 100%;
+  justify-content: flex-end;
+}
+
+.today-home-board .home-time-stack {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.today-home-board .home-time-trigger {
+  min-width: 96px;
+}
+
+.today-home-board .home-time-chip-list {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.today-home-board .home-time-chip-list::-webkit-scrollbar {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .home-date-card {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.8rem;
+  }
+
+  .achievement-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .home-task-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .today-home-board--dense {
+    min-height: clamp(250px, 40vh, 360px);
+    max-height: clamp(250px, 40vh, 360px);
+  }
+
+  .today-home-board--dense .today-home-board-head,
+  .today-home-board--dense .home-board-row {
+    grid-template-columns: 62px minmax(0, 1fr) minmax(138px, 0.95fr);
+  }
+
+  .today-home-board--dense .today-home-board-body {
+    grid-auto-rows: 68px;
+  }
+
+  .today-home-board--dense .home-board-group {
+    height: 68px;
+  }
+
+  .today-home-board--dense .home-board-row,
+  .today-home-board--dense .home-board-cell {
+    height: 68px;
+    min-height: 68px;
+  }
+}
+
+@media (max-width: 560px) {
+  .home-date-card,
+  .achievement-card,
+  .home-panel {
+    padding: 0.95rem 0.9rem;
+  }
+
+  .home-date-chip {
+    min-width: 72px;
+    padding: 0.68rem 0.78rem;
+  }
+
+  .home-date-chip strong {
+    font-size: 1.02rem;
+  }
+
+  .achievement-card {
+    grid-template-columns: 108px minmax(0, 1fr);
+  }
+
+  .achievement-card h3 {
+    font-size: 1.9rem;
+  }
+
+  .achievement-stat {
+    padding: 0.68rem 0.6rem;
+  }
+
+  .today-home-board--dense {
+    min-height: clamp(232px, 36vh, 320px);
+    max-height: clamp(232px, 36vh, 320px);
+  }
+
+  .today-home-board--dense .today-home-board-head,
+  .today-home-board--dense .home-board-row {
+    grid-template-columns: 54px minmax(0, 1fr) minmax(126px, 0.95fr);
+  }
+
+  .today-home-board .home-time-trigger {
+    min-width: 84px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .achievement-liquid,
   .achievement-wave--back,

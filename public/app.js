@@ -624,27 +624,9 @@ function renderTodayPage() {
   if (!state.today) return "";
   const rate = Number(state.today.summary.habitRate || 0);
   const tasks = getHomeTasks();
-  const activeModeId = state.today.activeMode?.id ?? "";
   return `<div class="route-screen-layout home-screen">
     <section class="content-card home-date-card">
-      <div class="home-date-head">
-        <div>
-          <p class="eyebrow">${esc(tx("today", "Home"))}</p>
-          <h2 class="home-date-month" data-home-month-label>${esc(formatMonthLabel(state.selectedHomeDate))}</h2>
-          <p class="muted home-date-copy">${esc(formatFullDate(state.selectedHomeDate))}</p>
-        </div>
-        <div class="home-mode-summary">
-          <span class="pill home-mode-pill">${esc(state.today.activeMode?.name || tx("noModeAssigned", "No active mode"))}</span>
-          <form class="home-mode-form" data-form="mode-override">
-            <select name="modeId">
-              <option value="">${esc(tx("clearModeOverride", "Use weekday rule"))}</option>
-              ${state.modes.map((mode) => `<option value="${mode.id}" ${mode.id === activeModeId ? "selected" : ""}>${esc(mode.name)}</option>`).join("")}
-            </select>
-            <button class="btn-soft compact-action" type="submit">${esc(tx("applyMode", "Apply"))}</button>
-            <button class="btn-soft compact-action" type="button" data-action="clear-mode-override">${esc(tx("clear", "Clear"))}</button>
-          </form>
-        </div>
-      </div>
+      <h2 class="home-date-month" data-home-month-label>${esc(formatMonthLabel(state.selectedHomeDate))}</h2>
       <div class="home-date-rail" data-home-date-rail>
         ${buildHomeRailDates(state.selectedHomeDate).map((date) => renderDateChip(date)).join("")}
       </div>
@@ -652,14 +634,10 @@ function renderTodayPage() {
 
     <section class="content-card achievement-card ${rate >= 1 ? "is-complete" : ""} ${state.achievementPulseUntil > Date.now() ? "is-pulsing" : ""}" style="--achievement-progress:${String(Math.max(0, Math.min(rate, 1)))};">
       <div class="achievement-copy">
-        <div class="achievement-label-row">
-          <p class="eyebrow">${esc(tx("homeSummaryRate", "Completion"))}</p>
-          <span class="achievement-milestone">${esc(resolveMilestone(rate))}</span>
-        </div>
+        <p class="eyebrow">${esc(tx("homeSummaryRate", "Completion"))}</p>
         <h3 data-achievement-number="${String(rate)}">${esc(percent(rate))}</h3>
-        <p class="muted">${esc(tx("achievementCopy", "Today's progress should feel visible and rewarding."))}</p>
       </div>
-      <div class="achievement-stats">
+      <div class="achievement-stats today-home-summary-row">
         ${renderAchievementStat(tx("completedHabits", "Completed"), `${state.today.summary.completedHabits}/${state.today.summary.totalHabits}`)}
         ${renderAchievementStat(tx("remainingHabits", "Remaining"), String(state.today.summary.remainingHabits), "remaining")}
         ${renderAchievementStat(tx("streak", "Streak"), summarizeTodayStreak(state.today.habits))}
@@ -700,9 +678,20 @@ function renderTodayPage() {
               <p class="muted">${esc(tx("reorderHint", "Drag to reorder the home habit list."))}</p>
             </div>
           </div>
-          <div class="home-habit-list">
-            ${state.today.habits.length ? state.today.habits.map(renderHomeHabitRow).join("") : renderEmptyState(tx("noHabitsHome", "No habits are scheduled for this day yet."))}
-          </div>
+          ${
+            state.today.habits.length
+              ? `<section class="today-home-board today-home-board--dense home-habit-board">
+            <div class="today-home-board-head">
+              <span>${esc(tx("order", "Order"))}</span>
+              <span>${esc(tx("habitsMenu", "Habits"))}</span>
+              <span>${esc(tx("status", "Status"))}</span>
+            </div>
+            <div class="today-home-board-body">
+              ${state.today.habits.map((habit, index) => renderHomeHabitRow(habit, index)).join("")}
+            </div>
+          </section>`
+              : renderEmptyState(tx("noHabitsHome", "No habits are scheduled for this day yet."))
+          }
         </section>
       </div>
     </section>
@@ -919,7 +908,7 @@ function renderDateChip(date) {
 }
 
 function renderAchievementStat(label, value, extraClass = "") {
-  return `<article class="achievement-stat ${extraClass ? `achievement-stat--${extraClass}` : ""}">
+  return `<article class="today-home-summary-card achievement-stat ${extraClass ? `achievement-stat--${extraClass}` : ""}">
     <span>${esc(label)}</span>
     <strong>${esc(value)}</strong>
   </article>`;
@@ -938,20 +927,27 @@ function renderHomeTaskRow(task) {
   </article>`;
 }
 
-function renderHomeHabitRow(habit) {
+function renderHomeHabitRow(habit, index) {
   const subtitle = [habit.tag, `${tx("streak", "Streak")} ${habit.streak}`, `${tx("startDate", "Start")} ${habit.startDate}`]
     .filter(Boolean)
     .join(" | ");
-  return `<article class="home-habit-row ${habit.isComplete ? "is-complete" : ""}" data-home-habit-row="${habit.id}" draggable="true" style="--routine-accent:${esc(habit.color)};">
-    <div class="home-habit-main">
-      <span class="home-habit-dot"></span>
-      <div class="home-habit-copy">
-        <strong>${esc(habit.name)}</strong>
-        <span>${esc(subtitle)}</span>
+  return `<article class="home-board-group" data-home-habit-row="${habit.id}" draggable="true" style="--routine-accent:${esc(habit.color)};">
+    <div class="home-board-row home-board-row--item ${habit.isComplete ? "is-complete" : ""}">
+      <div class="home-board-cell home-board-cell--index">
+        <span class="home-order-badge">${esc(String(index + 1))}</span>
       </div>
-    </div>
-    <div class="home-habit-actions">
-      ${habit.trackingType === "binary" ? renderBinaryAction(habit) : habit.trackingType === "count" ? renderCountAction(habit) : renderTimeAction(habit)}
+      <div class="home-board-cell home-board-cell--main">
+        <div class="home-routine-main">
+          <span class="home-routine-accent"></span>
+          <div class="home-item-copy">
+            <strong>${esc(habit.name)}</strong>
+            <span>${esc(subtitle)}</span>
+          </div>
+        </div>
+      </div>
+      <div class="home-board-cell home-board-cell--status">
+        ${habit.trackingType === "binary" ? renderBinaryAction(habit) : habit.trackingType === "count" ? renderCountAction(habit) : renderTimeAction(habit)}
+      </div>
     </div>
   </article>`;
 }
