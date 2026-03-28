@@ -1244,7 +1244,6 @@ function renderCalendarMonthPage() {
   const monthGrid = buildCalendarMonthGrid(state.selectedMonth, days);
   const monthRate =
     days.length === 0 ? 0 : days.reduce((sum, day) => sum + Number(day.habitProgressRate || 0), 0) / days.length;
-  const selectedDay = days.find((day) => day.date === state.selectedHomeDate) ?? null;
 
   return `<div class="route-screen-layout">
     <section class="content-card calendar-shell">
@@ -1256,12 +1255,11 @@ function renderCalendarMonthPage() {
         </div>
       </div>
       <div class="calendar-focus-inline">
-        <span class="calendar-focus-stat">${esc(t("homeSummaryRate"))} ${percent(monthRate)}</span>
-        ${
-          selectedDay
-            ? `<span class="calendar-focus-stat">${esc(formatFullDate(selectedDay.date))}</span>`
-            : `<span class="calendar-focus-stat">${esc(formatMonthTitle(state.selectedMonth))}</span>`
-        }
+        <article class="calendar-focus-rate" style="--progress:${String(monthRate)};">
+          <span>${esc(t("homeSummaryRate"))}</span>
+          <strong>${esc(percent(monthRate))}</strong>
+          <div class="calendar-rate-track" aria-hidden="true"><div class="calendar-rate-fill"></div></div>
+        </article>
       </div>
       <div class="calendar-grid calendar-grid--month">
         ${["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((label) => `<span class="weekday">${label}</span>`).join("")}
@@ -1336,15 +1334,15 @@ function renderCalendarMonthCell(cell) {
       type="button"
       data-route="${buildTodayRoute(cell.date)}"
       style="--progress:${String(progressValue)};"
+      aria-label="${esc(`${cell.date} ${percent(cell.habitProgressRate)}`)}"
     >
       <div class="day-card-head">
         <strong>${esc(String(Number(cell.date.slice(-2))))}</strong>
         ${isToday ? `<span class="calendar-flag"><span class="calendar-flag-text">Today</span></span>` : ""}
       </div>
-      <div class="calendar-meta">
-        <span>${esc(percent(cell.habitProgressRate))}</span>
-        <span>${esc(`${cell.completedHabits}/${cell.totalHabits} ${t("habits")}`)}</span>
-        <span>${esc(`${cell.completedTaskCount}/${cell.taskCount} ${t("tasks")}`)}</span>
+      <div class="calendar-rate-block">
+        <span class="calendar-rate-value">${esc(percent(cell.habitProgressRate))}</span>
+        <div class="calendar-rate-track" aria-hidden="true"><div class="calendar-rate-fill"></div></div>
       </div>
     </button>`;
 }
