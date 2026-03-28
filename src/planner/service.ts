@@ -412,7 +412,7 @@ export class PlannerService {
       name: requireText(input.name, "Mode name"),
       routineIds: normalizeRoutineIds(input.routineIds ?? [], data),
       habitIds: normalizeHabitIds(input.habitIds ?? [], data),
-      activeDays: requireActiveDays(input.activeDays),
+      activeDays: requireActiveDays(input.activeDays ?? [0, 1, 2, 3, 4, 5, 6]),
       createdAt: timestamp,
       updatedAt: timestamp,
     };

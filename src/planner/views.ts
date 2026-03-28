@@ -1,4 +1,4 @@
-import { addDays, eachDateInRange, getDayOfWeek } from "./date.js";
+import { addDays, eachDateInRange } from "./date.js";
 import { clampProgressValue, sortTasks } from "./validation.js";
 import type {
   CalendarDaySummary,
@@ -38,11 +38,22 @@ export function buildRoutineCollection(data: PlannerData): RoutineWithHabits[] {
 export function buildRoutineModeCollection(data: PlannerData): RoutineModeWithDetails[] {
   const routineMap = new Map(buildRoutineCollection(data).map((routine) => [routine.id, routine]));
   const habitMap = new Map(data.habits.map((habit) => [habit.id, habit]));
+  const reservedDatesByModeId = new Map<string, string[]>();
+
+  for (const override of data.routineModeOverrides) {
+    if (!override.modeId) {
+      continue;
+    }
+    const dates = reservedDatesByModeId.get(override.modeId) ?? [];
+    dates.push(override.date);
+    reservedDatesByModeId.set(override.modeId, dates);
+  }
 
   return [...data.routineModes]
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
     .map((mode) => ({
       ...mode,
+      reservedDates: [...(reservedDatesByModeId.get(mode.id) ?? [])].sort((left, right) => left.localeCompare(right)),
       routines: mode.routineIds
         .map((routineId) => routineMap.get(routineId))
         .filter((routine): routine is RoutineWithHabits => routine !== undefined),
@@ -285,12 +296,7 @@ export function getActiveMode(data: PlannerData, date: string): RoutineMode | nu
     return override.modeId ? (modeMap.get(override.modeId) ?? null) : null;
   }
 
-  const dayOfWeek = getDayOfWeek(date) as 0 | 1 | 2 | 3 | 4 | 5 | 6;
-  return (
-    [...data.routineModes]
-      .filter((mode) => mode.activeDays.includes(dayOfWeek))
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0] ?? null
-  );
+  return [...data.routineModes].sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0] ?? null;
 }
 
 export function getScheduledHabits(data: PlannerData, date: string): Habit[] {

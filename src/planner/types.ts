@@ -95,6 +95,7 @@ export interface RoutineWithHabits extends Routine {
 }
 
 export interface RoutineModeWithDetails extends RoutineMode {
+  reservedDates: string[];
   routines: RoutineWithHabits[];
   habits: Habit[];
 }

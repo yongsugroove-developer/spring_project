@@ -80,6 +80,8 @@ const state = {
   accountMenuOpen: false,
   homeQuickActionsOpen: false,
   quickCreateKind: "",
+  modeDateDrafts: {},
+  modeDatePicker: null,
   homePanel: "habits",
   homeTaskFilter: "scheduled",
   draggedHabitId: "",
@@ -359,6 +361,50 @@ async function handleAction(action, target) {
     render();
     return;
   }
+  if (action === "open-mode-date-picker") {
+    const formKey = target.dataset.formKey ?? "";
+    if (!formKey) return;
+    const currentDates = getModeReservedDates(formKey);
+    state.modeDatePicker = {
+      formKey,
+      month: (currentDates[0] ?? state.selectedHomeDate ?? dateKeyLocal()).slice(0, 7),
+      dates: [...currentDates],
+    };
+    render();
+    return;
+  }
+  if (action === "shift-mode-date-month") {
+    if (!state.modeDatePicker) return;
+    state.modeDatePicker.month = shiftMonthKey(state.modeDatePicker.month, Number(target.dataset.direction || "0"));
+    render();
+    return;
+  }
+  if (action === "toggle-mode-date") {
+    if (!state.modeDatePicker) return;
+    const date = target.dataset.date ?? "";
+    if (!isValidDateKey(date)) return;
+    const dates = new Set(state.modeDatePicker.dates);
+    if (dates.has(date)) {
+      dates.delete(date);
+    } else {
+      dates.add(date);
+    }
+    state.modeDatePicker.dates = sortReservedDates([...dates]);
+    render();
+    return;
+  }
+  if (action === "apply-mode-date-picker") {
+    if (!state.modeDatePicker) return;
+    state.modeDateDrafts[state.modeDatePicker.formKey] = sortReservedDates(state.modeDatePicker.dates);
+    state.modeDatePicker = null;
+    render();
+    return;
+  }
+  if (action === "close-mode-date-picker") {
+    state.modeDatePicker = null;
+    render();
+    return;
+  }
   if (action === "logout") {
     try {
       await request("/api/auth/logout", { method: "POST" });
@@ -416,13 +462,21 @@ async function handleSubmit(form) {
       return;
     }
     if (kind === "mode-create") {
-      await request("/api/routine-modes", { method: "POST", body: serializeModeForm(data) });
+      const reservedDates = readReservedDates(data);
+      const created = await request("/api/routine-modes", { method: "POST", body: serializeModeForm(data) });
+      await syncModeReservations(created.mode.id, [], reservedDates);
+      delete state.modeDateDrafts[modeFormKey()];
       form.reset();
       await refreshAll();
       return;
     }
     if (kind === "mode-update") {
-      await request(`/api/routine-modes/${form.dataset.id}`, { method: "PATCH", body: serializeModeForm(data) });
+      const modeId = form.dataset.id ?? "";
+      const reservedDates = readReservedDates(data);
+      const previousDates = state.modes.find((entry) => entry.id === modeId)?.reservedDates ?? [];
+      await request(`/api/routine-modes/${modeId}`, { method: "PATCH", body: serializeModeForm(data) });
+      await syncModeReservations(modeId, previousDates, reservedDates);
+      delete state.modeDateDrafts[modeFormKey(modeId)];
       await refreshAll();
       return;
     }
@@ -465,9 +519,9 @@ function serializeRoutineForm(data) {
     name: String(data.get("name") || ""),
     color: optionalValue(data.get("color")),
     habitIds: data.getAll("habitIds").map(String),
-    notificationEnabled: data.get("notificationEnabled") === "on",
-    notificationTime: optionalValue(data.get("notificationTime")),
-    notificationWeekdays: data.getAll("notificationWeekdays").map((value) => Number(value)),
+    notificationEnabled: false,
+    notificationTime: null,
+    notificationWeekdays: [],
   };
 }
 
@@ -476,8 +530,59 @@ function serializeModeForm(data) {
     name: String(data.get("name") || ""),
     routineIds: data.getAll("routineIds").map(String),
     habitIds: data.getAll("habitIds").map(String),
-    activeDays: data.getAll("activeDays").map((value) => Number(value)),
   };
+}
+
+function modeFormKey(modeId = "") {
+  return modeId ? `mode:${modeId}` : "mode:create";
+}
+
+function sortReservedDates(values) {
+  return [...new Set(values.filter((value) => isValidDateKey(value)))].sort((left, right) => left.localeCompare(right));
+}
+
+function readReservedDates(data) {
+  return sortReservedDates(data.getAll("reservedDates").map(String));
+}
+
+function getModeReservedDates(formKey, fallbackDates = null) {
+  const draft = state.modeDateDrafts[formKey];
+  if (Array.isArray(draft)) {
+    return sortReservedDates(draft);
+  }
+  return sortReservedDates(fallbackDates ?? []);
+}
+
+function formatReservedDatesSummary(dates) {
+  if (!dates.length) {
+    return tx("noReservedDates", "No reserved dates");
+  }
+  if (dates.length === 1) {
+    return formatCompactDate(dates[0]);
+  }
+  return `${formatCompactDate(dates[0])} +${dates.length - 1}`;
+}
+
+async function syncModeReservations(modeId, previousDates, nextDates) {
+  const previous = new Set(sortReservedDates(previousDates));
+  const next = new Set(sortReservedDates(nextDates));
+
+  for (const date of previous) {
+    if (next.has(date)) {
+      continue;
+    }
+    await request(`/api/routine-mode-overrides/${date}`, {
+      method: "PUT",
+      body: { modeId: null },
+    });
+  }
+
+  for (const date of next) {
+    await request(`/api/routine-mode-overrides/${date}`, {
+      method: "PUT",
+      body: { modeId },
+    });
+  }
 }
 
 async function loadHealth() {
@@ -856,6 +961,7 @@ function renderRoutinesPage() {
         ${state.routines.length ? state.routines.map(renderRoutineCard).join("") : `<p class="muted">${esc(tx("noRoutines", "No saved routines yet."))}</p>`}
       </div>
     </section>
+    ${renderModeDatePickerLayer()}
   </div>`;
 }
 
@@ -1075,7 +1181,6 @@ function renderRoutineCard(routine) {
         <strong>${esc(routine.name)}</strong>
         <span>${esc(`${routine.habits.length} ${tx("habits", "habits")}`)}</span>
       </div>
-      <span class="route-list-meta">${esc(routine.notificationTime || "--:--")}</span>
     </div>
     <form class="form-grid route-inline-form" data-form="routine-update" data-id="${routine.id}">
       ${routineFields(routine)}
@@ -1088,13 +1193,14 @@ function renderRoutineCard(routine) {
 }
 
 function renderModeCard(mode) {
+  const reservationSummary = formatReservedDatesSummary(mode.reservedDates ?? []);
   return `<article class="route-list-card">
     <div class="route-list-row route-list-row--wide">
       <div class="route-list-copy">
         <strong>${esc(mode.name)}</strong>
-        <span>${esc(`${formatActiveDays(mode.activeDays)} | ${mode.routines.length} ${tx("routines", "routines")} | ${mode.habits.length} ${tx("habits", "habits")}`)}</span>
+        <span>${esc(`${reservationSummary} | ${mode.routines.length} ${tx("routines", "routines")} | ${mode.habits.length} ${tx("habits", "habits")}`)}</span>
       </div>
-      <span class="pill">${esc(formatActiveDays(mode.activeDays))}</span>
+      <span class="pill">${esc(reservationSummary)}</span>
     </div>
     <form class="form-grid route-inline-form" data-form="mode-update" data-id="${mode.id}">
       ${modeFields(mode)}
@@ -1182,7 +1288,6 @@ function routineFields(routineOrKind = null, maybeRoutine = null) {
       ? routineOrKind
       : maybeRoutine;
   const selectedHabitIds = new Set(routine?.habitIds ?? routine?.habits?.map((habit) => habit.id) ?? []);
-  const selectedWeekdays = new Set(routine?.notificationWeekdays ?? []);
   return `
     <label>
       <span>${esc(tx("name", "Name"))}</span>
@@ -1205,27 +1310,16 @@ function routineFields(routineOrKind = null, maybeRoutine = null) {
             : `<p class="muted">${esc(tx("noHabits", "No saved habits yet."))}</p>`
         }
       </div>
-    </fieldset>
-    <label>
-      <span>${esc(tx("notificationEnabled", "Notification"))}</span>
-      <input name="notificationEnabled" type="checkbox" ${routine?.notificationEnabled ? "checked" : ""} />
-    </label>
-    <label>
-      <span>${esc(tx("notificationTime", "Notification time"))}</span>
-      <input name="notificationTime" type="time" value="${esc(routine?.notificationTime || "")}" />
-    </label>
-    <fieldset style="grid-column:1 / -1;">
-      <legend>${esc(tx("notificationWeekdays", "Notification weekdays"))}</legend>
-      <div class="choice-list--stacked">${weekdayChoices("notificationWeekdays", selectedWeekdays)}</div>
     </fieldset>`;
 }
 
 function modeFields(modeOrKind = null, maybeMode = null) {
   const mode =
     modeOrKind && typeof modeOrKind === "object" && !Array.isArray(modeOrKind) ? modeOrKind : maybeMode;
+  const formKey = modeFormKey(mode?.id || "");
   const selectedRoutineIds = new Set(mode?.routineIds ?? mode?.routines?.map((routine) => routine.id) ?? []);
   const selectedHabitIds = new Set(mode?.habitIds ?? mode?.habits?.map((habit) => habit.id) ?? []);
-  const selectedDays = new Set(mode?.activeDays ?? [0, 1, 2, 3, 4, 5, 6]);
+  const reservedDates = getModeReservedDates(formKey, mode?.reservedDates ?? []);
   return `
     <label>
       <span>${esc(tx("name", "Name"))}</span>
@@ -1266,9 +1360,69 @@ function modeFields(modeOrKind = null, maybeMode = null) {
       </div>
     </fieldset>
     <fieldset style="grid-column:1 / -1;">
-      <legend>${esc(tx("activeDays", "Active days"))}</legend>
-      <div class="choice-list--stacked">${weekdayChoices("activeDays", selectedDays)}</div>
+      <legend>${esc(tx("reservedDates", "Reserved dates"))}</legend>
+      <div class="mode-date-field-row">
+        <button class="btn-soft" type="button" data-action="open-mode-date-picker" data-form-key="${formKey}">${esc(tx("dateSettings", "Date setting"))}</button>
+        <span class="route-list-meta">${esc(formatReservedDatesSummary(reservedDates))}</span>
+      </div>
+      <div class="mode-date-chip-list">
+        ${
+          reservedDates.length
+            ? reservedDates.map((date) => `<span class="pill">${esc(formatCompactDate(date))}</span>`).join("")
+            : `<span class="muted">${esc(tx("noReservedDates", "No reserved dates"))}</span>`
+        }
+      </div>
+      ${reservedDates.map((date) => `<input type="hidden" name="reservedDates" value="${esc(date)}" />`).join("")}
     </fieldset>`;
+}
+
+function renderModeDatePickerLayer() {
+  if (!state.modeDatePicker) {
+    return "";
+  }
+  const monthGrid = buildCalendarMonthGrid(state.modeDatePicker.month, []);
+  return `<div class="mode-date-layer">
+    <button class="mode-date-backdrop" type="button" data-action="close-mode-date-picker" aria-label="${esc(tx("cancel", "Cancel"))}"></button>
+    <section class="content-card mode-date-card">
+      <div class="mode-date-head">
+        <div>
+          <p class="eyebrow">${esc(tx("reservedDates", "Reserved dates"))}</p>
+          <h3>${esc(formatMonthTitle(state.modeDatePicker.month))}</h3>
+        </div>
+        <div class="actions">
+          <button class="btn-soft compact-action" type="button" data-action="shift-mode-date-month" data-direction="-1">${esc(tx("weekPrevious", "Previous"))}</button>
+          <button class="btn-soft compact-action" type="button" data-action="shift-mode-date-month" data-direction="1">${esc(tx("weekNext", "Next"))}</button>
+        </div>
+      </div>
+      <div class="calendar-grid calendar-grid--month mode-date-grid">
+        ${["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((label) => `<span class="weekday">${label}</span>`).join("")}
+        ${monthGrid.map((cell) => renderModeDatePickerCell(cell)).join("")}
+      </div>
+      <div class="mode-date-chip-list mode-date-chip-list--selection">
+        ${
+          state.modeDatePicker.dates.length
+            ? state.modeDatePicker.dates.map((date) => `<span class="pill">${esc(formatCompactDate(date))}</span>`).join("")
+            : `<span class="muted">${esc(tx("noReservedDates", "No reserved dates"))}</span>`
+        }
+      </div>
+      <div class="actions">
+        <button class="btn-soft" type="button" data-action="close-mode-date-picker">${esc(tx("cancel", "Cancel"))}</button>
+        <button class="btn" type="button" data-action="apply-mode-date-picker">${esc(tx("apply", "Apply"))}</button>
+      </div>
+    </section>
+  </div>`;
+}
+
+function renderModeDatePickerCell(cell) {
+  if (cell.type === "empty") {
+    return '<span class="calendar-day-spacer" aria-hidden="true"></span>';
+  }
+  const date = cell.date;
+  const selected = state.modeDatePicker?.dates.includes(date);
+  const today = date === dateKeyLocal();
+  return `<button class="mode-date-button ${selected ? "is-selected" : ""} ${today ? "is-today" : ""}" type="button" data-action="toggle-mode-date" data-date="${date}">
+    <strong>${esc(String(Number(date.slice(-2))))}</strong>
+  </button>`;
 }
 
 function renderHomeFab() {
