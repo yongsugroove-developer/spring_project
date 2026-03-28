@@ -23,6 +23,29 @@ const DENSITY_OPTIONS = [
   { value: "compact", labelKey: "densityCompact" },
 ];
 
+const PRESET_COLORS = [
+  "#ef4444",
+  "#f97316",
+  "#f59e0b",
+  "#eab308",
+  "#84cc16",
+  "#22c55e",
+  "#10b981",
+  "#14b8a6",
+  "#06b6d4",
+  "#0ea5e9",
+  "#3b82f6",
+  "#2563eb",
+  "#4f46e5",
+  "#7c3aed",
+  "#9333ea",
+  "#c026d3",
+  "#db2777",
+  "#e11d48",
+  "#64748b",
+  "#1f2937",
+];
+
 const ROUTE_META = {
   "/today": { tab: "today", titleKey: "homeTitle", copyKey: "homeCopy" },
   "/account": { tab: "account", titleKey: "accountTitle", copyKey: "accountCopy" },
@@ -985,15 +1008,36 @@ function renderTimeAction(habit) {
   </div>`;
 }
 
+function renderColorPaletteField(selectedColor, fallbackColor) {
+  const normalized = String(selectedColor || fallbackColor || PRESET_COLORS[0]).toLowerCase();
+  const palette = PRESET_COLORS.includes(normalized) ? PRESET_COLORS : [normalized, ...PRESET_COLORS];
+  return `<fieldset class="route-color-field" style="grid-column:1 / -1;">
+    <legend>${esc(tx("color", "Color"))}</legend>
+    <div class="color-swatch-list" role="radiogroup" aria-label="${esc(tx("color", "Color"))}">
+      ${palette
+        .map(
+          (color) => `<label class="color-swatch-option" title="${esc(color)}">
+        <input type="radio" name="color" value="${esc(color)}" ${color === normalized ? "checked" : ""} />
+        <span class="color-swatch" style="--swatch:${esc(color)};"></span>
+      </label>`,
+        )
+        .join("")}
+    </div>
+  </fieldset>`;
+}
+
 function renderHabitCard(habit) {
-  return `<article class="route-list-card">
-    <div class="route-list-row route-list-row--wide">
+  return `<details class="route-list-card route-list-card--collapsible">
+    <summary class="route-list-row route-list-row--wide route-list-summary">
       <div class="route-list-copy">
         <strong>${esc(habit.name)}</strong>
         <span>${esc([habit.tag, habit.startDate, `${habit.currentStreak}/${habit.bestStreak} streak`].filter(Boolean).join(" | "))}</span>
       </div>
-      <span class="route-list-meta">${esc(trackingTypeLabel(habit.trackingType))}</span>
-    </div>
+      <span class="route-list-side">
+        <span class="route-list-meta">${esc(trackingTypeLabel(habit.trackingType))}</span>
+        <span class="route-list-toggle" aria-hidden="true">⌄</span>
+      </span>
+    </summary>
     <form class="form-grid route-inline-form" data-form="habit-update" data-id="${habit.id}">
       ${habitFields(habit)}
       <div class="actions">
@@ -1001,7 +1045,7 @@ function renderHabitCard(habit) {
         <button class="btn-danger" type="button" data-action="delete-habit" data-delete-id="${habit.id}">${esc(tx("delete", "Delete"))}</button>
       </div>
     </form>
-  </article>`;
+  </details>`;
 }
 
 function renderTaskCard(task) {
@@ -1090,10 +1134,7 @@ function habitFields(habit = null) {
       <span>${esc(tx("tag", "Tag"))}</span>
       <input name="tag" type="text" value="${esc(habit?.tag || "")}" />
     </label>
-    <label>
-      <span>${esc(tx("color", "Color"))}</span>
-      <input name="color" type="color" value="${esc(habit?.color || "#16a34a")}" />
-    </label>
+    ${renderColorPaletteField(habit?.color, "#16a34a")}
     <label>
       <span>${esc(tx("type", "Type"))}</span>
       <select name="trackingType">
@@ -1147,10 +1188,7 @@ function routineFields(routineOrKind = null, maybeRoutine = null) {
       <span>${esc(tx("name", "Name"))}</span>
       <input name="name" type="text" required value="${esc(routine?.name || "")}" />
     </label>
-    <label>
-      <span>${esc(tx("color", "Color"))}</span>
-      <input name="color" type="color" value="${esc(routine?.color || "#2563eb")}" />
-    </label>
+    ${renderColorPaletteField(routine?.color, "#2563eb")}
     <fieldset style="grid-column:1 / -1;">
       <legend>${esc(tx("habits", "Habits"))}</legend>
       <div class="choice-list--stacked">
