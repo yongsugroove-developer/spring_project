@@ -60,9 +60,12 @@ const state = {
   feedback: "",
   feedbackIsError: false,
   appNavOpen: false,
+  accountMenuOpen: false,
   homeQuickActionsOpen: false,
   quickCreateKind: "",
   draggedHabitId: "",
+  listViewRows: {},
+  listEditRows: {},
 };
 
 bootstrap().catch((error) => {
@@ -88,6 +91,10 @@ function bindEvents() {
 
   document.addEventListener("click", (event) => {
     const clickTarget = event.target instanceof HTMLElement ? event.target : null;
+    if (state.accountMenuOpen && clickTarget && !clickTarget.closest(".account-menu-shell")) {
+      state.accountMenuOpen = false;
+      renderShellOnly();
+    }
     if (state.homeQuickActionsOpen && clickTarget && !clickTarget.closest(".home-fab-shell")) {
       state.homeQuickActionsOpen = false;
       render();
@@ -174,6 +181,16 @@ function bindEvents() {
 }
 
 async function handleAction(action, target) {
+  if (action === "toggle-account-menu") {
+    state.accountMenuOpen = !state.accountMenuOpen;
+    renderShellOnly();
+    return;
+  }
+  if (action === "close-account-menu") {
+    state.accountMenuOpen = false;
+    renderShellOnly();
+    return;
+  }
   if (action === "toggle-app-nav") {
     state.appNavOpen = !state.appNavOpen;
     renderShellOnly();
@@ -186,6 +203,14 @@ async function handleAction(action, target) {
   }
   if (action === "go-home") {
     navigate("/today");
+    return;
+  }
+  if (action === "toggle-row-view") {
+    toggleListRow("listViewRows", target.dataset.kind ?? "", target.dataset.id ?? "");
+    return;
+  }
+  if (action === "toggle-row-edit") {
+    toggleListRow("listEditRows", target.dataset.kind ?? "", target.dataset.id ?? "");
     return;
   }
   if (action === "toggle-home-fab") {
@@ -431,6 +456,7 @@ function syncRouteFromHash() {
 
 function navigate(route) {
   state.appNavOpen = false;
+  state.accountMenuOpen = false;
   state.homeQuickActionsOpen = false;
   state.quickCreateKind = "";
   const target = normalizeHashPath(route);
@@ -510,7 +536,12 @@ function renderShellOnly() {
   document.documentElement.lang = state.locale;
   document.title = `My Planner | ${t(ROUTE_META[state.routePath].titleKey)}`;
   document.querySelector(".app-nav-shell")?.classList.toggle("is-open", state.appNavOpen);
-  document.body.classList.toggle("is-overlay-open", Boolean(state.appNavOpen || state.quickCreateKind));
+  document.querySelector(".account-menu-shell")?.classList.toggle("is-open", state.accountMenuOpen);
+  const accountTrigger = document.getElementById("account-menu-trigger");
+  if (accountTrigger instanceof HTMLElement) {
+    accountTrigger.setAttribute("aria-expanded", String(state.accountMenuOpen));
+  }
+  document.body.classList.toggle("is-overlay-open", Boolean(state.quickCreateKind));
 
   for (const button of document.querySelectorAll("[data-tab]")) {
     if (!(button instanceof HTMLElement)) continue;
@@ -535,6 +566,15 @@ function renderShellOnly() {
   if (feedback) {
     feedback.textContent = "";
     feedback.hidden = true;
+  }
+
+  const accountName = document.getElementById("account-menu-name");
+  const accountMeta = document.getElementById("account-menu-meta");
+  if (accountName instanceof HTMLElement) {
+    accountName.textContent = state.currentUser?.displayName || state.currentUser?.email || t("accountMenu");
+  }
+  if (accountMeta instanceof HTMLElement) {
+    accountMeta.textContent = state.currentUser?.email || "계정 / 보기 설정 / 통계";
   }
 }
 
@@ -609,7 +649,7 @@ function renderHabitsPage() {
         <p class="muted">${esc(t("listOnlyHint"))}</p>
       </div>
       <div class="route-list-stack">
-        ${state.habits.length ? state.habits.map(renderHabitEditor).join("") : `<p class="muted">${esc(t("noHabits"))}</p>`}
+        ${state.habits.length ? state.habits.map(renderHabitManagerCard).join("") : `<p class="muted">${esc(t("noHabits"))}</p>`}
       </div>
     </section>
   </div>`;
@@ -623,7 +663,7 @@ function renderTasksPage() {
         <p class="muted">${esc(t("listOnlyHint"))}</p>
       </div>
       <div class="route-list-stack">
-        ${state.tasks.length ? state.tasks.map(renderTaskEditor).join("") : `<p class="muted">${esc(t("noTasks"))}</p>`}
+        ${state.tasks.length ? state.tasks.map(renderTaskManagerCard).join("") : `<p class="muted">${esc(t("noTasks"))}</p>`}
       </div>
     </section>
   </div>`;
@@ -637,7 +677,7 @@ function renderRoutinesPage() {
         <p class="muted">${esc(t("listOnlyHint"))}</p>
       </div>
       <div class="route-list-stack">
-        ${state.routines.length ? state.routines.map(renderRoutineEditor).join("") : `<p class="muted">${esc(t("noRoutines"))}</p>`}
+        ${state.routines.length ? state.routines.map(renderRoutineManagerCard).join("") : `<p class="muted">${esc(t("noRoutines"))}</p>`}
       </div>
     </section>
   </div>`;
@@ -790,7 +830,7 @@ function renderHomeEmpty() {
   </div>`;
 }
 
-function renderHabitEditor(habit) {
+function renderHabitManagerCard(habit) {
   return `<details class="route-list-card" data-habit-row="${habit.id}" draggable="true">
     <summary class="route-list-row route-list-row--wide">
       <div class="route-list-copy"><strong>${esc(`${habit.emoji ?? ""} ${habit.name}`.trim())}</strong><span>${esc([habit.tag, habit.startDate, `${habit.currentStreak}/${habit.bestStreak} streak`].filter(Boolean).join(" · "))}</span></div>
@@ -806,7 +846,7 @@ function renderHabitEditor(habit) {
   </details>`;
 }
 
-function renderTaskEditor(task) {
+function renderTaskManagerCard(task) {
   return `<details class="route-list-card">
     <summary class="route-list-row route-list-row--wide">
       <div class="route-list-copy"><strong>${esc(`${task.emoji ?? ""} ${task.title}`.trim())}</strong><span>${esc(task.note || task.dueDate || t("unscheduled"))}</span></div>
@@ -823,7 +863,7 @@ function renderTaskEditor(task) {
   </details>`;
 }
 
-function renderRoutineEditor(routine) {
+function renderRoutineManagerCard(routine) {
   return `<details class="route-list-card">
     <summary class="route-list-row route-list-row--wide">
       <div class="route-list-copy"><strong>${esc(`${routine.emoji ?? ""} ${routine.name}`.trim())}</strong><span>${esc(`${routine.habits.length} habits · ${routine.notificationEnabled ? "notification on" : "notification off"}`)}</span></div>
@@ -837,6 +877,142 @@ function renderRoutineEditor(routine) {
       </div>
     </form>
   </details>`;
+}
+
+function itemStateKey(kind, id) {
+  return `${kind}:${id}`;
+}
+
+function toggleListRow(bucket, kind, id) {
+  if (!kind || !id) return;
+  const key = itemStateKey(kind, id);
+  const current = Boolean(state[bucket][key]);
+  const next = { ...state[bucket] };
+  if (current) {
+    delete next[key];
+  } else {
+    next[key] = true;
+  }
+  state[bucket] = next;
+  const siblingBucket = bucket === "listViewRows" ? "listEditRows" : "listViewRows";
+  if (state[siblingBucket][key]) {
+    const sibling = { ...state[siblingBucket] };
+    delete sibling[key];
+    state[siblingBucket] = sibling;
+  }
+  render();
+}
+
+function renderRowActionButtons(kind, id, isViewing, isEditing, deleteAction) {
+  return `<div class="route-row-actions">
+    <button class="btn-soft compact-action" type="button" data-action="toggle-row-view" data-kind="${kind}" data-id="${id}">${esc(isViewing ? "닫기" : "보기")}</button>
+    <button class="btn-soft compact-action" type="button" data-action="toggle-row-edit" data-kind="${kind}" data-id="${id}">${esc(isEditing ? "닫기" : "수정")}</button>
+    <button class="btn-danger compact-action" type="button" data-action="${deleteAction}" data-delete-id="${id}">${esc(t("delete"))}</button>
+  </div>`;
+}
+
+function renderDetailPanel(content) {
+  return `<section class="route-detail-panel">${content}</section>`;
+}
+
+function renderDetailGrid(items) {
+  return `<div class="route-detail-grid">${items.map((item) => `<article class="route-detail-item"><span>${esc(item.label)}</span><strong>${esc(item.value || "-")}</strong></article>`).join("")}</div>`;
+}
+
+function renderHabitOverview(habit) {
+  return renderDetailGrid([
+    { label: t("name"), value: `${habit.emoji ?? ""} ${habit.name}`.trim() },
+    { label: t("tag"), value: habit.tag || "-" },
+    { label: t("type"), value: t(habit.trackingType === "binary" ? "typeBinary" : habit.trackingType === "count" ? "typeCount" : "typeTime") },
+    { label: t("targetValue"), value: String(habit.targetCount || 1) },
+    { label: t("startDate"), value: habit.startDate || "-" },
+    { label: t("streak"), value: `${habit.currentStreak}/${habit.bestStreak}` },
+  ]);
+}
+
+function renderTaskOverview(task) {
+  return renderDetailGrid([
+    { label: t("title"), value: `${task.emoji ?? ""} ${task.title}`.trim() },
+    { label: t("date"), value: task.dueDate || t("unscheduled") },
+    { label: t("status"), value: task.status === "done" ? t("taskDone") : t("taskPending") },
+    { label: t("note"), value: task.note || "-" },
+  ]);
+}
+
+function renderRoutineOverview(routine) {
+  return renderDetailGrid([
+    { label: t("name"), value: `${routine.emoji ?? ""} ${routine.name}`.trim() },
+    { label: t("notificationEnabled"), value: routine.notificationEnabled ? "사용" : "미사용" },
+    { label: t("notificationTime"), value: routine.notificationTime || "--:--" },
+    { label: t("habits"), value: routine.habits.map((habit) => habit.name).join(", ") || "-" },
+  ]);
+}
+
+function renderHabitEditor(habit) {
+  const key = itemStateKey("habit", habit.id);
+  const isViewing = Boolean(state.listViewRows[key]);
+  const isEditing = Boolean(state.listEditRows[key]);
+  return `<article class="route-list-card route-list-card--actionable" data-habit-row="${habit.id}" draggable="true">
+    <div class="route-list-row route-list-row--wide">
+      <div class="route-list-copy"><strong>${esc(`${habit.emoji ?? ""} ${habit.name}`.trim())}</strong><span>${esc([habit.tag, habit.startDate, `${habit.currentStreak}/${habit.bestStreak} streak`].filter(Boolean).join(" · "))}</span></div>
+      <div class="route-list-side route-list-side--actions">
+        <span class="route-list-meta">${esc(habit.trackingType)}</span>
+        ${renderRowActionButtons("habit", habit.id, isViewing, isEditing, "delete-habit")}
+      </div>
+    </div>
+    ${isViewing ? renderDetailPanel(renderHabitOverview(habit)) : ""}
+    ${isEditing ? `<form class="form-grid route-inline-form" data-form="habit-update" data-id="${habit.id}">
+      ${habitFields(`habit-${habit.id}`, habit, false)}
+      <div class="actions">
+        <button class="btn" type="submit">${esc(t("save"))}</button>
+      </div>
+    </form>` : ""}
+  </article>`;
+}
+
+function renderTaskEditor(task) {
+  const key = itemStateKey("task", task.id);
+  const isViewing = Boolean(state.listViewRows[key]);
+  const isEditing = Boolean(state.listEditRows[key]);
+  return `<article class="route-list-card route-list-card--actionable">
+    <div class="route-list-row route-list-row--wide">
+      <div class="route-list-copy"><strong>${esc(`${task.emoji ?? ""} ${task.title}`.trim())}</strong><span>${esc(task.note || task.dueDate || t("unscheduled"))}</span></div>
+      <div class="route-list-side route-list-side--actions">
+        <span class="state-pill ${task.status === "done" ? "is-success" : ""}">${esc(task.status === "done" ? t("taskDone") : t("taskPending"))}</span>
+        ${renderRowActionButtons("task", task.id, isViewing, isEditing, "delete-task")}
+      </div>
+    </div>
+    ${isViewing ? renderDetailPanel(renderTaskOverview(task)) : ""}
+    ${isEditing ? `<form class="form-grid route-inline-form" data-form="task-update" data-id="${task.id}">
+      ${taskFields(`task-${task.id}`, task)}
+      <div class="actions">
+        <button class="btn" type="submit">${esc(t("save"))}</button>
+        <button class="btn-soft" type="button" data-action="toggle-task-status" data-task-id="${task.id}">${esc(task.status === "done" ? t("markPending") : t("markDone"))}</button>
+      </div>
+    </form>` : ""}
+  </article>`;
+}
+
+function renderRoutineEditor(routine) {
+  const key = itemStateKey("routine", routine.id);
+  const isViewing = Boolean(state.listViewRows[key]);
+  const isEditing = Boolean(state.listEditRows[key]);
+  return `<article class="route-list-card route-list-card--actionable">
+    <div class="route-list-row route-list-row--wide">
+      <div class="route-list-copy"><strong>${esc(`${routine.emoji ?? ""} ${routine.name}`.trim())}</strong><span>${esc(`${routine.habits.length} habits · ${routine.notificationEnabled ? "notification on" : "notification off"}`)}</span></div>
+      <div class="route-list-side route-list-side--actions">
+        <span class="route-list-meta">${esc(routine.notificationTime || "--:--")}</span>
+        ${renderRowActionButtons("routine", routine.id, isViewing, isEditing, "delete-routine")}
+      </div>
+    </div>
+    ${isViewing ? renderDetailPanel(renderRoutineOverview(routine)) : ""}
+    ${isEditing ? `<form class="form-grid route-inline-form" data-form="routine-update" data-id="${routine.id}">
+      ${routineFields(`routine-${routine.id}`, routine)}
+      <div class="actions">
+        <button class="btn" type="submit">${esc(t("save"))}</button>
+      </div>
+    </form>` : ""}
+  </article>`;
 }
 
 function habitFields(prefix, habit, includePicker) {
