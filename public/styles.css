@@ -6047,13 +6047,97 @@ body.is-overlay-open {
   transform: rotate(180deg);
 }
 
+.calendar-day-button--water {
+  min-height: 112px;
+  gap: 0.55rem;
+  align-content: space-between;
+  padding: 0.9rem 0.8rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(241, 245, 249, 0.92));
+}
+
+.calendar-day-button--water .day-card-head {
+  justify-content: flex-start;
+}
+
+.calendar-day-button--water .calendar-rate {
+  position: relative;
+  z-index: 1;
+  align-self: end;
+  color: var(--ink);
+  font-size: 0.96rem;
+  font-weight: 800;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.68);
+}
+
+.calendar-day-button--water.is-selected {
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12), var(--shadow-sm);
+}
+
+.calendar-day-button--water.is-selected .calendar-water-pool--cell {
+  box-shadow: none;
+}
+
+.achievement-card {
+  background: linear-gradient(180deg, rgba(229, 231, 235, 0.96), rgba(203, 213, 225, 0.94));
+  transition: background 520ms ease, border-color 520ms ease, box-shadow 520ms ease;
+}
+
+.achievement-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(219, 234, 254, 0.42), rgba(167, 243, 208, 0.46));
+  opacity: calc(0.12 + (var(--achievement-progress) * 0.6));
+  pointer-events: none;
+  animation: achievement-tone-shift 820ms ease both;
+}
+
+.achievement-liquid {
+  background: linear-gradient(180deg, rgba(148, 163, 184, 0.42), rgba(148, 163, 184, 0.62));
+}
+
+.achievement-liquid::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(129, 140, 248, 0.42), rgba(45, 212, 191, 0.58));
+  opacity: calc(0.12 + (var(--achievement-progress) * 0.88));
+}
+
+@keyframes achievement-tone-shift {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+
+  to {
+    opacity: calc(0.12 + (var(--achievement-progress) * 0.6));
+    transform: scale(1);
+  }
+}
+
+@media (max-width: 560px) {
+  .calendar-day-button--water {
+    min-height: 82px;
+    padding: 0.55rem 0.45rem;
+    gap: 0.4rem;
+  }
+
+  .calendar-day-button--water .calendar-rate {
+    font-size: 0.76rem;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .achievement-liquid,
   .achievement-wave--back,
   .achievement-wave--front,
   .achievement-card.is-pulsing::after,
   .achievement-stat--remaining strong,
-  .achievement-confetti {
+  .achievement-confetti,
+  .achievement-card::before {
     animation: none;
   }
 }
