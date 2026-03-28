@@ -7,24 +7,27 @@
 - Folder: spring_project
 
 ## Goal
-- Deliver a usable single-user web MVP for routine formation and schedule management.
-- Cover routines, routine-set assignment, todos, calendar feedback, statistics, time-based routine items, emoji decoration, and localized UI behind stable local APIs.
+- Deliver a responsive single-user planner MVP with habits, tasks, calendar, stats, and routine-mode based scheduling.
+- Promote the home screen into the primary operating surface for date selection, completion feedback, inline task handling, and habit check-ins.
 
 ## Fixed Options
 - Stack profile: node-express
 - Auth mode: none
-- Persistence mode: local JSON
+- Persistence mode: local JSON by default, legacy JSON/MySQL migration preserved
 - Settings scope: single-user
 
 ## Acceptance Criteria
-- AC-01: Users can create, update, archive, and delete routine groups and routine items.
-- AC-02: Routine items support `binary`, `count`, and `time` tracking modes, and daily progress is computed from item-level completion ratios.
-- AC-03: Users can create routine sets, assign different sets to weekday and weekend schedules, and apply date-specific overrides that change the set or include/exclude individual routines.
-- AC-04: Users can create, edit, complete, and delete one-off todos with optional date assignment and inbox behavior.
-- AC-05: The web UI exposes separate tabs for today, routines, todos, calendar, and statistics, and those tabs reflect routine assignment, overrides, daily progress, calendar fill, and aggregate stats from stored data.
-- AC-06: System UI text supports Korean, English, and Japanese, defaults to Korean, and switches based on browser language while still allowing manual override in the browser.
-- AC-07: Routines and todos support an optional representative `emoji` field that round-trips through persistence, local APIs, and the browser UI.
-- AC-08: The browser UI provides lightweight emoji picking, live preview, a quick-add flow on the today screen, and client-side personalization for theme preset and density.
+- AC-01: Users can create, update, reorder, and delete saved habits, and each habit supports `binary`, `count`, or `time` tracking.
+- AC-02: Time-tracked habits no longer accumulate minutes; each tap records a click timestamp, exposes recent time chips, and supports removing an individual timestamp from the selected date.
+- AC-03: Users can create, edit, and delete saved routines as reusable bundles of habits plus notification metadata.
+- AC-04: Users can create, edit, and delete routine modes; each mode can include both routine bundles and standalone habits, and each mode is activated by weekday rules plus date-specific overrides.
+- AC-05: Today, calendar, stats, and streak calculations resolve scheduled habits from the active mode for the selected date instead of from the full habit catalog.
+- AC-06: If older data has no mode records, the app non-destructively creates a default mode that keeps legacy home behavior visible.
+- AC-07: Users can create, edit, complete, and delete one-off tasks with selected-date and inbox behavior, and the home screen shows them in a swipeable task panel.
+- AC-08: The home screen uses the structure `date rail -> achievement card -> horizontal task/habit panels`, removes the redundant top summary box, and keeps both panels usable on narrow mobile widths.
+- AC-09: Achievement feedback is treated as a first-class UX surface with animated count-up, liquid fill, milestone messaging, pulse feedback, and reduced-motion fallback.
+- AC-10: Emoji fields continue to round-trip through storage and APIs for future extensibility, but emoji input and display are removed from the current browser UI.
+- AC-11: Browser UI text still supports Korean, English, and Japanese with Korean as the default browser-facing locale.
 
 ## Runtime Commands
 - Build: `npm run build`
@@ -33,6 +36,8 @@
 - Lint: `npm run lint`
 - Run: `npm run dev`
 
-## Schedule
-- Target release date: 2026-03-22
-- Hard deadline: 2026-03-22
+## Manual QA Focus
+- Validate the date rail touch scroll on `360x800`, `390x844`, and `412x915`.
+- Validate the home task/habit carousel swipe behavior and direct task completion from the task panel.
+- Validate achievement animation behavior for partial progress and 100% completion.
+- Validate mode override selection and clearing from the home date area.

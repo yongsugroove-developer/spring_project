@@ -2,13 +2,17 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createDefaultPlannerData } from "./defaultData.js";
 import type {
+  ActiveDay,
   Habit,
   HabitCheckin,
   PlannerData,
   Routine,
+  RoutineMode,
+  RoutineModeOverride,
   Task,
   TrackingType,
 } from "./types.js";
+import { normalizeStoredHabitCheckin } from "./validation.js";
 
 export interface PlannerRepository {
   read(): Promise<PlannerData>;
@@ -57,7 +61,12 @@ export function normalizePlannerData(
     return { data: seed, migrated: true };
   }
 
-  if (Array.isArray(raw.habits) || Array.isArray(raw.tasks) || Array.isArray(raw.habitCheckins)) {
+  if (
+    Array.isArray(raw.habits) ||
+    Array.isArray(raw.tasks) ||
+    Array.isArray(raw.habitCheckins) ||
+    Array.isArray(raw.routineModes)
+  ) {
     return normalizeCurrentPlannerData(raw);
   }
 
@@ -66,8 +75,10 @@ export function normalizePlannerData(
 
 function normalizeCurrentPlannerData(raw: Record<string, unknown>): { data: PlannerData; migrated: boolean } {
   const habits = normalizeHabits(getArray(raw, "habits"));
-  const habitCheckins = normalizeHabitCheckins(getArray(raw, "habitCheckins"), habits);
   const routines = normalizeRoutines(getArray(raw, "routines"), habits);
+  const modes = normalizeRoutineModes(getArray(raw, "routineModes"), habits, routines);
+  const overrides = normalizeRoutineModeOverrides(getArray(raw, "routineModeOverrides"), modes.routineModes);
+  const checkins = normalizeHabitCheckins(getArray(raw, "habitCheckins"), habits);
   const tasks = normalizeTasks(getArray(raw, "tasks"));
 
   const migrated =
@@ -75,16 +86,28 @@ function normalizeCurrentPlannerData(raw: Record<string, unknown>): { data: Plan
     getArray(raw, "routines").some(
       (entry) => isRecord(entry) && (!("notificationEnabled" in entry) || !Array.isArray(entry.habitIds)),
     ) ||
-    getArray(raw, "tasks").some((entry) => isRecord(entry) && !("emoji" in entry));
+    getArray(raw, "tasks").some((entry) => isRecord(entry) && !("emoji" in entry)) ||
+    !Array.isArray(raw.routineModes) ||
+    !Array.isArray(raw.routineModeOverrides) ||
+    checkins.migrated ||
+    modes.migrated ||
+    overrides.migrated;
 
   return {
     data: {
       habits,
-      habitCheckins,
+      habitCheckins: checkins.habitCheckins,
       routines,
+      routineModes: modes.routineModes,
+      routineModeOverrides: overrides.routineModeOverrides,
       tasks,
     },
-    migrated: migrated || !Array.isArray(raw.habits) || !Array.isArray(raw.routines) || !Array.isArray(raw.tasks),
+    migrated:
+      migrated ||
+      !Array.isArray(raw.habits) ||
+      !Array.isArray(raw.routines) ||
+      !Array.isArray(raw.tasks) ||
+      !Array.isArray(raw.habitCheckins),
   };
 }
 
@@ -95,6 +118,9 @@ function migrateLegacyPlannerData(
   const legacyRoutines = normalizeLegacyRoutines(getArray(raw, "routines"));
   const legacyTemplates = normalizeLegacyTemplates(getArray(raw, "routineTaskTemplates"));
   const legacyItems = normalizeLegacyItems(getArray(raw, "routineItems"), legacyTemplates);
+  const legacySets = normalizeLegacyRoutineSets(getArray(raw, "routineSets"), legacyRoutines);
+  const legacyRules = normalizeLegacyAssignmentRules(getArray(raw, "routineAssignmentRules"), legacySets);
+  const legacyOverrides = normalizeLegacyDateOverrides(getArray(raw, "routineDateOverrides"), legacySets);
   const habits: Habit[] = [];
   const habitCheckins: HabitCheckin[] = [];
   const itemToHabitId = new Map<string, string>();
@@ -103,6 +129,7 @@ function migrateLegacyPlannerData(
   legacyItems.forEach((item, index) => {
     const routine = legacyRoutines.find((entry) => entry.id === item.routineId);
     const template = legacyTemplates.find((entry) => entry.id === item.templateId);
+    const trackingType = template?.trackingType ?? item.trackingType;
     const startDate = getLegacyHabitStartDate(raw, item.id, routine?.createdAt ?? timestamp);
     const habit: Habit = {
       id: item.id,
@@ -110,8 +137,8 @@ function migrateLegacyPlannerData(
       emoji: routine?.emoji ?? null,
       color: normalizeColorValue(routine?.color ?? "#16a34a"),
       tag: null,
-      trackingType: template?.trackingType ?? item.trackingType,
-      targetCount: template?.targetCount ?? item.targetCount,
+      trackingType,
+      targetCount: trackingType === "time" ? 1 : template?.targetCount ?? item.targetCount,
       startDate,
       sortOrder: index + 1,
       createdAt: template?.createdAt ?? routine?.createdAt ?? timestamp,
@@ -132,7 +159,7 @@ function migrateLegacyPlannerData(
       color: "#64748b",
       tag: null,
       trackingType: template.trackingType,
-      targetCount: template.targetCount,
+      targetCount: template.trackingType === "time" ? 1 : template.targetCount,
       startDate: template.createdAt.slice(0, 10),
       sortOrder: habits.length + index + 1,
       createdAt: template.createdAt,
@@ -146,10 +173,15 @@ function migrateLegacyPlannerData(
       if (!habitId) {
         continue;
       }
+      const habit = habits.find((entry) => entry.id === habitId);
+      if (!habit || habit.trackingType === "time") {
+        continue;
+      }
       habitCheckins.push({
         date: checkin.date,
         habitId,
         value,
+        timeEntries: [],
         updatedAt: checkin.updatedAt,
       });
     }
@@ -171,6 +203,12 @@ function migrateLegacyPlannerData(
     updatedAt: routine.updatedAt,
   }));
 
+  const routineModes = buildRoutineModesFromLegacy(legacySets, legacyRules, routines, habits);
+  const routineModeOverrides: RoutineModeOverride[] = legacyOverrides.map((entry) => ({
+    date: entry.date,
+    modeId: entry.setId,
+    updatedAt: entry.updatedAt,
+  }));
   const tasks = normalizeLegacyTasks(getArray(raw, "todos"));
 
   return {
@@ -178,6 +216,8 @@ function migrateLegacyPlannerData(
       habits: habits.length > 0 ? habits : seed.habits,
       habitCheckins,
       routines,
+      routineModes: routineModes.length > 0 ? routineModes : createDefaultRoutineModes(habits, routines),
+      routineModeOverrides,
       tasks,
     },
     migrated: true,
@@ -214,9 +254,14 @@ function normalizeHabits(entries: unknown[]): Habit[] {
     .sort((left, right) => left.sortOrder - right.sortOrder);
 }
 
-function normalizeHabitCheckins(entries: unknown[], habits: Habit[]): HabitCheckin[] {
+function normalizeHabitCheckins(
+  entries: unknown[],
+  habits: Habit[],
+): { habitCheckins: HabitCheckin[]; migrated: boolean } {
   const habitMap = new Map(habits.map((habit) => [habit.id, habit]));
-  return entries
+  let migrated = false;
+
+  const habitCheckins = entries
     .filter(isRecord)
     .map((entry) => {
       const habitId = getString(entry, "habitId", "");
@@ -224,14 +269,37 @@ function normalizeHabitCheckins(entries: unknown[], habits: Habit[]): HabitCheck
       if (!habit) {
         return null;
       }
+
+      const rawValue =
+        typeof entry.value === "number" && Number.isFinite(entry.value) ? Math.trunc(entry.value) : 0;
+      const rawTimeEntries = Array.isArray(entry.timeEntries) ? entry.timeEntries : [];
+      const normalized = normalizeStoredHabitCheckin(
+        {
+          value: rawValue,
+          timeEntries: rawTimeEntries,
+        },
+        habit,
+      );
+
+      if (habit.trackingType === "time") {
+        if (!Array.isArray(entry.timeEntries) || rawValue !== normalized.value) {
+          migrated = true;
+        }
+      } else if (Array.isArray(entry.timeEntries) && entry.timeEntries.length > 0) {
+        migrated = true;
+      }
+
       return {
         date: getDateString(entry, "date", "1970-01-01"),
         habitId,
-        value: clampValue(entry.value, habit.targetCount),
+        value: normalized.value,
+        timeEntries: normalized.timeEntries,
         updatedAt: getTimestamp(entry, "updatedAt"),
       };
     })
     .filter((entry): entry is HabitCheckin => entry !== null);
+
+  return { habitCheckins, migrated };
 }
 
 function normalizeRoutines(entries: unknown[], habits: Habit[]): Routine[] {
@@ -250,6 +318,71 @@ function normalizeRoutines(entries: unknown[], habits: Habit[]): Routine[] {
       createdAt: getTimestamp(entry, "createdAt"),
       updatedAt: getTimestamp(entry, "updatedAt"),
     }));
+}
+
+function normalizeRoutineModes(
+  entries: unknown[],
+  habits: Habit[],
+  routines: Routine[],
+): { routineModes: RoutineMode[]; migrated: boolean } {
+  const allowedHabitIds = habits.map((habit) => habit.id);
+  const allowedRoutineIds = routines.map((routine) => routine.id);
+  let migrated = false;
+
+  const routineModes = entries
+    .filter(isRecord)
+    .map((entry, index) => {
+      if (!Array.isArray(entry.routineIds) || !Array.isArray(entry.habitIds) || !Array.isArray(entry.activeDays)) {
+        migrated = true;
+      }
+      return {
+        id: getString(entry, "id", `mode-${index + 1}`),
+        name: getString(entry, "name", `Mode ${index + 1}`),
+        routineIds: sanitizeStringArray(entry.routineIds, allowedRoutineIds),
+        habitIds: sanitizeStringArray(entry.habitIds, allowedHabitIds),
+        activeDays: normalizeDays(entry.activeDays),
+        createdAt: getTimestamp(entry, "createdAt"),
+        updatedAt: getTimestamp(entry, "updatedAt"),
+      };
+    })
+    .filter((mode) => mode.activeDays.length > 0);
+
+  if (routineModes.length > 0) {
+    return { routineModes, migrated };
+  }
+
+  return {
+    routineModes: createDefaultRoutineModes(habits, routines),
+    migrated: true,
+  };
+}
+
+function normalizeRoutineModeOverrides(
+  entries: unknown[],
+  routineModes: RoutineMode[],
+): { routineModeOverrides: RoutineModeOverride[]; migrated: boolean } {
+  const allowedModeIds = new Set(routineModes.map((mode) => mode.id));
+  const byDate = new Map<string, RoutineModeOverride>();
+  let migrated = false;
+
+  for (const entry of entries.filter(isRecord)) {
+    const date = getDateString(entry, "date", "1970-01-01");
+    const rawModeId = typeof entry.modeId === "string" && entry.modeId.trim() ? entry.modeId : null;
+    const modeId = rawModeId && allowedModeIds.has(rawModeId) ? rawModeId : null;
+    if (rawModeId !== modeId) {
+      migrated = true;
+    }
+    byDate.set(date, {
+      date,
+      modeId,
+      updatedAt: getTimestamp(entry, "updatedAt"),
+    });
+  }
+
+  return {
+    routineModeOverrides: [...byDate.values()].sort((left, right) => left.date.localeCompare(right.date)),
+    migrated,
+  };
 }
 
 function normalizeTasks(entries: unknown[]): Task[] {
@@ -337,6 +470,55 @@ function normalizeLegacyCheckins(entries: unknown[]) {
     .filter((entry) => entry.routineId !== "");
 }
 
+function normalizeLegacyRoutineSets(
+  entries: unknown[],
+  routines: Array<{ id: string }>,
+) {
+  const allowedRoutineIds = new Set(routines.map((routine) => routine.id));
+  return entries
+    .filter(isRecord)
+    .map((entry, index) => ({
+      id: getString(entry, "id", `set-${index + 1}`),
+      name: getString(entry, "name", `Mode ${index + 1}`),
+      routineIds: sanitizeStringArray(entry.routineIds, [...allowedRoutineIds]),
+      createdAt: getTimestamp(entry, "createdAt"),
+      updatedAt: getTimestamp(entry, "updatedAt"),
+    }));
+}
+
+function normalizeLegacyAssignmentRules(
+  entries: unknown[],
+  sets: Array<{ id: string }>,
+) {
+  const allowedSetIds = new Set(sets.map((entry) => entry.id));
+  return entries
+    .filter(isRecord)
+    .map((entry, index) => ({
+      id: getString(entry, "id", `rule-${index + 1}`),
+      ruleType: getString(entry, "ruleType", "custom"),
+      days: normalizeDays(entry.days),
+      setId: getString(entry, "setId", ""),
+      createdAt: getTimestamp(entry, "createdAt"),
+      updatedAt: getTimestamp(entry, "updatedAt"),
+    }))
+    .filter((entry) => allowedSetIds.has(entry.setId));
+}
+
+function normalizeLegacyDateOverrides(
+  entries: unknown[],
+  sets: Array<{ id: string }>,
+) {
+  const allowedSetIds = new Set(sets.map((entry) => entry.id));
+  return entries
+    .filter(isRecord)
+    .map((entry) => ({
+      date: getDateString(entry, "date", getDateString(entry, "dateKey", "1970-01-01")),
+      setId: getNullableString(entry, "setId"),
+      updatedAt: getTimestamp(entry, "updatedAt"),
+    }))
+    .filter((entry) => entry.setId === null || allowedSetIds.has(entry.setId));
+}
+
 function normalizeLegacyTasks(entries: unknown[]): Task[] {
   return entries
     .filter(isRecord)
@@ -354,6 +536,56 @@ function normalizeLegacyTasks(entries: unknown[]): Task[] {
         updatedAt: getTimestamp(entry, "updatedAt"),
       };
     });
+}
+
+function buildRoutineModesFromLegacy(
+  sets: Array<{ id: string; name: string; routineIds: string[]; createdAt: string; updatedAt: string }>,
+  rules: Array<{ setId: string; days: ActiveDay[] }>,
+  routines: Routine[],
+  habits: Habit[],
+): RoutineMode[] {
+  const routinesById = new Map(routines.map((routine) => [routine.id, routine]));
+
+  return sets
+    .map((set) => {
+      const activeDays = [
+        ...new Set(rules.filter((rule) => rule.setId === set.id).flatMap((rule) => rule.days)),
+      ] as ActiveDay[];
+      return {
+        id: set.id,
+        name: set.name,
+        routineIds: set.routineIds.filter((routineId) => routinesById.has(routineId)),
+        habitIds: [],
+        activeDays: activeDays.length > 0 ? activeDays : ([0, 1, 2, 3, 4, 5, 6] as ActiveDay[]),
+        createdAt: set.createdAt,
+        updatedAt: set.updatedAt,
+      };
+    })
+    .filter((mode) => mode.routineIds.length > 0 || habits.length > 0);
+}
+
+function createDefaultRoutineModes(habits: Habit[], routines: Routine[]): RoutineMode[] {
+  if (habits.length === 0 && routines.length === 0) {
+    return [];
+  }
+
+  const timestamp = findDefaultTimestamp(habits, routines);
+  return [
+    {
+      id: "mode-default",
+      name: "Default Mode",
+      routineIds: [],
+      habitIds: habits.map((habit) => habit.id),
+      activeDays: [0, 1, 2, 3, 4, 5, 6],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+  ];
+}
+
+function findDefaultTimestamp(habits: Habit[], routines: Routine[]): string {
+  const values = [...habits.map((habit) => habit.createdAt), ...routines.map((routine) => routine.createdAt)].sort();
+  return values[0] ?? new Date(0).toISOString();
 }
 
 function getNodeErrorCode(error: unknown): string | undefined {
@@ -415,7 +647,7 @@ function getTargetCount(value: unknown, trackingType: TrackingType): number {
   if (trackingType === "count") {
     return Number.isInteger(value) && (value as number) >= 2 ? (value as number) : 2;
   }
-  return Number.isInteger(value) && (value as number) >= 1 ? (value as number) : 30;
+  return Number.isInteger(value) && (value as number) >= 1 ? (value as number) : 1;
 }
 
 function normalizeTrackingTypeValue(value: unknown): TrackingType {
@@ -438,11 +670,17 @@ function sanitizeStringArray(value: unknown, allowedIds: string[]): string[] {
   );
 }
 
-function normalizeDays(value: unknown): Array<0 | 1 | 2 | 3 | 4 | 5 | 6> {
+function normalizeDays(value: unknown): ActiveDay[] {
   if (!Array.isArray(value)) {
     return [];
   }
-  return [...new Set(value.filter((entry): entry is 0 | 1 | 2 | 3 | 4 | 5 | 6 => Number.isInteger(entry) && entry >= 0 && entry <= 6))];
+  return [
+    ...new Set(
+      value.filter(
+        (entry): entry is ActiveDay => Number.isInteger(entry) && entry >= 0 && entry <= 6,
+      ),
+    ),
+  ];
 }
 
 function normalizeTimeString(value: string | null): string | null {
@@ -450,11 +688,6 @@ function normalizeTimeString(value: string | null): string | null {
     return null;
   }
   return /^\d{2}:\d{2}$/.test(value) ? value : null;
-}
-
-function clampValue(value: unknown, targetCount: number): number {
-  const numeric = Number.isFinite(value) && typeof value === "number" ? Math.trunc(value) : 0;
-  return Math.max(0, Math.min(numeric, targetCount));
 }
 
 function normalizeLegacyProgress(raw: Record<string, unknown>): Record<string, number> {

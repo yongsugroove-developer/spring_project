@@ -1,4 +1,4 @@
-import { addDays, eachDateInRange } from "./date.js";
+import { addDays, eachDateInRange, getDayOfWeek } from "./date.js";
 import { clampProgressValue, sortTasks } from "./validation.js";
 import type {
   CalendarDaySummary,
@@ -6,6 +6,9 @@ import type {
   HabitWithStats,
   PlannerData,
   RankedHabitStat,
+  Routine,
+  RoutineMode,
+  RoutineModeWithDetails,
   RoutineWithHabits,
   TodayHabit,
   TodayResponse,
@@ -32,14 +35,34 @@ export function buildRoutineCollection(data: PlannerData): RoutineWithHabits[] {
     }));
 }
 
+export function buildRoutineModeCollection(data: PlannerData): RoutineModeWithDetails[] {
+  const routineMap = new Map(buildRoutineCollection(data).map((routine) => [routine.id, routine]));
+  const habitMap = new Map(data.habits.map((habit) => [habit.id, habit]));
+
+  return [...data.routineModes]
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    .map((mode) => ({
+      ...mode,
+      routines: mode.routineIds
+        .map((routineId) => routineMap.get(routineId))
+        .filter((routine): routine is RoutineWithHabits => routine !== undefined),
+      habits: mode.habitIds
+        .map((habitId) => habitMap.get(habitId))
+        .filter((habit): habit is Habit => habit !== undefined)
+        .sort((left, right) => left.sortOrder - right.sortOrder),
+    }));
+}
+
 export function buildTodayResponse(data: PlannerData, date: string): TodayResponse {
   const habits = buildTodayHabits(data, date);
   const completedHabits = habits.filter((habit) => habit.isComplete).length;
   const totalHabits = habits.length;
+  const activeMode = getActiveMode(data, date);
 
   return {
     ok: true,
     date,
+    activeMode: activeMode ? { id: activeMode.id, name: activeMode.name } : null,
     summary: {
       habitRate: totalHabits === 0 ? 0 : completedHabits / totalHabits,
       completedHabits,
@@ -51,13 +74,13 @@ export function buildTodayResponse(data: PlannerData, date: string): TodayRespon
 }
 
 export function buildTodayHabits(data: PlannerData, date: string): TodayHabit[] {
-  return sortHabits(data.habits)
-    .filter((habit) => habit.startDate <= date)
-    .map((habit) => buildTodayHabit(data, habit, date));
+  return getScheduledHabits(data, date).map((habit) => buildTodayHabit(data, habit, date));
 }
 
 export function buildTodayHabit(data: PlannerData, habit: Habit, date: string): TodayHabit {
-  const currentValue = getHabitValue(data, habit.id, date);
+  const checkin = getHabitCheckin(data, habit.id, date);
+  const timeEntries = habit.trackingType === "time" ? [...(checkin?.timeEntries ?? [])] : [];
+  const currentValue = habit.trackingType === "time" ? timeEntries.length : getHabitValue(data, habit.id, date);
   const progressRate = habit.targetCount === 0 ? 0 : currentValue / habit.targetCount;
   return {
     ...habit,
@@ -65,6 +88,8 @@ export function buildTodayHabit(data: PlannerData, habit: Habit, date: string): 
     isComplete: isHabitComplete(habit, currentValue),
     progressRate,
     streak: getHabitStreak(data, habit.id, date),
+    timeEntries,
+    latestTimeEntry: timeEntries.at(-1) ?? null,
   };
 }
 
@@ -114,7 +139,7 @@ export function getTopHabits(
       let trackedDays = 0;
 
       for (const date of eachDateInRange(startDate, endDate)) {
-        if (habit.startDate > date) {
+        if (!isHabitScheduledForDate(data, habit.id, date)) {
           continue;
         }
         trackedDays += 1;
@@ -166,7 +191,10 @@ export function getHabitValue(data: PlannerData, habitId: string, date: string):
   if (!habit) {
     return 0;
   }
-  const checkin = data.habitCheckins.find((entry) => entry.habitId === habitId && entry.date === date);
+  const checkin = getHabitCheckin(data, habitId, date);
+  if (habit.trackingType === "time") {
+    return checkin?.timeEntries.length ?? 0;
+  }
   return clampProgressValue(checkin?.value ?? 0, habit.targetCount);
 }
 
@@ -188,6 +216,10 @@ export function getHabitStreak(data: PlannerData, habitId: string, endDate?: str
   let cursor = latestDate;
 
   while (cursor >= habit.startDate) {
+    if (!isHabitScheduledForDate(data, habit.id, cursor)) {
+      cursor = addDays(cursor, -1);
+      continue;
+    }
     if (!isHabitComplete(habit, getHabitValue(data, habitId, cursor))) {
       break;
     }
@@ -215,19 +247,20 @@ export function getHabitBestStreak(data: PlannerData, habitId: string): number {
 
   let best = 0;
   let streak = 0;
-  let cursor = habit.startDate;
   const endDate = dates.at(-1) ?? habit.startDate;
+
   for (const date of eachDateInRange(habit.startDate, endDate)) {
+    if (!isHabitScheduledForDate(data, habit.id, date)) {
+      continue;
+    }
     if (isHabitComplete(habit, getHabitValue(data, habitId, date))) {
       streak += 1;
       best = Math.max(best, streak);
     } else {
       streak = 0;
     }
-    cursor = date;
   }
 
-  void cursor;
   return best;
 }
 
@@ -236,12 +269,62 @@ export function getEarliestTrackedDate(data: PlannerData): string | null {
     ...data.habits.map((habit) => habit.startDate),
     ...data.habitCheckins.map((checkin) => checkin.date),
     ...data.tasks.flatMap((task) => (task.dueDate ? [task.dueDate] : [])),
+    ...data.routineModeOverrides.map((override) => override.date),
   ].sort();
   return dates[0] ?? null;
 }
 
 export function sortTasksForView(data: PlannerData) {
   return [...data.tasks].sort(sortTasks);
+}
+
+export function getActiveMode(data: PlannerData, date: string): RoutineMode | null {
+  const modeMap = new Map(data.routineModes.map((mode) => [mode.id, mode]));
+  const override = data.routineModeOverrides.find((entry) => entry.date === date);
+  if (override) {
+    return override.modeId ? (modeMap.get(override.modeId) ?? null) : null;
+  }
+
+  const dayOfWeek = getDayOfWeek(date) as 0 | 1 | 2 | 3 | 4 | 5 | 6;
+  return (
+    [...data.routineModes]
+      .filter((mode) => mode.activeDays.includes(dayOfWeek))
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0] ?? null
+  );
+}
+
+export function getScheduledHabits(data: PlannerData, date: string): Habit[] {
+  const activeMode = getActiveMode(data, date);
+  if (!activeMode) {
+    return [];
+  }
+
+  const routineMap = new Map(data.routines.map((routine) => [routine.id, routine]));
+  const scheduledIds = new Set<string>();
+
+  for (const routineId of activeMode.routineIds) {
+    const routine = routineMap.get(routineId);
+    if (!routine) {
+      continue;
+    }
+    for (const habitId of routine.habitIds) {
+      scheduledIds.add(habitId);
+    }
+  }
+
+  for (const habitId of activeMode.habitIds) {
+    scheduledIds.add(habitId);
+  }
+
+  return sortHabits(data.habits).filter((habit) => scheduledIds.has(habit.id) && habit.startDate <= date);
+}
+
+function getHabitCheckin(data: PlannerData, habitId: string, date: string) {
+  return data.habitCheckins.find((entry) => entry.habitId === habitId && entry.date === date);
+}
+
+function isHabitScheduledForDate(data: PlannerData, habitId: string, date: string) {
+  return getScheduledHabits(data, date).some((habit) => habit.id === habitId);
 }
 
 function sortHabits(habits: Habit[]): Habit[] {
@@ -259,7 +342,7 @@ function sortHabits(habits: Habit[]): Habit[] {
 function getDatasetStreak(data: PlannerData, today: string, findBest: boolean) {
   const startDate = getEarliestTrackedDate(data) ?? today;
   const scheduledDates = eachDateInRange(startDate, today).filter(
-    (date) => buildTodayHabits(data, date).length > 0,
+    (date) => getScheduledHabits(data, date).length > 0,
   );
   let streak = 0;
   let best = 0;
@@ -281,3 +364,10 @@ function getDatasetStreak(data: PlannerData, today: string, findBest: boolean) {
 
   return findBest ? best : streak;
 }
+
+function isRoutineVisible(routine: Routine, date: string, data: PlannerData) {
+  const activeMode = getActiveMode(data, date);
+  return Boolean(activeMode?.routineIds.includes(routine.id));
+}
+
+void isRoutineVisible;

@@ -21,6 +21,8 @@ function createSeed(): PlannerData {
     ],
     habitCheckins: [],
     routines: [],
+    routineModes: [],
+    routineModeOverrides: [],
     tasks: [],
   };
 }

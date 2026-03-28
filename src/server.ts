@@ -637,6 +637,11 @@ export function createApp(options: AppOptions = {}) {
       const habit = await plannerFor(actor.userId).upsertHabitCheckin(req.params.date, req.params.habitId, {
         value: typeof req.body?.value === "number" ? req.body.value : undefined,
         completed: typeof req.body?.completed === "boolean" ? req.body.completed : undefined,
+        action:
+          req.body?.action === "append-time" || req.body?.action === "remove-time"
+            ? req.body.action
+            : undefined,
+        entryIndex: Number.isInteger(req.body?.entryIndex) ? req.body.entryIndex : undefined,
       });
       if (!habit) {
         res.status(404).json({ ok: false, message: "Habit not found" });
@@ -657,6 +662,105 @@ export function createApp(options: AppOptions = {}) {
         },
       });
       res.json({ ok: true, habit });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/routine-modes", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req);
+      res.json(await plannerFor(actor.userId).listRoutineModes());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/routine-modes", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req);
+      const mode = await plannerFor(actor.userId).createRoutineMode(req.body);
+      if (!mode) {
+        throw new Error("Failed to create routine mode");
+      }
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.routine-modes",
+        eventType: "create-routine-mode",
+        message: "User created a routine mode",
+        details: { modeId: mode.id, routineCount: mode.routines.length, habitCount: mode.habits.length },
+      });
+      res.status(201).json({ ok: true, mode });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/routine-modes/:id", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req);
+      const mode = await plannerFor(actor.userId).updateRoutineMode(req.params.id, req.body);
+      if (!mode) {
+        res.status(404).json({ ok: false, message: messageFor(req, "routineSetNotFound") });
+        return;
+      }
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.routine-modes",
+        eventType: "update-routine-mode",
+        message: "User updated a routine mode",
+        details: { modeId: mode.id, routineCount: mode.routines.length, habitCount: mode.habits.length },
+      });
+      res.json({ ok: true, mode });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/routine-modes/:id", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req);
+      const deleted = await plannerFor(actor.userId).deleteRoutineMode(req.params.id);
+      if (!deleted) {
+        res.status(404).json({ ok: false, message: messageFor(req, "routineSetNotFound") });
+        return;
+      }
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.routine-modes",
+        eventType: "delete-routine-mode",
+        message: "User deleted a routine mode",
+        details: { modeId: req.params.id },
+      });
+      res.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.put("/api/routine-mode-overrides/:date", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req);
+      const result = await plannerFor(actor.userId).upsertRoutineModeOverride(req.params.date, {
+        modeId:
+          typeof req.body?.modeId === "string" || req.body?.modeId === null ? req.body.modeId : undefined,
+      });
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.routine-mode-overrides",
+        eventType: "upsert-routine-mode-override",
+        message: "User updated a routine mode override",
+        details: { date: req.params.date, modeId: result.override?.modeId ?? null },
+      });
+      res.json(result);
     } catch (error) {
       next(error);
     }

@@ -3,6 +3,7 @@ import type {
   Habit,
   HabitCheckin,
   PlannerData,
+  Routine,
   Task,
   TrackingType,
 } from "./types.js";
@@ -147,6 +148,17 @@ export function normalizeHabitIds(habitIds: string[], data: Pick<PlannerData, "h
   return sanitizeIds(habitIds, data.habits.map((habit) => habit.id));
 }
 
+export function normalizeRoutineIds(routineIds: string[], data: Pick<PlannerData, "routines">): string[] {
+  if (!Array.isArray(routineIds)) {
+    throw new PlannerValidationError("routineIds must be an array");
+  }
+  return sanitizeIds(routineIds, data.routines.map((routine: Routine) => routine.id));
+}
+
+export function normalizeActiveDays(days: number[] | undefined): ActiveDay[] {
+  return normalizeWeekdays(days);
+}
+
 export function clampProgressValue(value: number, targetCount: number): number {
   const normalized = Number.isFinite(value) ? Math.trunc(value) : 0;
   return Math.min(Math.max(normalized, 0), targetCount);
@@ -156,13 +168,41 @@ export function normalizeStoredHabitValue(value: number, habit: Habit): number {
   return clampProgressValue(value, habit.targetCount);
 }
 
+export function normalizeStoredTimeEntries(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+export function normalizeStoredHabitCheckin(
+  checkin: Pick<HabitCheckin, "value" | "timeEntries">,
+  habit: Habit,
+): Pick<HabitCheckin, "value" | "timeEntries"> {
+  if (habit.trackingType === "time") {
+    const timeEntries = normalizeStoredTimeEntries(checkin.timeEntries);
+    return {
+      value: Math.min(timeEntries.length, habit.targetCount),
+      timeEntries,
+    };
+  }
+
+  return {
+    value: normalizeStoredHabitValue(checkin.value, habit),
+    timeEntries: [],
+  };
+}
+
 export function normalizeCheckinsForHabits(checkins: HabitCheckin[], habits: Habit[]) {
   const habitMap = new Map(habits.map((habit) => [habit.id, habit]));
   return checkins
     .filter((checkin) => habitMap.has(checkin.habitId))
     .map((checkin) => ({
       ...checkin,
-      value: normalizeStoredHabitValue(checkin.value, habitMap.get(checkin.habitId)!),
+      ...normalizeStoredHabitCheckin(checkin, habitMap.get(checkin.habitId)!),
     }));
 }
 

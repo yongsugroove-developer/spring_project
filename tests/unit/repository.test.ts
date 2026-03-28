@@ -131,6 +131,7 @@ describe("json planner repository", () => {
         date: "2026-03-22",
         habitId: "item-legacy",
         value: 1,
+        timeEntries: [],
         updatedAt: "2026-03-22T08:00:00.000Z",
       },
     ]);

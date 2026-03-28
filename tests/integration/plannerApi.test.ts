@@ -62,7 +62,7 @@ describe("planner API", () => {
       color: "#16a34a",
       tag: "건강",
       trackingType: "time",
-      targetCount: 10,
+      targetCount: 1,
       startDate: "2026-03-27",
     });
     expect(createHabit.status).toBe(201);
@@ -71,14 +71,14 @@ describe("planner API", () => {
       emoji: "🤸",
       tag: "건강",
       trackingType: "time",
-      targetCount: 10,
+      targetCount: 1,
     });
 
     const habitId = createHabit.body.habit.id as string;
 
     const updateCheckin = await request(app)
       .put(`/api/habit-checkins/2026-03-27/habits/${habitId}`)
-      .send({ value: 10 });
+      .send({ action: "append-time" });
     expect(updateCheckin.status).toBe(200);
     expect(updateCheckin.body.habit.isComplete).toBe(true);
 
@@ -138,6 +138,50 @@ describe("planner API", () => {
     expect(updateRoutine.body.routine.emoji).toBe("☀️");
     expect(updateRoutine.body.routine.habits).toHaveLength(1);
     expect(updateRoutine.body.routine.notificationEnabled).toBe(false);
+  });
+
+  it("supports routine mode CRUD and date overrides", async () => {
+    const temp = await createTempPlannerFile();
+    cleanups.push(temp.cleanup);
+    const app = createApp({
+      dataFile: temp.filePath,
+      now: () => new Date("2026-03-22T09:00:00+09:00"),
+    });
+
+    const createMode = await request(app).post("/api/routine-modes").send({
+      name: "Weekend mode",
+      routineIds: [],
+      habitIds: ["habit-water"],
+      activeDays: [0, 6],
+    });
+    expect(createMode.status).toBe(201);
+    expect(createMode.body.mode.habits.map((habit: { id: string }) => habit.id)).toEqual([
+      "habit-water",
+    ]);
+
+    const modeId = createMode.body.mode.id as string;
+    const updateOverride = await request(app)
+      .put("/api/routine-mode-overrides/2026-03-22")
+      .send({ modeId });
+    expect(updateOverride.status).toBe(200);
+    expect(updateOverride.body.override.modeId).toBe(modeId);
+
+    const today = await request(app).get("/api/today").query({ date: "2026-03-22" });
+    expect(today.status).toBe(200);
+    expect(today.body.activeMode).toMatchObject({ id: modeId, name: "Weekend mode" });
+    expect(today.body.habits.map((habit: { id: string }) => habit.id)).toEqual(["habit-water"]);
+
+    const deleteMode = await request(app).delete(`/api/routine-modes/${modeId}`);
+    expect(deleteMode.status).toBe(204);
+
+    const restoredToday = await request(app).get("/api/today").query({ date: "2026-03-22" });
+    expect(restoredToday.status).toBe(200);
+    expect(restoredToday.body.activeMode).toMatchObject({ id: "mode-default" });
+    expect(restoredToday.body.habits.map((habit: { id: string }) => habit.id)).toEqual([
+      "habit-water",
+      "habit-plan",
+      "habit-focus",
+    ]);
   });
 
   it("round-trips emoji fields for habits and tasks", async () => {

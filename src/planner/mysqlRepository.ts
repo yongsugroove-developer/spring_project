@@ -93,6 +93,15 @@ export class MySqlPlannerRepository implements PlannerRepository {
     const checkins = legacyTables.has("planner_routine_checkins")
       ? await this.readLegacyCheckins(connection)
       : [];
+    const routineSets = legacyTables.has("planner_routine_sets")
+      ? await this.readLegacyRoutineSets(connection)
+      : [];
+    const assignmentRules = legacyTables.has("planner_assignment_rules")
+      ? await this.readLegacyAssignmentRules(connection)
+      : [];
+    const dateOverrides = legacyTables.has("planner_date_overrides")
+      ? await this.readLegacyDateOverrides(connection)
+      : [];
     const todos = legacyTables.has("planner_todos")
       ? await this.readLegacyTodos(connection)
       : [];
@@ -102,6 +111,9 @@ export class MySqlPlannerRepository implements PlannerRepository {
       routineTaskTemplates: templates,
       routineItems: items,
       routineCheckins: checkins,
+      routineSets,
+      routineAssignmentRules: assignmentRules,
+      routineDateOverrides: dateOverrides,
       todos,
     };
   }
@@ -112,6 +124,9 @@ export class MySqlPlannerRepository implements PlannerRepository {
       "planner_routine_task_templates",
       "planner_routine_items",
       "planner_routine_checkins",
+      "planner_routine_sets",
+      "planner_assignment_rules",
+      "planner_date_overrides",
       "planner_todos",
     ];
     const [rows] = await connection.query<(RowDataPacket & { tableName: string })[]>(
@@ -283,6 +298,98 @@ export class MySqlPlannerRepository implements PlannerRepository {
       updatedAt: fromMySqlDateTime(row.updatedAt) ?? new Date(0).toISOString(),
     }));
   }
+
+  private async readLegacyRoutineSets(connection: PoolConnection) {
+    const [rows] = await connection.query<
+      (RowDataPacket & {
+        id: string;
+        name: string;
+        createdAt: string;
+        updatedAt: string;
+      })[]
+    >(
+      `SELECT id, name, created_at AS createdAt, updated_at AS updatedAt
+         FROM planner_routine_sets
+        WHERE owner_user_id = ?
+        ORDER BY created_at, id`,
+      [this.ownerUserId],
+    );
+    const [memberRows] = await connection.query<
+      (RowDataPacket & {
+        routineSetId: string;
+        routineId: string;
+        sortOrder: number;
+      })[]
+    >(
+      `SELECT routine_set_id AS routineSetId, routine_id AS routineId, sort_order AS sortOrder
+         FROM planner_routine_set_members
+        WHERE owner_user_id = ?
+        ORDER BY routine_set_id, sort_order, routine_id`,
+      [this.ownerUserId],
+    );
+    const membersBySet = new Map<string, string[]>();
+    for (const row of memberRows) {
+      const current = membersBySet.get(row.routineSetId) ?? [];
+      current.push(row.routineId);
+      membersBySet.set(row.routineSetId, current);
+    }
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      routineIds: membersBySet.get(row.id) ?? [],
+      createdAt: fromMySqlDateTime(row.createdAt) ?? new Date(0).toISOString(),
+      updatedAt: fromMySqlDateTime(row.updatedAt) ?? new Date(0).toISOString(),
+    }));
+  }
+
+  private async readLegacyAssignmentRules(connection: PoolConnection) {
+    const [rows] = await connection.query<
+      (RowDataPacket & {
+        id: string;
+        ruleType: string;
+        daysJson: string;
+        setId: string;
+        createdAt: string;
+        updatedAt: string;
+      })[]
+    >(
+      `SELECT id, rule_type AS ruleType, days_json AS daysJson, set_id AS setId,
+              created_at AS createdAt, updated_at AS updatedAt
+         FROM planner_assignment_rules
+        WHERE owner_user_id = ?
+        ORDER BY created_at, id`,
+      [this.ownerUserId],
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      ruleType: row.ruleType,
+      days: normalizeArray(row.daysJson),
+      setId: row.setId,
+      createdAt: fromMySqlDateTime(row.createdAt) ?? new Date(0).toISOString(),
+      updatedAt: fromMySqlDateTime(row.updatedAt) ?? new Date(0).toISOString(),
+    }));
+  }
+
+  private async readLegacyDateOverrides(connection: PoolConnection) {
+    const [rows] = await connection.query<
+      (RowDataPacket & {
+        date: string;
+        setId: string | null;
+        updatedAt: string;
+      })[]
+    >(
+      `SELECT date_key AS date, set_id AS setId, updated_at AS updatedAt
+         FROM planner_date_overrides
+        WHERE owner_user_id = ?
+        ORDER BY date_key`,
+      [this.ownerUserId],
+    );
+    return rows.map((row) => ({
+      date: row.date,
+      setId: row.setId,
+      updatedAt: fromMySqlDateTime(row.updatedAt) ?? new Date(0).toISOString(),
+    }));
+  }
 }
 
 function normalizeRecord(value: unknown): Record<string, number> {
@@ -296,6 +403,20 @@ function normalizeRecord(value: unknown): Record<string, number> {
     );
   } catch {
     return {};
+  }
+}
+
+function normalizeArray(value: unknown): number[] {
+  try {
+    const parsed = typeof value === "string" ? (JSON.parse(value) as unknown) : value;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .filter((entry): entry is number => typeof entry === "number" && Number.isInteger(entry))
+      .map((entry) => Number(entry));
+  } catch {
+    return [];
   }
 }
 

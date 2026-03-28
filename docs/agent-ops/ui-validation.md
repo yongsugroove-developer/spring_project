@@ -1,4 +1,4 @@
-﻿# UI Validation Report
+# UI Validation Report
 
 ## Metadata
 - Requirement ID: RQ-001
@@ -9,14 +9,18 @@
 - Edge: latest stable
 
 ## Scenario Checklist
-- [ ] Primary user flow works
-- [ ] Save/load behavior works
+- [ ] Home date rail scrolls smoothly with touch and keeps the selected date readable on `360x800`, `390x844`, and `412x915`
+- [ ] Home achievement card animates count-up, liquid fill, and pulse feedback without layout breakage
+- [ ] Home task panel toggles between selected-day tasks and inbox tasks, and task completion updates inline
+- [ ] Home habit panel supports binary, count, and timestamp-based time logging on the selected date
+- [ ] Home mode selector applies and clears date overrides correctly
+- [ ] Routines screen allows creating/editing both routine modes and routine bundles without emoji controls in the UI
 - [x] TypeScript build passes (`npm run build`)
-- [x] No console errors in core scenario during static syntax verification (`node --check public/app.js`)
-- [ ] Mobile layout keeps hamburger-free utility bar, dense-row Today routines, merged Today todo switching, Account-based admin entry, and compact calendar detail cards readable at narrow widths
-- [ ] Success actions refresh quietly without redundant “saved/updated” banners, while failures still surface clearly
+- [x] Frontend modules pass syntax checks (`node --check public/app.js`, `node --check public/translations.js`, `node --check public/homeUtils.js`)
+- [x] Unit tests pass (`npm run test:unit`)
+- [x] Integration tests pass (`npm run test:integration`)
+- [x] Lint passes (`npm run lint`)
 
 ## Verdict
-- Verdict: Pending
-- Recommendation: Validate the phone layout at `360x800`, `390x844`, and `412x915`, focusing on utility-bar-only navigation, bottom tab switching, dense routine-row readability and steppers, Today due/inbox toggle behavior, quiet success handling, Account-to-Admin entry, and compact month calendar behavior.
-
+- Verdict: Pending manual browser validation
+- Recommendation: Complete real-browser QA for the new home surface and mode override UX, then collect explicit user approval.
