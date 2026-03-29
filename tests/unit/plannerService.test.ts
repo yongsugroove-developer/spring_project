@@ -74,6 +74,33 @@ describe("planner service", () => {
     expect(updatedTime?.isComplete).toBe(false);
   });
 
+  it("toggles time habits with a single visible timestamp", async () => {
+    const temp = await createTempPlannerFile(createDefaultPlannerData());
+    cleanups.push(temp.cleanup);
+    const service = new PlannerService(new JsonPlannerRepository(temp.filePath), {
+      now: () => new Date("2026-03-27T09:00:00+09:00"),
+    });
+
+    const habit = await service.createHabit({
+      name: "운동하기",
+      trackingType: "time",
+      targetCount: 1,
+      color: "#2563eb",
+    });
+
+    const logged = await service.upsertHabitCheckin("2026-03-27", habit!.id, {
+      completed: true,
+    });
+    expect(logged?.timeEntries).toHaveLength(1);
+    expect(logged?.isComplete).toBe(true);
+
+    const cancelled = await service.upsertHabitCheckin("2026-03-27", habit!.id, {
+      completed: false,
+    });
+    expect(cancelled?.timeEntries).toEqual([]);
+    expect(cancelled?.isComplete).toBe(false);
+  });
+
   it("reorders habits and persists the new sort order", async () => {
     const temp = await createTempPlannerFile();
     cleanups.push(temp.cleanup);
@@ -120,6 +147,35 @@ describe("planner service", () => {
     expect(routine?.notificationEnabled).toBe(true);
     expect(routine?.notificationTime).toBe("07:30");
     expect(routine?.notificationWeekdays).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it("auto-adds new habits to mode-default when it already exists", async () => {
+    const temp = await createTempPlannerFile(createDefaultPlannerData());
+    cleanups.push(temp.cleanup);
+    const service = new PlannerService(new JsonPlannerRepository(temp.filePath), {
+      now: () => new Date("2026-03-27T09:00:00+09:00"),
+    });
+
+    const firstHabit = await service.createHabit({
+      name: "아침 일찍 일어나기",
+      trackingType: "binary",
+      color: "#16a34a",
+    });
+    const secondHabit = await service.createHabit({
+      name: "운동하기",
+      trackingType: "time",
+      targetCount: 1,
+      color: "#2563eb",
+    });
+
+    const modes = await service.listRoutineModes();
+    expect(modes.modes).toHaveLength(1);
+    expect(modes.modes[0]).toMatchObject({ id: "mode-default" });
+    expect(modes.modes[0]?.habits.map((habit) => habit.id)).toEqual([firstHabit?.id, secondHabit?.id]);
+
+    const today = await service.getToday("2026-03-27");
+    expect(today.activeMode?.id).toBe("mode-default");
+    expect(today.habits.map((habit) => habit.id)).toEqual([firstHabit?.id, secondHabit?.id]);
   });
 
   it("applies date overrides to routine modes", async () => {

@@ -18,6 +18,22 @@
 - [x] The routines screen now exposes mode creation/editing alongside reusable routine bundle management
 - [x] Emoji input and display have been removed from the current browser UI while emoji persistence remains intact in the API/storage layer
 - [x] Automated regression coverage now includes routine mode override behavior and time-entry removal
+- [x] Localhost pages now mount a local-only Agentation bridge so manual UI annotations can sync to the local MCP server without enabling the toolbar on deployed hosts
+- [x] Routine and mode habit assignment now uses a button-triggered overlay picker instead of always-expanded checkbox lists, while keeping create/update drafts stable during overlay interactions
+- [x] The habit picker overlay now removes redundant explanatory copy, uses a home-list-inspired row layout, and separates the list from the cancel/apply actions with clearer spacing
+- [x] The home habit panel now keeps saved habits visible even when they are not scheduled for the selected day, while labeling inactive items instead of dropping them from the list
+- [x] The achievement card now uses milestone badges and tier-based celebration styling so high completion states feel more rewarding without overwhelming low-progress states
+- [x] New habits now auto-attach to `mode-default` when that default mode already exists, preventing freshly created standalone habits from appearing as unscheduled by default
+- [x] The achievement milestone badge now uses emoji-first visual cues with localized accessible labels instead of text-only copy
+- [x] Home time-tracked habits now use a single-slot tap toggle that shows only the latest recorded time and clears on the next tap instead of stacking duplicate chips
+- [x] The redundant `습관 보기` heading above the home habit board has been removed
+- [x] The top utility header now stays in normal document flow instead of sticky floating behavior
+- [x] The redundant `마이 플래너` eyebrow above the screen title has been removed
+- [x] The home time-toggle button now hugs its content width instead of presenting as an overly wide tap target
+- [x] The home habit board now drops the noisy tag/streak/start-date subtitle from each row and keeps the focus on the habit name plus status control
+- [x] The home habit board now groups rows by active routine section, repeats shared habits in every matching routine section, and keeps remaining items in a standalone section
+- [x] The grouped home habit board now falls back to saved routines when the active mode has no linked routine details, and narrow-screen section wrappers no longer collapse to single-row heights
+- [x] The home habit panel card now expands more aggressively than the task panel so more grouped routine information remains visible without immediate scrolling
 
 ## done (user approved only)
 - [ ] Routine-mode home redesign approved by user after manual QA

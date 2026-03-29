@@ -82,6 +82,13 @@ describe("planner API", () => {
     expect(updateCheckin.status).toBe(200);
     expect(updateCheckin.body.habit.isComplete).toBe(true);
 
+    const cancelCheckin = await request(app)
+      .put(`/api/habit-checkins/2026-03-27/habits/${habitId}`)
+      .send({ completed: false });
+    expect(cancelCheckin.status).toBe(200);
+    expect(cancelCheckin.body.habit.timeEntries).toEqual([]);
+    expect(cancelCheckin.body.habit.isComplete).toBe(false);
+
     const secondHabit = await request(app).post("/api/habits").send({
       name: "Drink water",
       trackingType: "count",
@@ -89,6 +96,14 @@ describe("planner API", () => {
       color: "#0ea5e9",
     });
     const secondHabitId = secondHabit.body.habit.id as string;
+
+    const todayAfterCreate = await request(app).get("/api/today");
+    expect(todayAfterCreate.status).toBe(200);
+    expect(todayAfterCreate.body.activeMode).toMatchObject({ id: "mode-default" });
+    expect(todayAfterCreate.body.habits.map((habit: { id: string }) => habit.id)).toEqual([
+      habitId,
+      secondHabitId,
+    ]);
 
     const reorder = await request(app).post("/api/habits/reorder").send({
       habitIds: [secondHabitId, habitId],

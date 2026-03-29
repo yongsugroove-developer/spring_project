@@ -249,24 +249,24 @@ function settingsPanel() {
         <label class="control-box">
           <span id="language-label">${t("language")}</span>
           <select id="language-select" aria-labelledby="language-label">
-            <option value="ko">Korean</option>
-            <option value="en">English</option>
-            <option value="ja">Japanese</option>
+            <option value="ko">한국어</option>
+            <option value="en">영어</option>
+            <option value="ja">일본어</option>
           </select>
         </label>
         <label class="control-box">
           <span id="theme-label">${t("theme")}</span>
           <select id="theme-select" aria-labelledby="theme-label">
-            <option value="violet">Violet</option>
-            <option value="sunset">Sunset</option>
-            <option value="forest">Forest</option>
+            <option value="violet">바이올렛</option>
+            <option value="sunset">선셋</option>
+            <option value="forest">포레스트</option>
           </select>
         </label>
         <label class="control-box">
           <span id="density-label">${t("density")}</span>
           <select id="density-select" aria-labelledby="density-label">
-            <option value="comfy">Comfy</option>
-            <option value="compact">Compact</option>
+            <option value="comfy">여유</option>
+            <option value="compact">조밀</option>
           </select>
         </label>
       </div>
