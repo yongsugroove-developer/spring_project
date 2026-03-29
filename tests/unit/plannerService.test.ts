@@ -35,6 +35,34 @@ describe("planner service", () => {
     expect(monday.habits.map((habit) => habit.id)).toEqual(["habit-water", "habit-plan"]);
   });
 
+  it("stores and clears date memos for the selected day", async () => {
+    const temp = await createTempPlannerFile(createDefaultPlannerData());
+    cleanups.push(temp.cleanup);
+    const service = new PlannerService(new JsonPlannerRepository(temp.filePath), {
+      now: () => new Date("2026-03-27T09:00:00+09:00"),
+    });
+
+    const saved = await service.upsertDailyNote("2026-03-27", {
+      note: "저녁에는 휴대폰을 먼저 내려두기",
+    });
+    expect(saved.dailyNote).toMatchObject({
+      note: "저녁에는 휴대폰을 먼저 내려두기",
+    });
+
+    const today = await service.getToday("2026-03-27");
+    expect(today.dailyNote).toMatchObject({
+      note: "저녁에는 휴대폰을 먼저 내려두기",
+    });
+
+    const cleared = await service.upsertDailyNote("2026-03-27", {
+      note: "",
+    });
+    expect(cleared.dailyNote).toEqual({
+      note: null,
+      updatedAt: null,
+    });
+  });
+
   it("updates habit checkins and computes streaks for count and time habits", async () => {
     const temp = await createTempPlannerFile();
     cleanups.push(temp.cleanup);
@@ -193,6 +221,10 @@ describe("planner service", () => {
     });
     expect(mode?.habits.map((habit) => habit.id)).toEqual(["habit-water"]);
 
+    const recurringToday = await service.getToday("2026-03-22");
+    expect(recurringToday.activeMode?.id).toBe(mode?.id);
+    expect(recurringToday.habits.map((habit) => habit.id)).toEqual(["habit-water"]);
+
     const override = await service.upsertRoutineModeOverride("2026-03-22", {
       modeId: mode?.id,
     });
@@ -207,6 +239,33 @@ describe("planner service", () => {
 
     const fallbackToday = await service.getToday("2026-03-23");
     expect(fallbackToday.activeMode?.id).toBe("mode-default");
+  });
+
+  it("allows date-only modes that activate only through reserved dates", async () => {
+    const temp = await createTempPlannerFile(createSamplePlannerData());
+    cleanups.push(temp.cleanup);
+    const service = new PlannerService(new JsonPlannerRepository(temp.filePath), {
+      now: () => new Date("2026-03-24T09:00:00+09:00"),
+    });
+
+    const mode = await service.createRoutineMode({
+      name: "Travel mode",
+      routineIds: [],
+      habitIds: ["habit-focus"],
+      activeDays: [],
+    });
+    expect(mode?.activeDays).toEqual([]);
+
+    const beforeOverride = await service.getToday("2026-03-24");
+    expect(beforeOverride.activeMode?.id).toBe("mode-default");
+
+    await service.upsertRoutineModeOverride("2026-03-24", {
+      modeId: mode?.id,
+    });
+
+    const reservedToday = await service.getToday("2026-03-24");
+    expect(reservedToday.activeMode?.id).toBe(mode?.id);
+    expect(reservedToday.habits.map((habit) => habit.id)).toEqual(["habit-focus"]);
   });
 
   it("preserves completedAt when editing an already completed task", async () => {

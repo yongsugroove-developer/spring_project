@@ -3,6 +3,7 @@
 ## todo
 - [ ] Run real-browser manual validation for the rebuilt home screen on desktop and mobile widths
 - [ ] Validate date-rail touch scrolling, task/habit carousel swiping, and direct task completion on the home screen
+- [ ] Validate date memo save/clear and reload behavior on the home screen across route refreshes
 - [ ] Validate the mode override select/clear flow against expected weekday behavior
 - [ ] Confirm the achievement card animation pacing and reduced-motion behavior in a browser
 - [ ] Collect explicit user approval after manual UX validation
@@ -34,6 +35,9 @@
 - [x] The home habit board now groups rows by active routine section, repeats shared habits in every matching routine section, and keeps remaining items in a standalone section
 - [x] The grouped home habit board now falls back to saved routines when the active mode has no linked routine details, and narrow-screen section wrappers no longer collapse to single-row heights
 - [x] The home habit panel card now expands more aggressively than the task panel so more grouped routine information remains visible without immediate scrolling
+- [x] Today payloads and planner storage now support per-date short memos with backward-compatible `dailyNotes` normalization
+- [x] The home screen now exposes a compact date memo card so the selected date can hold a short reminder or reflection without leaving home
+- [x] Settings now formalize concept help into a short FAQ covering tasks, habits, routines, modes, schedules, time logs, and completion-rate calculation
 
 ## done (user approved only)
 - [ ] Routine-mode home redesign approved by user after manual QA

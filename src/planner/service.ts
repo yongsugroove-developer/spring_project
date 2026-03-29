@@ -107,6 +107,10 @@ interface RoutineModeOverrideInput {
   modeId?: string | null;
 }
 
+interface DailyNoteInput {
+  note?: string | null;
+}
+
 interface TaskInput {
   title: string;
   emoji?: string | null;
@@ -132,6 +136,52 @@ export class PlannerService {
     const resolvedDate = date ?? getTodayKey(this.now());
     const data = await this.repository.read();
     return buildTodayResponse(data, resolvedDate);
+  }
+
+  async upsertDailyNote(date: string, input: DailyNoteInput) {
+    validateDateKey(date, "date");
+    const data = await this.repository.read();
+    const note = normalizeOptionalText(input.note ?? null);
+    const existingIndex = data.dailyNotes.findIndex((entry) => entry.date === date);
+
+    if (note === null) {
+      if (existingIndex >= 0) {
+        data.dailyNotes.splice(existingIndex, 1);
+        await this.repository.write(data);
+      }
+      return {
+        ok: true as const,
+        date,
+        dailyNote: {
+          note: null,
+          updatedAt: null,
+        },
+      };
+    }
+
+    const updatedAt = this.now().toISOString();
+    const nextNote = {
+      date,
+      note,
+      updatedAt,
+    };
+
+    if (existingIndex >= 0) {
+      data.dailyNotes.splice(existingIndex, 1, nextNote);
+    } else {
+      data.dailyNotes.push(nextNote);
+      data.dailyNotes.sort((left, right) => left.date.localeCompare(right.date));
+    }
+
+    await this.repository.write(data);
+    return {
+      ok: true as const,
+      date,
+      dailyNote: {
+        note,
+        updatedAt,
+      },
+    };
   }
 
   async listHabits(): Promise<HabitsResponse> {
@@ -417,7 +467,7 @@ export class PlannerService {
       name: requireText(input.name, "Mode name"),
       routineIds: normalizeRoutineIds(input.routineIds ?? [], data),
       habitIds: normalizeHabitIds(input.habitIds ?? [], data),
-      activeDays: requireActiveDays(input.activeDays ?? [0, 1, 2, 3, 4, 5, 6]),
+      activeDays: normalizeActiveDays(input.activeDays),
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -444,7 +494,7 @@ export class PlannerService {
       mode.habitIds = normalizeHabitIds(input.habitIds, data);
     }
     if (input.activeDays !== undefined) {
-      mode.activeDays = requireActiveDays(input.activeDays);
+      mode.activeDays = normalizeActiveDays(input.activeDays);
     }
     mode.updatedAt = this.now().toISOString();
 
@@ -661,14 +711,6 @@ function getCustomBounds(startDate?: string, endDate?: string) {
     throw new PlannerValidationError("start must be on or before end");
   }
   return { startDate, endDate };
-}
-
-function requireActiveDays(days: number[] | undefined) {
-  const activeDays = normalizeActiveDays(days);
-  if (activeDays.length === 0) {
-    throw new PlannerValidationError("activeDays must contain at least one day");
-  }
-  return activeDays;
 }
 
 function normalizeOverrideModeId(modeId: string | null | undefined, modes: RoutineMode[]) {

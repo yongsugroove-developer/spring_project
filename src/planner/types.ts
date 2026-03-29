@@ -53,6 +53,12 @@ export interface RoutineModeOverride {
   updatedAt: string;
 }
 
+export interface DailyNote {
+  date: string;
+  note: string;
+  updatedAt: string;
+}
+
 export type TaskStatus = "pending" | "done";
 
 export interface Task {
@@ -73,6 +79,7 @@ export interface PlannerData {
   routines: Routine[];
   routineModes: RoutineMode[];
   routineModeOverrides: RoutineModeOverride[];
+  dailyNotes: DailyNote[];
   tasks: Task[];
 }
 
@@ -146,6 +153,10 @@ export interface TodayResponse {
     remainingHabits: number;
   };
   habits: TodayHabit[];
+  dailyNote: {
+    note: string | null;
+    updatedAt: string | null;
+  };
 }
 
 export interface HabitCheckinsResponse {

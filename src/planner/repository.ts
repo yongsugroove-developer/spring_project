@@ -3,6 +3,7 @@ import path from "node:path";
 import { createDefaultPlannerData } from "./defaultData.js";
 import type {
   ActiveDay,
+  DailyNote,
   Habit,
   HabitCheckin,
   PlannerData,
@@ -79,6 +80,7 @@ function normalizeCurrentPlannerData(raw: Record<string, unknown>): { data: Plan
   const modes = normalizeRoutineModes(getArray(raw, "routineModes"), habits, routines);
   const overrides = normalizeRoutineModeOverrides(getArray(raw, "routineModeOverrides"), modes.routineModes);
   const checkins = normalizeHabitCheckins(getArray(raw, "habitCheckins"), habits);
+  const dailyNotes = normalizeDailyNotes(getArray(raw, "dailyNotes"));
   const tasks = normalizeTasks(getArray(raw, "tasks"));
 
   const migrated =
@@ -89,9 +91,11 @@ function normalizeCurrentPlannerData(raw: Record<string, unknown>): { data: Plan
     getArray(raw, "tasks").some((entry) => isRecord(entry) && !("emoji" in entry)) ||
     !Array.isArray(raw.routineModes) ||
     !Array.isArray(raw.routineModeOverrides) ||
+    !Array.isArray(raw.dailyNotes) ||
     checkins.migrated ||
     modes.migrated ||
-    overrides.migrated;
+    overrides.migrated ||
+    dailyNotes.migrated;
 
   return {
     data: {
@@ -100,6 +104,7 @@ function normalizeCurrentPlannerData(raw: Record<string, unknown>): { data: Plan
       routines,
       routineModes: modes.routineModes,
       routineModeOverrides: overrides.routineModeOverrides,
+      dailyNotes: dailyNotes.dailyNotes,
       tasks,
     },
     migrated:
@@ -218,6 +223,7 @@ function migrateLegacyPlannerData(
       routines,
       routineModes: routineModes.length > 0 ? routineModes : createDefaultRoutineModes(habits, routines),
       routineModeOverrides,
+      dailyNotes: seed.dailyNotes,
       tasks,
     },
     migrated: true,
@@ -344,8 +350,7 @@ function normalizeRoutineModes(
         createdAt: getTimestamp(entry, "createdAt"),
         updatedAt: getTimestamp(entry, "updatedAt"),
       };
-    })
-    .filter((mode) => mode.activeDays.length > 0);
+    });
 
   if (routineModes.length > 0) {
     return { routineModes, migrated };
@@ -381,6 +386,36 @@ function normalizeRoutineModeOverrides(
 
   return {
     routineModeOverrides: [...byDate.values()].sort((left, right) => left.date.localeCompare(right.date)),
+    migrated,
+  };
+}
+
+function normalizeDailyNotes(entries: unknown[]): { dailyNotes: DailyNote[]; migrated: boolean } {
+  const byDate = new Map<string, DailyNote>();
+  let migrated = false;
+
+  for (const entry of entries.filter(isRecord)) {
+    const date = getDateString(entry, "date", "1970-01-01");
+    const rawNote = getNullableString(entry, "note");
+    if (rawNote === null) {
+      migrated = true;
+      continue;
+    }
+
+    const note = rawNote.trim();
+    if (note !== rawNote || byDate.has(date)) {
+      migrated = true;
+    }
+
+    byDate.set(date, {
+      date,
+      note,
+      updatedAt: getTimestamp(entry, "updatedAt"),
+    });
+  }
+
+  return {
+    dailyNotes: [...byDate.values()].sort((left, right) => left.date.localeCompare(right.date)),
     migrated,
   };
 }
