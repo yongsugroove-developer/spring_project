@@ -49,6 +49,7 @@ const PRESET_COLORS = [
 const ROUTE_META = {
   "/today": { tab: "today", titleKey: "homeTitle", copyKey: "homeCopy" },
   "/account": { tab: "account", titleKey: "accountTitle", copyKey: "accountCopy" },
+  "/modes": { tab: "modes", titleKey: "modesMenu", copyKey: "modesCopy" },
   "/habits": { tab: "habits", titleKey: "habitsTitle", copyKey: "habitsCopy" },
   "/tasks": { tab: "tasks", titleKey: "tasksTitle", copyKey: "tasksCopy" },
   "/routines": { tab: "routines", titleKey: "routinesTitle", copyKey: "routinesCopy" },
@@ -80,8 +81,10 @@ const state = {
   accountMenuOpen: false,
   homeQuickActionsOpen: false,
   quickCreateKind: "",
+  routeFormDrafts: {},
   modeDateDrafts: {},
   modeDatePicker: null,
+  habitPicker: null,
   homePanel: "habits",
   homeTaskFilter: "scheduled",
   draggedHabitId: "",
@@ -174,7 +177,7 @@ function bindEvents() {
   document.addEventListener("dragstart", (event) => {
     const row = event.target instanceof HTMLElement ? event.target.closest("[data-home-habit-row]") : null;
     if (!(row instanceof HTMLElement)) return;
-    state.draggedHabitId = row.dataset.homeHabitRow ?? "";
+    state.draggedHabitId = row.dataset.homeHabitId ?? "";
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData("text/plain", state.draggedHabitId);
@@ -199,7 +202,7 @@ function bindEvents() {
     if (!(row instanceof HTMLElement)) return;
     event.preventDefault();
     const draggedId = state.draggedHabitId || event.dataTransfer?.getData("text/plain") || "";
-    const targetId = row.dataset.homeHabitRow ?? "";
+    const targetId = row.dataset.homeHabitId ?? "";
     if (!draggedId || !targetId || draggedId === targetId) return;
     void reorderHabits(draggedId, targetId);
   });
@@ -270,10 +273,11 @@ async function handleAction(action, target) {
     return;
   }
   if (action === "log-time") {
-    const habitId = target.dataset.habitId ?? "";
-    await request(`/api/habit-checkins/${state.selectedHomeDate}/habits/${habitId}`, {
+    const habit = state.today?.habits?.find((entry) => entry.id === target.dataset.habitId);
+    if (!habit) return;
+    await request(`/api/habit-checkins/${state.selectedHomeDate}/habits/${habit.id}`, {
       method: "PUT",
-      body: { action: "append-time" },
+      body: { completed: !habit.timeEntries?.length },
     });
     markAchievementPulse();
     await refreshTodayOnly();
@@ -362,9 +366,10 @@ async function handleAction(action, target) {
     return;
   }
   if (action === "open-mode-date-picker") {
+    captureVisibleRouteFormDrafts();
     const formKey = target.dataset.formKey ?? "";
     if (!formKey) return;
-    const currentDates = getModeReservedDates(formKey);
+    const currentDates = getModeReservedDates(formKey, getRouteFormDraft(formKey)?.reservedDates ?? []);
     state.modeDatePicker = {
       formKey,
       month: (currentDates[0] ?? state.selectedHomeDate ?? dateKeyLocal()).slice(0, 7),
@@ -374,12 +379,14 @@ async function handleAction(action, target) {
     return;
   }
   if (action === "shift-mode-date-month") {
+    captureVisibleRouteFormDrafts();
     if (!state.modeDatePicker) return;
     state.modeDatePicker.month = shiftMonthKey(state.modeDatePicker.month, Number(target.dataset.direction || "0"));
     render();
     return;
   }
   if (action === "toggle-mode-date") {
+    captureVisibleRouteFormDrafts();
     if (!state.modeDatePicker) return;
     const date = target.dataset.date ?? "";
     if (!isValidDateKey(date)) return;
@@ -394,6 +401,7 @@ async function handleAction(action, target) {
     return;
   }
   if (action === "apply-mode-date-picker") {
+    captureVisibleRouteFormDrafts();
     if (!state.modeDatePicker) return;
     state.modeDateDrafts[state.modeDatePicker.formKey] = sortReservedDates(state.modeDatePicker.dates);
     state.modeDatePicker = null;
@@ -401,7 +409,50 @@ async function handleAction(action, target) {
     return;
   }
   if (action === "close-mode-date-picker") {
+    captureVisibleRouteFormDrafts();
     state.modeDatePicker = null;
+    render();
+    return;
+  }
+  if (action === "open-habit-picker") {
+    captureVisibleRouteFormDrafts();
+    const formKey = target.dataset.formKey ?? "";
+    if (!formKey || !state.habits.length) return;
+    const draft = getRouteFormDraft(formKey);
+    state.habitPicker = {
+      formKey,
+      selectedIds: orderedSelectedIds(draft?.habitIds ?? [], state.habits),
+    };
+    render();
+    return;
+  }
+  if (action === "toggle-habit-picker-choice") {
+    if (!state.habitPicker) return;
+    const habitId = target.dataset.habitId ?? "";
+    if (!habitId) return;
+    const selectedIds = new Set(state.habitPicker.selectedIds);
+    if (selectedIds.has(habitId)) {
+      selectedIds.delete(habitId);
+    } else {
+      selectedIds.add(habitId);
+    }
+    state.habitPicker.selectedIds = orderedSelectedIds([...selectedIds], state.habits);
+    render();
+    return;
+  }
+  if (action === "apply-habit-picker") {
+    if (!state.habitPicker) return;
+    const { formKey, selectedIds } = state.habitPicker;
+    state.routeFormDrafts[formKey] = {
+      ...(getRouteFormDraft(formKey) ?? {}),
+      habitIds: orderedSelectedIds(selectedIds, state.habits),
+    };
+    state.habitPicker = null;
+    render();
+    return;
+  }
+  if (action === "close-habit-picker") {
+    state.habitPicker = null;
     render();
     return;
   }
@@ -422,6 +473,7 @@ async function handleAction(action, target) {
 
 async function handleSubmit(form) {
   const kind = form.dataset.form;
+  const formKey = form.dataset.formKey ?? "";
   const data = new FormData(form);
 
   try {
@@ -451,6 +503,7 @@ async function handleSubmit(form) {
     }
     if (kind === "routine-create") {
       await request("/api/routines", { method: "POST", body: serializeRoutineForm(data) });
+      clearRouteFormDraft(formKey);
       form.reset();
       closeQuickCreate();
       await refreshAll();
@@ -458,6 +511,7 @@ async function handleSubmit(form) {
     }
     if (kind === "routine-update") {
       await request(`/api/routines/${form.dataset.id}`, { method: "PATCH", body: serializeRoutineForm(data) });
+      clearRouteFormDraft(formKey);
       await refreshAll();
       return;
     }
@@ -465,7 +519,8 @@ async function handleSubmit(form) {
       const reservedDates = readReservedDates(data);
       const created = await request("/api/routine-modes", { method: "POST", body: serializeModeForm(data) });
       await syncModeReservations(created.mode.id, [], reservedDates);
-      delete state.modeDateDrafts[modeFormKey()];
+      clearRouteFormDraft(formKey);
+      delete state.modeDateDrafts[formKey];
       form.reset();
       await refreshAll();
       return;
@@ -476,7 +531,8 @@ async function handleSubmit(form) {
       const previousDates = state.modes.find((entry) => entry.id === modeId)?.reservedDates ?? [];
       await request(`/api/routine-modes/${modeId}`, { method: "PATCH", body: serializeModeForm(data) });
       await syncModeReservations(modeId, previousDates, reservedDates);
-      delete state.modeDateDrafts[modeFormKey(modeId)];
+      clearRouteFormDraft(formKey);
+      delete state.modeDateDrafts[formKey];
       await refreshAll();
       return;
     }
@@ -533,8 +589,70 @@ function serializeModeForm(data) {
   };
 }
 
-function modeFormKey(modeId = "") {
-  return modeId ? `mode:${modeId}` : "mode:create";
+function routineFormKey(routineId = "", scope = "create") {
+  return routineId ? `routine:${routineId}` : `routine:${scope}`;
+}
+
+function modeFormKey(modeId = "", scope = "create") {
+  return modeId ? `mode:${modeId}` : `mode:${scope}`;
+}
+
+function orderedSelectedIds(values, items) {
+  const selected = new Set(values.map(String));
+  return items.map((item) => item.id).filter((id) => selected.has(id));
+}
+
+function getRouteFormDraft(formKey) {
+  if (!formKey) {
+    return null;
+  }
+  return state.routeFormDrafts[formKey] ?? null;
+}
+
+function clearRouteFormDraft(formKey) {
+  if (!formKey) {
+    return;
+  }
+  delete state.routeFormDrafts[formKey];
+}
+
+function captureRouteFormDraft(form) {
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  const formKey = form.dataset.formKey ?? "";
+  if (!formKey) {
+    return;
+  }
+  const data = new FormData(form);
+  state.routeFormDrafts[formKey] = {
+    name: String(data.get("name") || ""),
+    color: optionalValue(data.get("color")),
+    routineIds: orderedSelectedIds(data.getAll("routineIds").map(String), state.routines),
+    habitIds: orderedSelectedIds(data.getAll("habitIds").map(String), state.habits),
+    reservedDates: readReservedDates(data),
+  };
+}
+
+function captureVisibleRouteFormDrafts() {
+  for (const form of document.querySelectorAll("form[data-form-key]")) {
+    captureRouteFormDraft(form);
+  }
+}
+
+function selectedItemsByIds(ids, items) {
+  const selected = new Set(ids.map(String));
+  return items.filter((item) => selected.has(item.id));
+}
+
+function formatSelectionSummary(items, emptyLabel) {
+  if (!items.length) {
+    return emptyLabel;
+  }
+  if (items.length === 1) {
+    return items[0].name;
+  }
+  return `${items[0].name} +${items.length - 1}`;
 }
 
 function sortReservedDates(values) {
@@ -555,7 +673,7 @@ function getModeReservedDates(formKey, fallbackDates = null) {
 
 function formatReservedDatesSummary(dates) {
   if (!dates.length) {
-    return tx("noReservedDates", "No reserved dates");
+  return tx("noReservedDates", "예약된 날짜가 없습니다.");
   }
   if (dates.length === 1) {
     return formatCompactDate(dates[0]);
@@ -601,7 +719,7 @@ async function restoreSession() {
   try {
     const response = await request("/api/auth/me", { allow401: true });
     if (!response?.user) {
-      throw new Error("Authentication required");
+      throw new Error("authRequiredTitle");
     }
     state.currentUser = response?.user ?? null;
   } catch (error) {
@@ -614,7 +732,19 @@ async function restoreSession() {
   }
 }
 
+function resetTransientUiState() {
+  if (state.quickCreateKind === "routine") {
+    clearRouteFormDraft(routineFormKey("", "quick-create"));
+  }
+  state.accountMenuOpen = false;
+  state.homeQuickActionsOpen = false;
+  state.quickCreateKind = "";
+  state.modeDatePicker = null;
+  state.habitPicker = null;
+}
+
 function syncRouteFromHash() {
+  resetTransientUiState();
   const hash = location.hash ? location.hash.slice(1) : "/today";
   const parsed = parseHashRoute(hash);
   state.routePath = ROUTE_META[parsed.pathname] ? parsed.pathname : "/today";
@@ -629,14 +759,14 @@ function syncRouteFromHash() {
 }
 
 function navigate(route) {
-  state.accountMenuOpen = false;
-  state.homeQuickActionsOpen = false;
-  state.quickCreateKind = "";
+  resetTransientUiState();
   const target = normalizeHashPath(route);
   const nextHash = target === "/today" ? buildTodayRoute(state.selectedHomeDate) : target;
   if (location.hash !== `#${nextHash}`) {
     location.hash = nextHash;
+    return;
   }
+  render();
 }
 
 async function refreshForRouteChange() {
@@ -693,7 +823,7 @@ function syncTodayState() {
 }
 
 async function reorderHabits(draggedId, targetId) {
-  const visibleIds = state.today?.habits?.map((habit) => habit.id) ?? state.habits.map((habit) => habit.id);
+  const visibleIds = getHomeHabits().map((habit) => habit.id);
   const baseIds = state.habits.map((habit) => habit.id);
   const nextVisibleIds = moveId(visibleIds, draggedId, targetId);
   const visibleIdSet = new Set(nextVisibleIds);
@@ -713,13 +843,13 @@ function renderShellOnly() {
   applyPreferences();
   applyShellText();
   document.documentElement.lang = state.locale;
-  document.title = `My Planner | ${tx(ROUTE_META[state.routePath].titleKey, "My Planner")}`;
+  document.title = `마이 플래너 | ${tx(ROUTE_META[state.routePath].titleKey, "마이 플래너")}`;
   document.querySelector(".account-menu-shell")?.classList.toggle("is-open", state.accountMenuOpen);
   const accountTrigger = document.getElementById("account-menu-trigger");
   if (accountTrigger instanceof HTMLElement) {
     accountTrigger.setAttribute("aria-expanded", String(state.accountMenuOpen));
   }
-  document.body.classList.toggle("is-overlay-open", Boolean(state.quickCreateKind));
+  document.body.classList.toggle("is-overlay-open", Boolean(state.quickCreateKind || state.modeDatePicker || state.habitPicker));
 
   for (const button of document.querySelectorAll(".mobile-tab-button")) {
     if (!(button instanceof HTMLElement)) continue;
@@ -737,10 +867,10 @@ function renderShellOnly() {
   const accountName = document.getElementById("account-menu-name");
   const accountMeta = document.getElementById("account-menu-meta");
   if (accountName instanceof HTMLElement) {
-    accountName.textContent = state.currentUser?.displayName || state.currentUser?.email || tx("accountMenu", "Account");
+    accountName.textContent = state.currentUser?.displayName || state.currentUser?.email || tx("accountMenu", "계정");
   }
   if (accountMeta instanceof HTMLElement) {
-    accountMeta.textContent = state.currentUser?.email || "Account / Settings / Stats";
+    accountMeta.textContent = state.currentUser?.email || tx("accountMenuMeta", "계정 / 설정 / 통계");
   }
 }
 
@@ -748,6 +878,7 @@ function renderPanels() {
   const renderers = {
     today: renderTodayPage,
     account: renderAccountPage,
+    modes: renderModesPage,
     habits: renderHabitsPage,
     tasks: renderTasksPage,
     routines: renderRoutinesPage,
@@ -764,7 +895,10 @@ function renderPanels() {
 function renderTodayPage() {
   if (!state.today) return "";
   const rate = Number(state.today.summary.habitRate || 0);
+  const clampedRate = Math.max(0, Math.min(rate, 1));
   const tasks = getHomeTasks();
+  const homeHabitGroups = getHomeHabitGroups();
+  const achievementTier = resolveAchievementTier(clampedRate);
   return `<div class="route-screen-layout home-screen">
     <section class="content-card home-date-card">
       <h2 class="home-date-month" data-home-month-label>${esc(formatMonthLabel(state.selectedHomeDate))}</h2>
@@ -773,65 +907,69 @@ function renderTodayPage() {
       </div>
     </section>
 
-    <section class="content-card achievement-card ${rate >= 1 ? "is-complete" : ""} ${state.achievementPulseUntil > Date.now() ? "is-pulsing" : ""}" style="--achievement-progress:${String(Math.max(0, Math.min(rate, 1)))};">
+    <section class="content-card achievement-card achievement-card--${achievementTier} ${rate >= 1 ? "is-complete" : ""} ${state.achievementPulseUntil > Date.now() ? "is-pulsing" : ""}" style="--achievement-progress:${String(clampedRate)};">
       <div class="achievement-copy">
-        <p class="eyebrow">${esc(tx("homeSummaryRate", "Completion"))}</p>
+        <div class="achievement-label-row">
+          <p class="eyebrow">${esc(tx("homeSummaryRate", "달성률"))}</p>
+          <span class="achievement-milestone" role="img" aria-label="${esc(resolveMilestone(clampedRate))}" title="${esc(resolveMilestone(clampedRate))}">${esc(resolveMilestoneEmoji(clampedRate))}</span>
+        </div>
         <h3 data-achievement-number="${String(rate)}">${esc(percent(rate))}</h3>
       </div>
       <div class="achievement-stats today-home-summary-row">
-        ${renderAchievementStat(tx("completedHabits", "Completed"), `${state.today.summary.completedHabits}/${state.today.summary.totalHabits}`)}
-        ${renderAchievementStat(tx("remainingHabits", "Remaining"), String(state.today.summary.remainingHabits), "remaining")}
-        ${renderAchievementStat(tx("streak", "Streak"), summarizeTodayStreak(state.today.habits))}
+        ${renderAchievementStat(tx("completedHabits", "완료"), `${state.today.summary.completedHabits}/${state.today.summary.totalHabits}`)}
+        ${renderAchievementStat(tx("remainingHabits", "남음"), String(state.today.summary.remainingHabits), "remaining")}
+        ${renderAchievementStat(tx("streak", "연속"), summarizeTodayStreak(state.today.habits))}
       </div>
       <div class="achievement-liquid" aria-hidden="true">
         <span class="achievement-wave achievement-wave--back"></span>
         <span class="achievement-wave achievement-wave--front"></span>
+        ${
+          clampedRate >= 0.75
+            ? `<span class="achievement-spark achievement-spark--left"></span>
+        <span class="achievement-spark achievement-spark--center"></span>
+        <span class="achievement-spark achievement-spark--right"></span>`
+            : ""
+        }
         ${rate >= 1 ? `<span class="achievement-confetti"></span>` : ""}
       </div>
     </section>
 
     <section class="home-panels">
       <div class="segmented home-panel-tabs">
-        <button class="segment-button ${state.homePanel === "tasks" ? "is-selected" : ""}" type="button" data-action="select-home-panel" data-panel="tasks">${esc(tx("tasksMenu", "Tasks"))}</button>
-        <button class="segment-button ${state.homePanel === "habits" ? "is-selected" : ""}" type="button" data-action="select-home-panel" data-panel="habits">${esc(tx("habitsMenu", "Habits"))}</button>
+        <button class="segment-button ${state.homePanel === "tasks" ? "is-selected" : ""}" type="button" data-action="select-home-panel" data-panel="tasks">${esc(tx("tasksMenu", "작업 보기"))}</button>
+        <button class="segment-button ${state.homePanel === "habits" ? "is-selected" : ""}" type="button" data-action="select-home-panel" data-panel="habits">${esc(tx("habitsMenu", "습관 보기"))}</button>
       </div>
       <div class="home-carousel" data-home-carousel>
         <section class="content-card home-panel" data-home-panel="tasks">
           <div class="route-inline-head home-panel-head">
             <div>
-              <h3>${esc(tx("tasksMenu", "Tasks"))}</h3>
-              <p class="muted">${esc(tx("homeTaskCopy", "Handle scheduled tasks and inbox items without leaving home."))}</p>
+              <h3>${esc(tx("tasksMenu", "작업 보기"))}</h3>
+              <p class="muted">${esc(tx("homeTaskCopy", "홈에서 바로 선택 날짜 작업과 보관함 작업을 관리합니다."))}</p>
             </div>
             <div class="segmented home-filter-tabs">
-              <button class="segment-button ${state.homeTaskFilter === "scheduled" ? "is-selected" : ""}" type="button" data-action="set-home-task-filter" data-filter="scheduled">${esc(tx("scheduledTasks", "Selected day"))}</button>
-              <button class="segment-button ${state.homeTaskFilter === "inbox" ? "is-selected" : ""}" type="button" data-action="set-home-task-filter" data-filter="inbox">${esc(tx("inbox", "Inbox"))}</button>
+              <button class="segment-button ${state.homeTaskFilter === "scheduled" ? "is-selected" : ""}" type="button" data-action="set-home-task-filter" data-filter="scheduled">${esc(tx("scheduledTasks", "선택 날짜"))}</button>
+              <button class="segment-button ${state.homeTaskFilter === "inbox" ? "is-selected" : ""}" type="button" data-action="set-home-task-filter" data-filter="inbox">${esc(tx("inbox", "보관함"))}</button>
             </div>
           </div>
           <div class="home-task-list">
-            ${tasks.length ? tasks.map(renderHomeTaskRow).join("") : renderEmptyState(tx("noTasksHome", "No tasks in this section yet."))}
+            ${tasks.length ? tasks.map(renderHomeTaskRow).join("") : renderEmptyState(tx("noTasksHome", "이 구역에 표시할 작업이 없습니다."))}
           </div>
         </section>
 
         <section class="content-card home-panel" data-home-panel="habits">
-          <div class="route-inline-head home-panel-head">
-            <div>
-              <h3>${esc(tx("habitsMenu", "Habits"))}</h3>
-              <p class="muted">${esc(tx("reorderHint", "Drag to reorder the home habit list."))}</p>
-            </div>
-          </div>
           ${
-            state.today.habits.length
+            homeHabitGroups.length
               ? `<section class="today-home-board today-home-board--dense home-habit-board">
             <div class="today-home-board-head">
-              <span>${esc(tx("order", "Order"))}</span>
-              <span>${esc(tx("habitsMenu", "Habits"))}</span>
-              <span>${esc(tx("status", "Status"))}</span>
+              <span>${esc(tx("order", "순서"))}</span>
+              <span>${esc(tx("habitsMenu", "습관 보기"))}</span>
+              <span>${esc(tx("status", "상태"))}</span>
             </div>
             <div class="today-home-board-body">
-              ${state.today.habits.map((habit, index) => renderHomeHabitRow(habit, index)).join("")}
+              ${homeHabitGroups.map((group) => renderHomeHabitSection(group)).join("")}
             </div>
           </section>`
-              : renderEmptyState(tx("noHabitsHome", "No habits are scheduled for this day yet."))
+              : renderEmptyState(tx("noHabits", "저장된 습관이 없습니다."))
           }
         </section>
       </div>
@@ -847,8 +985,8 @@ function renderAccountPage() {
     return `<div class="route-screen-layout route-screen-layout--settings">
       <section class="content-card">
         <div class="route-section-heading">
-          <h3>${esc(tx("authUnavailableTitle", "Authentication is unavailable."))}</h3>
-          <p class="muted">${esc(tx("authUnavailableCopy", "The current environment does not provide authentication."))}</p>
+          <h3>${esc(tx("authUnavailableTitle", "인증을 사용할 수 없습니다."))}</h3>
+          <p class="muted">${esc(tx("authUnavailableCopy", "현재 환경에서는 인증 기능을 제공하지 않습니다."))}</p>
         </div>
       </section>
     </div>`;
@@ -858,11 +996,11 @@ function renderAccountPage() {
     return `<div class="route-screen-layout route-screen-layout--settings">
       <section class="content-card">
         <div class="route-section-heading">
-          <h3>${esc(tx("authRequiredTitle", "Login is required."))}</h3>
-          <p class="muted">${esc(tx("authRequiredCopy", "Log in to continue."))}</p>
+          <h3>${esc(tx("authRequiredTitle", "로그인이 필요합니다."))}</h3>
+          <p class="muted">${esc(tx("authRequiredCopy", "계속하려면 로그인하세요."))}</p>
         </div>
         <div class="actions">
-          <a class="btn" href="/login">${esc(tx("login", "Login"))}</a>
+          <a class="btn" href="/login">${esc(tx("login", "로그인"))}</a>
         </div>
       </section>
     </div>`;
@@ -871,30 +1009,30 @@ function renderAccountPage() {
   return `<div class="route-screen-layout route-screen-layout--settings">
     <section class="content-card">
       <div class="route-section-heading">
-        <h3>${esc(tx("accountMenu", "Account"))}</h3>
-        <p class="muted">${esc(tx("accountCopy", "Review the current signed-in account and session controls."))}</p>
+        <h3>${esc(tx("accountMenu", "계정"))}</h3>
+        <p class="muted">${esc(tx("accountCopy", "현재 로그인한 계정 정보와 세션 동작을 확인합니다."))}</p>
       </div>
       <div class="route-list-stack">
         <article class="route-list-stack-item">
           <div class="route-list-row">
             <div class="route-list-copy">
-              <strong>${esc(state.currentUser.displayName || tx("accountMenu", "Account"))}</strong>
+              <strong>${esc(state.currentUser.displayName || tx("accountMenu", "계정"))}</strong>
               <span>${esc(state.currentUser.email || "")}</span>
             </div>
-            <span class="route-list-meta">${esc(state.currentUser.role || "")}</span>
+            <span class="route-list-meta">${esc(formatUserRole(state.currentUser.role))}</span>
           </div>
         </article>
         <article class="route-list-stack-item">
           <div class="route-list-row">
             <div class="route-list-copy">
-              <strong>${esc(tx("status", "Status"))}</strong>
-              <span>${esc(state.currentUser.status || "")}</span>
+              <strong>${esc(tx("status", "상태"))}</strong>
+              <span>${esc(formatUserStatus(state.currentUser.status))}</span>
             </div>
           </div>
         </article>
       </div>
       <div class="actions">
-        <button class="btn-soft" type="button" data-action="logout">${esc(tx("logout", "Log out"))}</button>
+        <button class="btn-soft" type="button" data-action="logout">${esc(tx("logout", "로그아웃"))}</button>
       </div>
     </section>
   </div>`;
@@ -904,13 +1042,47 @@ function renderHabitsPage() {
   return `<div class="route-screen-layout route-screen-layout--library">
     <section class="content-card">
       <div class="route-section-heading">
-        <h3>${esc(tx("habitsMenu", "Habits"))}</h3>
-        <p class="muted">${esc(tx("listOnlyHint", "Edit saved habits here. New habits can also be added from home."))}</p>
+        <h3>${esc(tx("habitsMenu", "습관 보기"))}</h3>
+        <p class="muted">${esc(tx("listOnlyHint", "이 화면은 목록에 집중합니다. 새 항목은 홈의 + 버튼에서 추가합니다."))}</p>
       </div>
       <div class="route-list-stack">
-        ${state.habits.length ? state.habits.map(renderHabitCard).join("") : `<p class="muted">${esc(tx("noHabits", "No saved habits yet."))}</p>`}
+        ${state.habits.length ? state.habits.map(renderHabitCard).join("") : `<p class="muted">${esc(tx("noHabits", "저장된 습관이 없습니다."))}</p>`}
       </div>
     </section>
+  </div>`;
+}
+
+function renderModesPage() {
+  return `<div class="route-screen-layout">
+    <section class="content-card">
+      <div class="route-section-heading">
+        <h3>${esc(tx("modesMenu", "모드 설정"))}</h3>
+        <p class="muted">${esc(tx("modesCopy", "모드는 어떤 루틴과 개별 습관을 사용할지 묶어서 관리합니다."))}</p>
+      </div>
+      <details class="route-list-card route-list-card--collapsible route-list-card--mode route-list-card--mode-create">
+        <summary class="route-list-row route-list-row--wide route-list-summary">
+          <div class="route-list-copy route-list-copy--routine">
+            <strong>${esc(tx("createMode", "모드 만들기"))}</strong>
+            <span class="routine-inline-empty">${esc(tx("modesCopy", "모드는 어떤 루틴과 개별 습관을 사용할지 묶어서 관리합니다."))}</span>
+          </div>
+          <span class="route-list-side">
+            <span class="route-list-meta">${esc(tx("modesTitle", "모드"))}</span>
+            <span class="route-list-toggle" aria-hidden="true">⌄</span>
+          </span>
+        </summary>
+        <form class="form-grid route-inline-form" data-form="mode-create" data-form-key="${modeFormKey()}">
+          ${modeFields("create", null)}
+          <div class="actions">
+            <button class="btn" type="submit">${esc(tx("createMode", "모드 만들기"))}</button>
+          </div>
+        </form>
+      </details>
+      <div class="route-list-stack">
+        ${state.modes.length ? state.modes.map(renderModeCard).join("") : `<p class="muted">${esc(tx("noModes", "저장된 모드가 없습니다."))}</p>`}
+      </div>
+    </section>
+    ${renderModeDatePickerLayer()}
+    ${renderHabitPickerLayer()}
   </div>`;
 }
 
@@ -918,50 +1090,28 @@ function renderTasksPage() {
   return `<div class="route-screen-layout route-screen-layout--library">
     <section class="content-card">
       <div class="route-section-heading">
-        <h3>${esc(tx("tasksMenu", "Tasks"))}</h3>
-        <p class="muted">${esc(tx("listOnlyHint", "Edit saved tasks here. New tasks can also be added from home."))}</p>
+        <h3>${esc(tx("tasksMenu", "작업 보기"))}</h3>
+        <p class="muted">${esc(tx("listOnlyHint", "이 화면은 목록에 집중합니다. 새 항목은 홈의 + 버튼에서 추가합니다."))}</p>
       </div>
       <div class="route-list-stack">
-        ${state.tasks.length ? state.tasks.map(renderTaskCard).join("") : `<p class="muted">${esc(tx("noTasks", "No saved tasks yet."))}</p>`}
+        ${state.tasks.length ? state.tasks.map(renderTaskCard).join("") : `<p class="muted">${esc(tx("noTasks", "저장된 작업이 없습니다."))}</p>`}
       </div>
     </section>
   </div>`;
 }
 
 function renderRoutinesPage() {
-  return `<div class="route-screen-layout routines-screen">
+  return `<div class="route-screen-layout route-screen-layout--library">
     <section class="content-card">
       <div class="route-section-heading">
-        <h3>${esc(tx("modesTitle", "Modes"))}</h3>
-        <p class="muted">${esc(tx("modesCopy", "Modes choose which routines and individual habits are active on which days."))}</p>
+        <h3>${esc(tx("routinesMenu", "루틴 보기"))}</h3>
+        <p class="muted">${esc(tx("listOnlyHint", "이 화면은 목록에 집중합니다. 새 항목은 홈의 + 버튼에서 추가합니다."))}</p>
       </div>
-      <form class="form-grid" data-form="mode-create">
-        ${modeFields("mode-create", null)}
-        <div class="actions">
-          <button class="btn" type="submit">${esc(tx("createMode", "Create mode"))}</button>
-        </div>
-      </form>
       <div class="route-list-stack">
-        ${state.modes.length ? state.modes.map(renderModeCard).join("") : `<p class="muted">${esc(tx("noModes", "No modes yet."))}</p>`}
+        ${state.routines.length ? state.routines.map(renderRoutineCard).join("") : `<p class="muted">${esc(tx("noRoutines", "저장된 루틴이 없습니다."))}</p>`}
       </div>
     </section>
-
-    <section class="content-card">
-      <div class="route-section-heading">
-        <h3>${esc(tx("routinesMenu", "Routines"))}</h3>
-        <p class="muted">${esc(tx("routinesCopy", "A routine is a reusable bundle of habits."))}</p>
-      </div>
-      <form class="form-grid" data-form="routine-create">
-        ${routineFields("routine-create", null)}
-        <div class="actions">
-          <button class="btn" type="submit">${esc(tx("createRoutine", "Create routine"))}</button>
-        </div>
-      </form>
-      <div class="route-list-stack">
-        ${state.routines.length ? state.routines.map(renderRoutineCard).join("") : `<p class="muted">${esc(tx("noRoutines", "No saved routines yet."))}</p>`}
-      </div>
-    </section>
-    ${renderModeDatePickerLayer()}
+    ${renderHabitPickerLayer()}
   </div>`;
 }
 
@@ -974,14 +1124,14 @@ function renderCalendarPage() {
       <div class="route-inline-head">
         <h3>${esc(formatMonthTitle(state.selectedMonth))}</h3>
         <div class="actions">
-          <button class="btn-soft compact-action" type="button" data-action="shift-month" data-direction="-1">${esc(tx("weekPrevious", "Previous"))}</button>
-          <button class="btn-soft compact-action" type="button" data-action="shift-month" data-direction="1">${esc(tx("weekNext", "Next"))}</button>
+          <button class="btn-soft compact-action" type="button" data-action="shift-month" data-direction="-1">${esc(tx("weekPrevious", "이전 주"))}</button>
+          <button class="btn-soft compact-action" type="button" data-action="shift-month" data-direction="1">${esc(tx("weekNext", "다음 주"))}</button>
         </div>
       </div>
       <div class="calendar-focus-inline">
         <article class="calendar-focus-rate" style="--progress:${String(monthRate)};">
           <div class="calendar-focus-copy">
-            <span>${esc(tx("homeSummaryRate", "Completion"))}</span>
+            <span>${esc(tx("homeSummaryRate", "달성률"))}</span>
             <strong>${esc(percent(monthRate))}</strong>
           </div>
           <div class="calendar-water-pool calendar-water-pool--summary" aria-hidden="true">
@@ -993,8 +1143,8 @@ function renderCalendarPage() {
         </article>
       </div>
       <div class="calendar-grid calendar-grid--month">
-        ${["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((label) => `<span class="weekday">${label}</span>`).join("")}
-        ${monthGrid.length ? monthGrid.map((cell) => renderCalendarMonthCell(cell)).join("") : `<p class="muted">${esc(tx("noCalendarData", "No calendar data to show."))}</p>`}
+        ${buildLocalizedWeekdayLabels().map((label) => `<span class="weekday">${label}</span>`).join("")}
+        ${monthGrid.length ? monthGrid.map((cell) => renderCalendarMonthCell(cell)).join("") : `<p class="muted">${esc(tx("noCalendarData", "표시할 캘린더 데이터가 없습니다."))}</p>`}
       </div>
     </section>
   </div>`;
@@ -1005,23 +1155,23 @@ function renderStatsPage() {
   return `<div class="route-screen-layout">
     <section class="content-card">
       <div class="route-inline-head">
-        <h3>${esc(tx("stats", "Stats"))}</h3>
+        <h3>${esc(tx("stats", "통계"))}</h3>
         <div class="segmented">
-          <button class="segment-button ${state.statsRange === "week" ? "is-selected" : ""}" type="button" data-action="stats-range" data-range="week">Week</button>
-          <button class="segment-button ${state.statsRange === "month" ? "is-selected" : ""}" type="button" data-action="stats-range" data-range="month">Month</button>
+          <button class="segment-button ${state.statsRange === "week" ? "is-selected" : ""}" type="button" data-action="stats-range" data-range="week">주</button>
+          <button class="segment-button ${state.statsRange === "month" ? "is-selected" : ""}" type="button" data-action="stats-range" data-range="month">월</button>
         </div>
       </div>
       ${summary ? `<div class="summary-grid">
-        ${summaryCard("Daily", percent(summary.dailyRate))}
-        ${summaryCard("Weekly", percent(summary.weeklyRate))}
-        ${summaryCard("Monthly", percent(summary.monthlyRate))}
-        ${summaryCard("Current streak", String(summary.currentStreak))}
-        ${summaryCard("Best streak", String(summary.bestStreak))}
-        ${summaryCard("Task completion", `${summary.taskCompletion.completed}/${summary.taskCompletion.total}`)}
+        ${summaryCard(tx("statsDaily", "일간 달성률"), percent(summary.dailyRate))}
+        ${summaryCard(tx("statsWeekly", "주간 달성률"), percent(summary.weeklyRate))}
+        ${summaryCard(tx("statsMonthly", "월간 달성률"), percent(summary.monthlyRate))}
+        ${summaryCard(tx("statsCurrentStreak", "현재 연속"), String(summary.currentStreak))}
+        ${summaryCard(tx("statsBestStreak", "최고 연속"), String(summary.bestStreak))}
+        ${summaryCard(tx("taskCompletion", "작업 완료"), `${summary.taskCompletion.completed}/${summary.taskCompletion.total}`)}
       </div>
       <div class="route-list-stack" style="margin-top:16px;">
-        ${summary.topHabits.map((habit) => `<article class="route-list-card"><div class="route-list-row"><div class="route-list-copy"><strong>${esc(habit.name)}</strong><span>${habit.completedDays}/${habit.trackedDays} days</span></div><strong>${percent(habit.completionRate)}</strong></div></article>`).join("") || `<p class="muted">${esc(tx("noStatsData", "No stats to show."))}</p>`}
-      </div>` : `<p class="muted">${esc(tx("noStatsData", "No stats to show."))}</p>`}
+        ${summary.topHabits.map((habit) => `<article class="route-list-card"><div class="route-list-row"><div class="route-list-copy"><strong>${esc(habit.name)}</strong><span>${habit.completedDays}/${habit.trackedDays}${esc(tx("daysSuffix", "일"))}</span></div><strong>${percent(habit.completionRate)}</strong></div></article>`).join("") || `<p class="muted">${esc(tx("noStatsData", "표시할 통계가 없습니다."))}</p>`}
+      </div>` : `<p class="muted">${esc(tx("noStatsData", "표시할 통계가 없습니다."))}</p>`}
     </section>
   </div>`;
 }
@@ -1029,11 +1179,11 @@ function renderStatsPage() {
 function renderSettingsPage() {
   return `<div class="route-screen-layout route-screen-layout--settings">
     <section class="content-card">
-      <div class="route-section-heading"><h3>${esc(tx("displaySettings", "Display settings"))}</h3></div>
+      <div class="route-section-heading"><h3>${esc(tx("displaySettings", "보기 설정"))}</h3></div>
       <div class="settings-control-list">
-        <label class="settings-control-item"><span>${esc(tx("language", "Language"))}</span><select id="settings-locale">${Object.entries(LANGUAGE_LABELS).map(([value, label]) => `<option value="${value}" ${value === state.locale ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></label>
-        <label class="settings-control-item"><span>${esc(tx("theme", "Theme"))}</span><select id="settings-theme">${THEME_OPTIONS.map((option) => `<option value="${option.value}" ${option.value === state.themePreset ? "selected" : ""}>${esc(tx(option.labelKey, option.value))}</option>`).join("")}</select></label>
-        <label class="settings-control-item"><span>${esc(tx("density", "Density"))}</span><select id="settings-density">${DENSITY_OPTIONS.map((option) => `<option value="${option.value}" ${option.value === state.density ? "selected" : ""}>${esc(tx(option.labelKey, option.value))}</option>`).join("")}</select></label>
+        <label class="settings-control-item"><span>${esc(tx("language", "언어"))}</span><select id="settings-locale">${Object.entries(LANGUAGE_LABELS).map(([value, label]) => `<option value="${value}" ${value === state.locale ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></label>
+        <label class="settings-control-item"><span>${esc(tx("theme", "테마"))}</span><select id="settings-theme">${THEME_OPTIONS.map((option) => `<option value="${option.value}" ${option.value === state.themePreset ? "selected" : ""}>${esc(tx(option.labelKey, option.value))}</option>`).join("")}</select></label>
+        <label class="settings-control-item"><span>${esc(tx("density", "밀도"))}</span><select id="settings-density">${DENSITY_OPTIONS.map((option) => `<option value="${option.value}" ${option.value === state.density ? "selected" : ""}>${esc(tx(option.labelKey, option.value))}</option>`).join("")}</select></label>
       </div>
     </section>
   </div>`;
@@ -1058,9 +1208,9 @@ function renderAchievementStat(label, value, extraClass = "") {
 
 function renderHomeTaskRow(task) {
   const done = task.status === "done";
-  const meta = task.dueDate ? formatCompactDate(task.dueDate) : tx("inbox", "Inbox");
+  const meta = task.dueDate ? formatCompactDate(task.dueDate) : tx("inbox", "보관함");
   return `<article class="home-task-row ${done ? "is-done" : ""}">
-    <button class="home-task-toggle ${done ? "is-done" : ""}" type="button" data-action="toggle-task-status" data-task-id="${task.id}" aria-label="${esc(done ? tx("markPending", "Mark pending") : tx("markDone", "Mark done"))}">${done ? "✓" : ""}</button>
+    <button class="home-task-toggle ${done ? "is-done" : ""}" type="button" data-action="toggle-task-status" data-task-id="${task.id}" aria-label="${esc(done ? tx("markPending", "미완료로 변경") : tx("markDone", "완료 처리"))}">${done ? "✓" : ""}</button>
     <div class="home-task-copy">
       <strong>${esc(task.title)}</strong>
       <span>${esc(task.note || meta)}</span>
@@ -1069,12 +1219,21 @@ function renderHomeTaskRow(task) {
   </article>`;
 }
 
-function renderHomeHabitRow(habit, index) {
-  const subtitle = [habit.tag, `${tx("streak", "Streak")} ${habit.streak}`, `${tx("startDate", "Start")} ${habit.startDate}`]
-    .filter(Boolean)
-    .join(" | ");
-  return `<article class="home-board-group" data-home-habit-row="${habit.id}" draggable="true" style="--routine-accent:${esc(habit.color)};">
-    <div class="home-board-row home-board-row--item home-board-row--${habit.trackingType} ${habit.isComplete ? "is-complete" : ""}">
+function renderHomeHabitSection(group) {
+  return `<section class="home-habit-section" style="--section-accent:${esc(group.accentColor)};">
+    <div class="home-habit-section-head">
+      <span class="home-habit-section-title">${esc(group.title)}</span>
+    </div>
+    <div class="home-habit-section-list">
+      ${group.habits.map((habit, index) => renderHomeHabitRow(habit, index, group.key)).join("")}
+    </div>
+  </section>`;
+}
+
+function renderHomeHabitRow(habit, index, groupKey = "group") {
+  const instanceKey = `${groupKey}:${habit.id}:${index}`;
+  return `<article class="home-board-group ${habit.isScheduledToday ? "" : "is-inactive"}" data-home-habit-row="${esc(instanceKey)}" data-home-habit-id="${habit.id}" draggable="true" style="--routine-accent:${esc(habit.color)};">
+    <div class="home-board-row home-board-row--item home-board-row--${habit.trackingType} ${habit.isScheduledToday ? "" : "home-board-row--inactive"} ${habit.isComplete ? "is-complete" : ""}">
       <div class="home-board-cell home-board-cell--index">
         <span class="home-order-badge">${esc(String(index + 1))}</span>
       </div>
@@ -1083,19 +1242,29 @@ function renderHomeHabitRow(habit, index) {
           <span class="home-routine-accent"></span>
           <div class="home-item-copy">
             <strong>${esc(habit.name)}</strong>
-            <span>${esc(subtitle)}</span>
           </div>
         </div>
       </div>
       <div class="home-board-cell home-board-cell--status">
-        ${habit.trackingType === "binary" ? renderBinaryAction(habit) : habit.trackingType === "count" ? renderCountAction(habit) : renderTimeAction(habit)}
+        ${renderHomeHabitStatus(habit)}
       </div>
     </div>
   </article>`;
 }
 
+function renderHomeHabitStatus(habit) {
+  if (!habit.isScheduledToday) {
+    return `<span class="state-pill">${esc(habit.startsLater ? tx("startsLater", "시작 전") : tx("notScheduledToday", "오늘 미배정"))}</span>`;
+  }
+  return habit.trackingType === "binary"
+    ? renderBinaryAction(habit)
+    : habit.trackingType === "count"
+      ? renderCountAction(habit)
+      : renderTimeAction(habit);
+}
+
 function renderBinaryAction(habit) {
-  return `<button class="home-status-toggle home-status-toggle--emoji ${habit.isComplete ? "is-complete" : ""}" type="button" data-action="toggle-binary" data-habit-id="${habit.id}" data-complete="${String(habit.isComplete)}" aria-label="${esc(habit.isComplete ? tx("markPending", "Mark pending") : tx("markDone", "Mark done"))}">${habit.isComplete ? "✅" : "○"}</button>`;
+  return `<button class="home-status-toggle home-status-toggle--emoji ${habit.isComplete ? "is-complete" : ""}" type="button" data-action="toggle-binary" data-habit-id="${habit.id}" data-complete="${String(habit.isComplete)}" aria-label="${esc(habit.isComplete ? tx("markPending", "미완료로 변경") : tx("markDone", "완료 처리"))}">${habit.isComplete ? "✅" : "○"}</button>`;
 }
 
 function renderCountAction(habit) {
@@ -1106,20 +1275,18 @@ function renderCountAction(habit) {
 
 function renderTimeAction(habit) {
   const entries = Array.isArray(habit.timeEntries) ? [...habit.timeEntries] : [];
-  return `<div class="home-time-stack">
-    <button class="btn home-time-trigger ${habit.isComplete ? "is-complete" : ""}" type="button" data-action="log-time" data-habit-id="${habit.id}">${esc(tx("logTime", "Record time"))}</button>
-    <div class="home-time-chip-list">
-      ${entries.length ? entries.map((entry, index) => `<button class="home-time-chip" type="button" data-action="remove-time-entry" data-habit-id="${habit.id}" data-entry-index="${index}">${esc(formatTimeEntry(entry))}</button>`).join("") : `<span class="muted">${esc(tx("noTimeLogs", "No time logs yet"))}</span>`}
-    </div>
-  </div>`;
+  const latestEntry = entries.at(-1);
+  return `<button class="home-time-toggle ${latestEntry ? "is-complete" : ""}" type="button" data-action="log-time" data-habit-id="${habit.id}" aria-label="${esc(latestEntry ? tx("markPending", "미완료로 변경") : tx("logTime", "시간 기록"))}">
+    <span>${esc(latestEntry ? formatTimeEntry(latestEntry) : tx("logTime", "시간 기록"))}</span>
+  </button>`;
 }
 
 function renderColorPaletteField(selectedColor, fallbackColor) {
   const normalized = String(selectedColor || fallbackColor || PRESET_COLORS[0]).toLowerCase();
   const palette = PRESET_COLORS.includes(normalized) ? PRESET_COLORS : [normalized, ...PRESET_COLORS];
   return `<fieldset class="route-color-field" style="grid-column:1 / -1;">
-    <legend>${esc(tx("color", "Color"))}</legend>
-    <div class="color-swatch-list" role="radiogroup" aria-label="${esc(tx("color", "Color"))}">
+    <legend>${esc(tx("color", "색상"))}</legend>
+    <div class="color-swatch-list" role="radiogroup" aria-label="${esc(tx("color", "색상"))}">
       ${palette
         .map(
           (color) => `<label class="color-swatch-option" title="${esc(color)}">
@@ -1133,22 +1300,25 @@ function renderColorPaletteField(selectedColor, fallbackColor) {
 }
 
 function renderHabitCard(habit) {
-  return `<details class="route-list-card route-list-card--collapsible">
-    <summary class="route-list-row route-list-row--wide route-list-summary">
-      <div class="route-list-copy">
-        <strong>${esc(habit.name)}</strong>
-        <span>${esc([habit.tag, habit.startDate, `${habit.currentStreak}/${habit.bestStreak} streak`].filter(Boolean).join(" | "))}</span>
+  return `<details class="route-list-card route-list-card--collapsible route-list-card--habit" style="--habit-card-accent:${esc(habit.color)};">
+    <summary class="route-list-row route-list-row--wide route-list-summary route-list-summary--habit">
+      <div class="route-list-copy route-list-copy--habit">
+        <div class="habit-card-title-row">
+          <span class="habit-card-color" aria-hidden="true"></span>
+          <strong>${esc(habit.name)}</strong>
+        </div>
+        <span class="habit-card-meta">${esc([habit.tag, habit.startDate, `${habit.currentStreak}/${habit.bestStreak} ${tx("streak", "연속")}`].filter(Boolean).join(" | "))}</span>
       </div>
       <span class="route-list-side">
-        <span class="route-list-meta">${esc(trackingTypeLabel(habit.trackingType))}</span>
+        <span class="route-list-meta route-list-meta--habit">${esc(trackingTypeLabel(habit.trackingType))}</span>
         <span class="route-list-toggle" aria-hidden="true">⌄</span>
       </span>
     </summary>
     <form class="form-grid route-inline-form" data-form="habit-update" data-id="${habit.id}">
       ${habitFields(habit)}
       <div class="actions">
-        <button class="btn" type="submit">${esc(tx("save", "Save"))}</button>
-        <button class="btn-danger" type="button" data-action="delete-habit" data-delete-id="${habit.id}">${esc(tx("delete", "Delete"))}</button>
+        <button class="btn" type="submit">${esc(tx("save", "저장"))}</button>
+        <button class="btn-danger" type="button" data-action="delete-habit" data-delete-id="${habit.id}">${esc(tx("delete", "삭제"))}</button>
       </div>
     </form>
   </details>`;
@@ -1159,64 +1329,118 @@ function renderTaskCard(task) {
     <div class="route-list-row route-list-row--wide">
       <div class="route-list-copy">
         <strong>${esc(task.title)}</strong>
-        <span>${esc(task.note || task.dueDate || tx("unscheduled", "Unscheduled"))}</span>
+        <span>${esc(task.note || task.dueDate || tx("unscheduled", "미정"))}</span>
       </div>
-      <span class="state-pill ${task.status === "done" ? "is-success" : ""}">${esc(task.status === "done" ? tx("taskDone", "Done") : tx("taskPending", "Pending"))}</span>
+      <span class="state-pill ${task.status === "done" ? "is-success" : ""}">${esc(task.status === "done" ? tx("taskDone", "완료") : tx("taskPending", "미완료"))}</span>
     </div>
     <form class="form-grid route-inline-form" data-form="task-update" data-id="${task.id}">
       ${taskFields(task)}
       <div class="actions">
-        <button class="btn" type="submit">${esc(tx("save", "Save"))}</button>
-        <button class="btn-soft" type="button" data-action="toggle-task-status" data-task-id="${task.id}">${esc(task.status === "done" ? tx("markPending", "Mark pending") : tx("markDone", "Mark done"))}</button>
-        <button class="btn-danger" type="button" data-action="delete-task" data-delete-id="${task.id}">${esc(tx("delete", "Delete"))}</button>
+        <button class="btn" type="submit">${esc(tx("save", "저장"))}</button>
+        <button class="btn-soft" type="button" data-action="toggle-task-status" data-task-id="${task.id}">${esc(task.status === "done" ? tx("markPending", "미완료로 변경") : tx("markDone", "완료 처리"))}</button>
+        <button class="btn-danger" type="button" data-action="delete-task" data-delete-id="${task.id}">${esc(tx("delete", "삭제"))}</button>
       </div>
     </form>
   </article>`;
 }
 
 function renderRoutineCard(routine) {
-  return `<article class="route-list-card">
-    <div class="route-list-row route-list-row--wide">
-      <div class="route-list-copy">
+  const previewItems = Array.isArray(routine.habits) ? routine.habits : [];
+  const accentColor = routine.color || previewItems[0]?.color || "#64748b";
+  return `<details class="route-list-card route-list-card--collapsible route-list-card--routine" style="--routine-card-accent:${esc(accentColor)};">
+    <summary class="route-list-row route-list-row--wide route-list-summary">
+      <div class="route-list-copy route-list-copy--routine">
         <strong>${esc(routine.name)}</strong>
-        <span>${esc(`${routine.habits.length} ${tx("habits", "habits")}`)}</span>
+        <span class="routine-inline-list" title="${esc(
+          previewItems.length ? previewItems.map((habit) => habit.name).join(", ") : tx("noHabitsSelected", "선택한 습관이 없습니다."),
+        )}">
+          ${
+            previewItems.length
+              ? previewItems
+                  .map(
+                    (habit) =>
+                      `<span class="routine-inline-item" style="--routine-item-color:${esc(habit.color)};">${esc(habit.name)}</span>`,
+                  )
+                  .join("")
+              : `<span class="routine-inline-empty">${esc(tx("noHabitsSelected", "선택한 습관이 없습니다."))}</span>`
+          }
+        </span>
       </div>
-    </div>
-    <form class="form-grid route-inline-form" data-form="routine-update" data-id="${routine.id}">
+      <span class="route-list-side">
+        <span class="route-list-meta">${esc(`${previewItems.length} ${tx("habits", "습관")}`)}</span>
+        <span class="route-list-toggle" aria-hidden="true">⌄</span>
+      </span>
+    </summary>
+    <form class="form-grid route-inline-form" data-form="routine-update" data-id="${routine.id}" data-form-key="${routineFormKey(routine.id)}">
       ${routineFields(routine)}
       <div class="actions">
-        <button class="btn" type="submit">${esc(tx("save", "Save"))}</button>
-        <button class="btn-danger" type="button" data-action="delete-routine" data-delete-id="${routine.id}">${esc(tx("delete", "Delete"))}</button>
+        <button class="btn" type="submit">${esc(tx("save", "저장"))}</button>
+        <button class="btn-danger" type="button" data-action="delete-routine" data-delete-id="${routine.id}">${esc(tx("delete", "삭제"))}</button>
       </div>
     </form>
-  </article>`;
+  </details>`;
 }
 
 function renderModeCard(mode) {
   const reservationSummary = formatReservedDatesSummary(mode.reservedDates ?? []);
-  return `<article class="route-list-card">
-    <div class="route-list-row route-list-row--wide">
-      <div class="route-list-copy">
-        <strong>${esc(mode.name)}</strong>
-        <span>${esc(`${reservationSummary} | ${mode.routines.length} ${tx("routines", "routines")} | ${mode.habits.length} ${tx("habits", "habits")}`)}</span>
+  const previewItems = [
+    ...(Array.isArray(mode.routines)
+      ? mode.routines.map((routine) => ({
+          name: routine.name,
+          color: routine.color || routine.habits?.[0]?.color || "#6366f1",
+        }))
+      : []),
+    ...(Array.isArray(mode.habits)
+      ? mode.habits.map((habit) => ({
+          name: habit.name,
+          color: habit.color || "#64748b",
+        }))
+      : []),
+  ];
+  const accentColor = previewItems[0]?.color || "#64748b";
+  const previewTitle = previewItems.length
+    ? previewItems.map((item) => item.name).join(", ")
+    : tx("noHabitsSelected", "선택한 습관이 없습니다.");
+  const previewMarkup =
+    previewItems.length > 3
+      ? `<span class="mode-preview-compact">${esc(previewItems[0].name)}</span><span class="mode-preview-more">+${previewItems.length - 1}</span>`
+      : previewItems.length
+        ? previewItems
+            .map(
+              (item) =>
+                `<span class="routine-inline-item" style="--routine-item-color:${esc(item.color)};">${esc(item.name)}</span>`,
+            )
+            .join("")
+        : `<span class="routine-inline-empty">${esc(tx("noHabitsSelected", "선택한 습관이 없습니다."))}</span>`;
+  return `<details class="route-list-card route-list-card--collapsible route-list-card--mode" style="--routine-card-accent:${esc(accentColor)};">
+    <summary class="route-list-row route-list-row--wide route-list-summary route-list-summary--mode">
+      <div class="route-list-copy route-list-copy--routine route-list-copy--mode">
+        <div class="mode-card-title-row">
+          <strong>${esc(mode.name)}</strong>
+          <span class="route-list-toggle" aria-hidden="true">⌄</span>
+          <span class="pill mode-card-pill">${esc(reservationSummary)}</span>
+        </div>
+        <span class="routine-inline-list routine-inline-list--mode" title="${esc(previewTitle)}">
+          ${previewMarkup}
+        </span>
+        <span class="mode-card-meta">${esc(`${mode.routines.length} ${tx("routines", "루틴")} · ${mode.habits.length} ${tx("habits", "습관")}`)}</span>
       </div>
-      <span class="pill">${esc(reservationSummary)}</span>
-    </div>
-    <form class="form-grid route-inline-form" data-form="mode-update" data-id="${mode.id}">
+    </summary>
+    <form class="form-grid route-inline-form" data-form="mode-update" data-id="${mode.id}" data-form-key="${modeFormKey(mode.id)}">
       ${modeFields(mode)}
       <div class="actions">
-        <button class="btn" type="submit">${esc(tx("save", "Save"))}</button>
-        <button class="btn-danger" type="button" data-action="delete-mode" data-delete-id="${mode.id}">${esc(tx("delete", "Delete"))}</button>
+        <button class="btn" type="submit">${esc(tx("save", "저장"))}</button>
+        <button class="btn-danger" type="button" data-action="delete-mode" data-delete-id="${mode.id}">${esc(tx("delete", "삭제"))}</button>
       </div>
     </form>
-  </article>`;
+  </details>`;
 }
 
 renderHomeTaskRow = function (task) {
   const done = task.status === "done";
-  const meta = task.dueDate ? formatCompactDate(task.dueDate) : tx("inbox", "Inbox");
+  const meta = task.dueDate ? formatCompactDate(task.dueDate) : tx("inbox", "보관함");
   return `<article class="home-task-row ${done ? "is-done" : ""}">
-    <button class="home-task-toggle ${done ? "is-done" : ""}" type="button" data-action="toggle-task-status" data-task-id="${task.id}" aria-label="${esc(done ? tx("markPending", "Mark pending") : tx("markDone", "Mark done"))}">${esc(done ? tx("doneShort", "Done") : tx("checkShort", "Check"))}</button>
+    <button class="home-task-toggle ${done ? "is-done" : ""}" type="button" data-action="toggle-task-status" data-task-id="${task.id}" aria-label="${esc(done ? tx("markPending", "미완료로 변경") : tx("markDone", "완료 처리"))}">${esc(done ? tx("doneShort", "완료") : tx("checkShort", "체크"))}</button>
     <div class="home-task-copy">
       <strong>${esc(task.title)}</strong>
       <span>${esc(task.note || meta)}</span>
@@ -1226,23 +1450,23 @@ renderHomeTaskRow = function (task) {
 };
 
 renderBinaryAction = function (habit) {
-  return `<button class="home-status-toggle home-status-toggle--emoji ${habit.isComplete ? "is-complete" : ""}" type="button" data-action="toggle-binary" data-habit-id="${habit.id}" data-complete="${String(habit.isComplete)}" aria-label="${esc(habit.isComplete ? tx("markPending", "Mark pending") : tx("markDone", "Mark done"))}">${habit.isComplete ? "✅" : "○"}</button>`;
+  return `<button class="home-status-toggle home-status-toggle--emoji ${habit.isComplete ? "is-complete" : ""}" type="button" data-action="toggle-binary" data-habit-id="${habit.id}" data-complete="${String(habit.isComplete)}" aria-label="${esc(habit.isComplete ? tx("markPending", "미완료로 변경") : tx("markDone", "완료 처리"))}">${habit.isComplete ? "✅" : "○"}</button>`;
 };
 
 function habitFields(habit = null) {
   const trackingType = habit?.trackingType ?? "binary";
   return `
     <label>
-      <span>${esc(tx("name", "Name"))}</span>
+      <span>${esc(tx("name", "이름"))}</span>
       <input name="name" type="text" required value="${esc(habit?.name || "")}" />
     </label>
     <label>
-      <span>${esc(tx("tag", "Tag"))}</span>
+      <span>${esc(tx("tag", "태그"))}</span>
       <input name="tag" type="text" value="${esc(habit?.tag || "")}" />
     </label>
     ${renderColorPaletteField(habit?.color, "#16a34a")}
     <label>
-      <span>${esc(tx("type", "Type"))}</span>
+      <span>${esc(tx("type", "유형"))}</span>
       <select name="trackingType">
         ${trackingOption("binary", trackingType)}
         ${trackingOption("count", trackingType)}
@@ -1250,11 +1474,11 @@ function habitFields(habit = null) {
       </select>
     </label>
     <label>
-      <span>${esc(tx("targetValue", "Target"))}</span>
+      <span>${esc(tx("targetValue", "목표"))}</span>
       <input name="targetCount" type="number" min="1" step="1" value="${esc(String(habit?.targetCount ?? 1))}" />
     </label>
     <label>
-      <span>${esc(tx("startDate", "Start date"))}</span>
+      <span>${esc(tx("startDate", "시작일"))}</span>
       <input name="startDate" type="date" value="${esc(habit?.startDate || state.selectedHomeDate || dateKeyLocal())}" />
     </label>`;
 }
@@ -1262,22 +1486,22 @@ function habitFields(habit = null) {
 function taskFields(task = null) {
   return `
     <label>
-      <span>${esc(tx("title", "Title"))}</span>
+      <span>${esc(tx("title", "제목"))}</span>
       <input name="title" type="text" required value="${esc(task?.title || "")}" />
     </label>
     <label>
-      <span>${esc(tx("date", "Date"))}</span>
+      <span>${esc(tx("dueDate", "마감일"))}</span>
       <input name="dueDate" type="date" value="${esc(task?.dueDate || "")}" />
     </label>
     <label style="grid-column:1 / -1;">
-      <span>${esc(tx("note", "Note"))}</span>
+      <span>${esc(tx("note", "메모"))}</span>
       <textarea name="note" rows="3">${esc(task?.note || "")}</textarea>
     </label>
     <label>
-      <span>${esc(tx("status", "Status"))}</span>
+      <span>${esc(tx("status", "상태"))}</span>
       <select name="status">
-        <option value="pending" ${task?.status !== "done" ? "selected" : ""}>${esc(tx("taskPending", "Pending"))}</option>
-        <option value="done" ${task?.status === "done" ? "selected" : ""}>${esc(tx("taskDone", "Done"))}</option>
+        <option value="pending" ${task?.status !== "done" ? "selected" : ""}>${esc(tx("taskPending", "미완료"))}</option>
+        <option value="done" ${task?.status === "done" ? "selected" : ""}>${esc(tx("taskDone", "완료"))}</option>
       </select>
     </label>`;
 }
@@ -1287,46 +1511,35 @@ function routineFields(routineOrKind = null, maybeRoutine = null) {
     routineOrKind && typeof routineOrKind === "object" && !Array.isArray(routineOrKind)
       ? routineOrKind
       : maybeRoutine;
-  const selectedHabitIds = new Set(routine?.habitIds ?? routine?.habits?.map((habit) => habit.id) ?? []);
+  const formScope = typeof routineOrKind === "string" ? routineOrKind : "create";
+  const formKey = routine?.id ? routineFormKey(routine.id) : routineFormKey("", formScope);
+  const draft = getRouteFormDraft(formKey);
+  const selectedHabitIds = orderedSelectedIds(draft?.habitIds ?? routine?.habitIds ?? routine?.habits?.map((habit) => habit.id) ?? [], state.habits);
   return `
     <label>
-      <span>${esc(tx("name", "Name"))}</span>
-      <input name="name" type="text" required value="${esc(routine?.name || "")}" />
+      <span>${esc(tx("name", "이름"))}</span>
+      <input name="name" type="text" required value="${esc(draft?.name ?? routine?.name ?? "")}" />
     </label>
-    ${renderColorPaletteField(routine?.color, "#2563eb")}
-    <fieldset style="grid-column:1 / -1;">
-      <legend>${esc(tx("habits", "Habits"))}</legend>
-      <div class="choice-list--stacked">
-        ${
-          state.habits.length
-            ? state.habits
-                .map(
-                  (habit) => `<label class="choice-item">
-              <input type="checkbox" name="habitIds" value="${habit.id}" ${selectedHabitIds.has(habit.id) ? "checked" : ""} />
-              <span>${esc(habit.name)}</span>
-            </label>`,
-                )
-                .join("")
-            : `<p class="muted">${esc(tx("noHabits", "No saved habits yet."))}</p>`
-        }
-      </div>
-    </fieldset>`;
+    ${renderColorPaletteField(draft?.color ?? routine?.color, "#2563eb")}
+    ${renderHabitPickerField(formKey, selectedHabitIds)}`;
 }
 
 function modeFields(modeOrKind = null, maybeMode = null) {
   const mode =
     modeOrKind && typeof modeOrKind === "object" && !Array.isArray(modeOrKind) ? modeOrKind : maybeMode;
-  const formKey = modeFormKey(mode?.id || "");
-  const selectedRoutineIds = new Set(mode?.routineIds ?? mode?.routines?.map((routine) => routine.id) ?? []);
-  const selectedHabitIds = new Set(mode?.habitIds ?? mode?.habits?.map((habit) => habit.id) ?? []);
-  const reservedDates = getModeReservedDates(formKey, mode?.reservedDates ?? []);
+  const formScope = typeof modeOrKind === "string" ? modeOrKind : "create";
+  const formKey = mode?.id ? modeFormKey(mode.id) : modeFormKey("", formScope);
+  const draft = getRouteFormDraft(formKey);
+  const selectedRoutineIds = new Set(orderedSelectedIds(draft?.routineIds ?? mode?.routineIds ?? mode?.routines?.map((routine) => routine.id) ?? [], state.routines));
+  const selectedHabitIds = orderedSelectedIds(draft?.habitIds ?? mode?.habitIds ?? mode?.habits?.map((habit) => habit.id) ?? [], state.habits);
+  const reservedDates = getModeReservedDates(formKey, draft?.reservedDates ?? mode?.reservedDates ?? []);
   return `
     <label>
-      <span>${esc(tx("name", "Name"))}</span>
-      <input name="name" type="text" required value="${esc(mode?.name || "")}" />
+      <span>${esc(tx("name", "이름"))}</span>
+      <input name="name" type="text" required value="${esc(draft?.name ?? mode?.name ?? "")}" />
     </label>
     <fieldset style="grid-column:1 / -1;">
-      <legend>${esc(tx("routines", "Routines"))}</legend>
+      <legend>${esc(tx("routines", "루틴"))}</legend>
       <div class="choice-list--stacked">
         ${
           state.routines.length
@@ -1338,42 +1551,46 @@ function modeFields(modeOrKind = null, maybeMode = null) {
             </label>`,
                 )
                 .join("")
-            : `<p class="muted">${esc(tx("noRoutines", "No saved routines yet."))}</p>`
+            : `<p class="muted">${esc(tx("noRoutines", "저장된 루틴이 없습니다."))}</p>`
         }
       </div>
     </fieldset>
+    ${renderHabitPickerField(formKey, selectedHabitIds)}
     <fieldset style="grid-column:1 / -1;">
-      <legend>${esc(tx("habits", "Habits"))}</legend>
-      <div class="choice-list--stacked">
-        ${
-          state.habits.length
-            ? state.habits
-                .map(
-                  (habit) => `<label class="choice-item">
-              <input type="checkbox" name="habitIds" value="${habit.id}" ${selectedHabitIds.has(habit.id) ? "checked" : ""} />
-              <span>${esc(habit.name)}</span>
-            </label>`,
-                )
-                .join("")
-            : `<p class="muted">${esc(tx("noHabits", "No saved habits yet."))}</p>`
-        }
-      </div>
-    </fieldset>
-    <fieldset style="grid-column:1 / -1;">
-      <legend>${esc(tx("reservedDates", "Reserved dates"))}</legend>
+      <legend>${esc(tx("reservedDates", "예약 날짜"))}</legend>
       <div class="mode-date-field-row">
-        <button class="btn-soft" type="button" data-action="open-mode-date-picker" data-form-key="${formKey}">${esc(tx("dateSettings", "Date setting"))}</button>
+        <button class="btn-soft" type="button" data-action="open-mode-date-picker" data-form-key="${formKey}">${esc(tx("dateSettings", "날짜 설정"))}</button>
         <span class="route-list-meta">${esc(formatReservedDatesSummary(reservedDates))}</span>
       </div>
       <div class="mode-date-chip-list">
         ${
           reservedDates.length
             ? reservedDates.map((date) => `<span class="pill">${esc(formatCompactDate(date))}</span>`).join("")
-            : `<span class="muted">${esc(tx("noReservedDates", "No reserved dates"))}</span>`
+            : `<span class="muted">${esc(tx("noReservedDates", "예약된 날짜가 없습니다."))}</span>`
         }
       </div>
       ${reservedDates.map((date) => `<input type="hidden" name="reservedDates" value="${esc(date)}" />`).join("")}
     </fieldset>`;
+}
+
+function renderHabitPickerField(formKey, selectedHabitIds) {
+  const selectedHabits = selectedItemsByIds(selectedHabitIds, state.habits);
+  const summary = formatSelectionSummary(selectedHabits, tx("noHabitsSelected", "선택한 습관이 없습니다."));
+  return `<fieldset class="habit-picker-field" style="grid-column:1 / -1;">
+    <legend>${esc(tx("habits", "습관"))}</legend>
+    <div class="habit-picker-field-row">
+      <button class="btn-soft habit-picker-trigger" type="button" data-action="open-habit-picker" data-form-key="${esc(formKey)}" ${state.habits.length ? "" : "disabled"}>${esc(tx("selectHabits", "습관 선택"))}</button>
+      <span class="route-list-meta">${esc(summary)}</span>
+    </div>
+    <div class="habit-picker-chip-list">
+      ${
+        selectedHabits.length
+          ? selectedHabits.map((habit) => `<span class="pill">${esc(habit.name)}</span>`).join("")
+          : `<span class="muted">${esc(state.habits.length ? tx("noHabitsSelected", "선택한 습관이 없습니다.") : tx("noHabits", "저장된 습관이 없습니다."))}</span>`
+      }
+    </div>
+    ${selectedHabitIds.map((habitId) => `<input type="hidden" name="habitIds" value="${esc(habitId)}" />`).join("")}
+  </fieldset>`;
 }
 
 function renderModeDatePickerLayer() {
@@ -1382,32 +1599,73 @@ function renderModeDatePickerLayer() {
   }
   const monthGrid = buildCalendarMonthGrid(state.modeDatePicker.month, []);
   return `<div class="mode-date-layer">
-    <button class="mode-date-backdrop" type="button" data-action="close-mode-date-picker" aria-label="${esc(tx("cancel", "Cancel"))}"></button>
+    <button class="mode-date-backdrop" type="button" data-action="close-mode-date-picker" aria-label="${esc(tx("cancel", "취소"))}"></button>
     <section class="content-card mode-date-card">
       <div class="mode-date-head">
         <div>
-          <p class="eyebrow">${esc(tx("reservedDates", "Reserved dates"))}</p>
+          <p class="eyebrow">${esc(tx("reservedDates", "예약 날짜"))}</p>
           <h3>${esc(formatMonthTitle(state.modeDatePicker.month))}</h3>
         </div>
         <div class="actions">
-          <button class="btn-soft compact-action" type="button" data-action="shift-mode-date-month" data-direction="-1">${esc(tx("weekPrevious", "Previous"))}</button>
-          <button class="btn-soft compact-action" type="button" data-action="shift-mode-date-month" data-direction="1">${esc(tx("weekNext", "Next"))}</button>
+          <button class="btn-soft compact-action" type="button" data-action="shift-mode-date-month" data-direction="-1">${esc(tx("weekPrevious", "이전 주"))}</button>
+          <button class="btn-soft compact-action" type="button" data-action="shift-mode-date-month" data-direction="1">${esc(tx("weekNext", "다음 주"))}</button>
         </div>
       </div>
       <div class="calendar-grid calendar-grid--month mode-date-grid">
-        ${["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((label) => `<span class="weekday">${label}</span>`).join("")}
+      ${buildLocalizedWeekdayLabels().map((label) => `<span class="weekday">${label}</span>`).join("")}
         ${monthGrid.map((cell) => renderModeDatePickerCell(cell)).join("")}
       </div>
       <div class="mode-date-chip-list mode-date-chip-list--selection">
         ${
           state.modeDatePicker.dates.length
             ? state.modeDatePicker.dates.map((date) => `<span class="pill">${esc(formatCompactDate(date))}</span>`).join("")
-            : `<span class="muted">${esc(tx("noReservedDates", "No reserved dates"))}</span>`
+            : `<span class="muted">${esc(tx("noReservedDates", "예약된 날짜가 없습니다."))}</span>`
         }
       </div>
       <div class="actions">
-        <button class="btn-soft" type="button" data-action="close-mode-date-picker">${esc(tx("cancel", "Cancel"))}</button>
-        <button class="btn" type="button" data-action="apply-mode-date-picker">${esc(tx("apply", "Apply"))}</button>
+        <button class="btn-soft" type="button" data-action="close-mode-date-picker">${esc(tx("cancel", "취소"))}</button>
+        <button class="btn" type="button" data-action="apply-mode-date-picker">${esc(tx("apply", "적용"))}</button>
+      </div>
+    </section>
+  </div>`;
+}
+
+function renderHabitPickerLayer() {
+  if (!state.habitPicker) {
+    return "";
+  }
+  return `<div class="mode-date-layer habit-picker-layer">
+    <button class="mode-date-backdrop" type="button" data-action="close-habit-picker" aria-label="${esc(tx("cancel", "취소"))}"></button>
+    <section class="content-card habit-picker-card">
+      <div class="choice-list--stacked habit-picker-list">
+        ${
+          state.habits.length
+            ? state.habits
+                .map((habit) => {
+                  const meta = [habit.tag, trackingTypeLabel(habit.trackingType), habit.startDate].filter(Boolean).join(" | ");
+                  const checked = state.habitPicker?.selectedIds.includes(habit.id);
+                  return `<label class="habit-picker-option home-board-group ${checked ? "is-selected" : ""}" data-action="toggle-habit-picker-choice" data-habit-id="${habit.id}" style="--routine-accent:${esc(habit.color)};">
+            <span class="habit-picker-row">
+              <span class="habit-picker-main">
+                <span class="home-routine-accent"></span>
+                <span class="home-item-copy">
+                  <strong>${esc(habit.name)}</strong>
+                  <span>${esc(meta || tx("habits", "습관"))}</span>
+                </span>
+              </span>
+              <span class="habit-picker-status">
+                <input type="checkbox" data-action="toggle-habit-picker-choice" data-habit-id="${habit.id}" ${checked ? "checked" : ""} aria-label="${esc(habit.name)}" />
+              </span>
+            </span>
+          </label>`;
+                })
+                .join("")
+            : `<p class="muted">${esc(tx("noHabits", "저장된 습관이 없습니다."))}</p>`
+        }
+      </div>
+      <div class="actions habit-picker-actions">
+        <button class="btn-soft" type="button" data-action="close-habit-picker">${esc(tx("cancel", "취소"))}</button>
+        <button class="btn" type="button" data-action="apply-habit-picker">${esc(tx("apply", "적용"))}</button>
       </div>
     </section>
   </div>`;
@@ -1427,13 +1685,13 @@ function renderModeDatePickerCell(cell) {
 
 function renderHomeFab() {
   return `<div class="home-fab-shell ${state.homeQuickActionsOpen ? "is-open" : ""}">
-    ${state.homeQuickActionsOpen ? `<button class="home-fab-backdrop" type="button" data-action="close-home-fab" aria-label="${esc(tx("closeMenu", "Close add menu"))}"></button>` : ""}
+    ${state.homeQuickActionsOpen ? `<button class="home-fab-backdrop" type="button" data-action="close-home-fab" aria-label="${esc(tx("closeMenu", "추가 메뉴 닫기"))}"></button>` : ""}
     <div class="home-fab-menu">
-      <button class="btn home-fab-option" type="button" data-action="open-quick-create" data-kind="habit">${esc(tx("createHabit", "Create habit"))}</button>
-      <button class="btn home-fab-option" type="button" data-action="open-quick-create" data-kind="task">${esc(tx("createTask", "Create task"))}</button>
-      <button class="btn home-fab-option" type="button" data-action="open-quick-create" data-kind="routine">${esc(tx("createRoutine", "Create routine"))}</button>
+    <button class="btn home-fab-option" type="button" data-action="open-quick-create" data-kind="habit">${esc(tx("createHabit", "습관 만들기"))}</button>
+    <button class="btn home-fab-option" type="button" data-action="open-quick-create" data-kind="task">${esc(tx("createTask", "작업 만들기"))}</button>
+    <button class="btn home-fab-option" type="button" data-action="open-quick-create" data-kind="routine">${esc(tx("createRoutine", "루틴 만들기"))}</button>
     </div>
-    <button class="home-fab-trigger" type="button" data-action="toggle-home-fab" aria-label="${esc(state.homeQuickActionsOpen ? tx("closeMenu", "Close add menu") : tx("addMenu", "Open add menu"))}">${state.homeQuickActionsOpen ? "\u00D7" : "+"}</button>
+    <button class="home-fab-trigger" type="button" data-action="toggle-home-fab" aria-label="${esc(state.homeQuickActionsOpen ? tx("closeMenu", "추가 메뉴 닫기") : tx("addMenu", "추가 메뉴 열기"))}">${state.homeQuickActionsOpen ? "\u00D7" : "+"}</button>
   </div>`;
 }
 
@@ -1445,24 +1703,25 @@ function renderQuickCreateLayer() {
   const config = {
     habit: {
       cardClass: "quick-create-card quick-create-card--habit content-card",
-      title: tx("createHabit", "Create habit"),
-      copy: tx("quickCreateHabitCopy", "Create a habit without leaving the home timetable."),
+      title: tx("createHabit", "습관 만들기"),
+      copy: tx("quickCreateHabitCopy", "시간표를 벗어나지 않고 바로 습관을 만듭니다."),
       form: "habit-create",
       fields: habitFields(null),
     },
     task: {
       cardClass: "quick-create-card quick-create-card--task content-card",
-      title: tx("createTask", "Create task"),
-      copy: tx("quickCreateTaskCopy", "Add a one-off task without changing tabs."),
+      title: tx("createTask", "작업 만들기"),
+      copy: tx("quickCreateTaskCopy", "탭을 바꾸지 않고 바로 단일 작업을 추가합니다."),
       form: "task-create",
       fields: taskFields({ dueDate: state.homeTaskFilter === "scheduled" ? state.selectedHomeDate : "" }),
     },
     routine: {
       cardClass: "quick-create-card quick-create-card--routine content-card",
-      title: tx("createRoutine", "Create routine"),
-      copy: tx("quickCreateRoutineCopy", "Create a routine bundle from the current habit library."),
+      title: tx("createRoutine", "루틴 만들기"),
+      copy: tx("quickCreateRoutineCopy", "현재 습관 목록을 바탕으로 루틴 묶음을 바로 만듭니다."),
       form: "routine-create",
-      fields: routineFields(null, null),
+      formKey: routineFormKey("", "quick-create"),
+      fields: routineFields("quick-create", null),
     },
   }[state.quickCreateKind];
 
@@ -1471,24 +1730,25 @@ function renderQuickCreateLayer() {
   }
 
   return `<div class="quick-create-layer">
-    <button class="quick-create-backdrop" type="button" data-action="close-quick-create" aria-label="${esc(tx("cancel", "Cancel"))}"></button>
+    <button class="quick-create-backdrop" type="button" data-action="close-quick-create" aria-label="${esc(tx("cancel", "취소"))}"></button>
     <section class="${config.cardClass}">
       <div class="quick-create-head">
         <div>
-          <p class="eyebrow">${esc(tx("today", "Home"))}</p>
+          <p class="eyebrow">${esc(tx("today", "홈"))}</p>
           <h3>${esc(config.title)}</h3>
           <p class="muted">${esc(config.copy)}</p>
         </div>
-        <button class="btn-soft quick-create-close" type="button" data-action="close-quick-create" aria-label="${esc(tx("cancel", "Cancel"))}">\u00D7</button>
+        <button class="btn-soft quick-create-close" type="button" data-action="close-quick-create" aria-label="${esc(tx("cancel", "취소"))}">\u00D7</button>
       </div>
-      <form class="form-grid" data-form="${config.form}">
+      <form class="form-grid" data-form="${config.form}" ${config.formKey ? `data-form-key="${config.formKey}"` : ""}>
         ${config.fields}
         <div class="actions quick-create-actions">
-          <button class="btn-soft" type="button" data-action="close-quick-create">${esc(tx("cancel", "Cancel"))}</button>
+          <button class="btn-soft" type="button" data-action="close-quick-create">${esc(tx("cancel", "취소"))}</button>
           <button class="btn" type="submit">${esc(config.title)}</button>
         </div>
       </form>
     </section>
+    ${renderHabitPickerLayer()}
   </div>`;
 }
 
@@ -1528,11 +1788,11 @@ async function request(url, options = {}) {
   const payload = contentType.includes("application/json") ? await response.json() : null;
 
   if (!response.ok) {
-    throw new Error(resolveMessage(payload?.message || response.statusText || tx("actionFailed", "Failed to process the request.")));
+    throw new Error(resolveMessage(payload?.message || response.statusText || tx("actionFailed", "요청을 처리하지 못했습니다.")));
   }
 
   if (!payload) {
-    throw new Error(tx("invalidJson", "The server returned invalid JSON."));
+    throw new Error(tx("invalidJson", "서버가 올바르지 않은 응답 형식을 반환했습니다."));
   }
 
   return payload;
@@ -1540,10 +1800,9 @@ async function request(url, options = {}) {
 
 function applyShellText() {
   const meta = ROUTE_META[state.routePath] || ROUTE_META["/today"];
-  text("app-utility-title", "appTitle", "My Planner");
-  text("screen-label", "appTitle", "My Planner");
-  text("screen-title", meta.titleKey, "My Planner");
-  text("screen-copy", meta.copyKey, "Personal planner");
+  text("app-utility-title", "appTitle", "마이 플래너");
+  text("screen-title", meta.titleKey, "마이 플래너");
+  text("screen-copy", meta.copyKey, "개인 플래너");
 
   for (const element of document.querySelectorAll("[data-label-key]")) {
     if (!(element instanceof HTMLElement)) continue;
@@ -1681,6 +1940,12 @@ function showFeedback(message, isError = false) {
 }
 
 function closeQuickCreate() {
+  if (state.quickCreateKind === "routine") {
+    clearRouteFormDraft(routineFormKey("", "quick-create"));
+    if (state.habitPicker?.formKey === routineFormKey("", "quick-create")) {
+      state.habitPicker = null;
+    }
+  }
   state.quickCreateKind = "";
   state.homeQuickActionsOpen = false;
   render();
@@ -1703,6 +1968,77 @@ function getHomeTasks() {
     }
     return left.createdAt.localeCompare(right.createdAt);
   });
+}
+
+function getHomeHabits() {
+  const todayHabits = new Map((state.today?.habits ?? []).map((habit) => [habit.id, habit]));
+  const selectedDate = state.selectedHomeDate || state.today?.date || "";
+  return state.habits.map((habit) => {
+    const todayHabit = todayHabits.get(habit.id);
+    if (todayHabit) {
+      return {
+        ...todayHabit,
+        isScheduledToday: true,
+        startsLater: false,
+      };
+    }
+    return {
+      ...habit,
+      currentValue: 0,
+      isComplete: false,
+      progressRate: 0,
+      streak: Number(habit.currentStreak || 0),
+      timeEntries: [],
+      latestTimeEntry: null,
+      isScheduledToday: false,
+      startsLater: Boolean(selectedDate && habit.startDate > selectedDate),
+    };
+  });
+}
+
+function getHomeHabitGroups() {
+  const homeHabits = getHomeHabits();
+  const habitMap = new Map(homeHabits.map((habit) => [habit.id, habit]));
+  const activeModeId = state.today?.activeMode?.id || "";
+  const activeMode = state.modes.find((mode) => mode.id === activeModeId) ?? null;
+  const sourceRoutines =
+    Array.isArray(activeMode?.routines) && activeMode.routines.length
+      ? activeMode.routines
+      : state.routines.filter((routine) => Array.isArray(routine?.habitIds) && routine.habitIds.length);
+  const groups = [];
+  const groupedHabitIds = new Set();
+
+  for (const routine of sourceRoutines) {
+    const routineHabitIds =
+      Array.isArray(routine.habits) && routine.habits.length
+        ? routine.habits.map((habit) => habit.id)
+        : (routine.habitIds ?? []);
+    const routineHabits = routineHabitIds
+      .map((habitId) => habitMap.get(habitId))
+      .filter((habit) => habit !== undefined);
+    if (!routineHabits.length) {
+      continue;
+    }
+    routineHabits.forEach((habit) => groupedHabitIds.add(habit.id));
+    groups.push({
+      key: `routine-${routine.id}`,
+      title: routine.name,
+      accentColor: routine.color || routineHabits[0]?.color || "#6366f1",
+      habits: routineHabits,
+    });
+  }
+
+  const standaloneHabits = homeHabits.filter((habit) => !groupedHabitIds.has(habit.id));
+  if (standaloneHabits.length) {
+    groups.push({
+      key: "standalone",
+      title: tx("standaloneHabit", "개별 습관"),
+      accentColor: standaloneHabits[0]?.color || "#64748b",
+      habits: standaloneHabits,
+    });
+  }
+
+  return groups;
 }
 
 function buildHomeRailDates(centerDate) {
@@ -1769,19 +2105,10 @@ function summaryCard(label, value) {
 
 function weekdayChoices(name, selectedValues) {
   const selected = selectedValues instanceof Set ? selectedValues : new Set(selectedValues ?? []);
-  const labelsByDay = new Map([
-    [0, "2026-03-29"],
-    [1, "2026-03-30"],
-    [2, "2026-03-31"],
-    [3, "2026-04-01"],
-    [4, "2026-04-02"],
-    [5, "2026-04-03"],
-    [6, "2026-04-04"],
-  ]);
   return [1, 2, 3, 4, 5, 6, 0]
     .map((day) => {
       const label = new Intl.DateTimeFormat(state.locale, { weekday: "short" }).format(
-        new Date(`${labelsByDay.get(day)}T12:00:00`),
+        new Date(`${WEEKDAY_SAMPLE_DATES.get(day)}T12:00:00`),
       );
       return `<label class="choice-item">
         <input type="checkbox" name="${name}" value="${day}" ${selected.has(day) ? "checked" : ""} />
@@ -1791,27 +2118,75 @@ function weekdayChoices(name, selectedValues) {
     .join("");
 }
 
+const WEEKDAY_SAMPLE_DATES = new Map([
+  [0, "2026-03-29"],
+  [1, "2026-03-30"],
+  [2, "2026-03-31"],
+  [3, "2026-04-01"],
+  [4, "2026-04-02"],
+  [5, "2026-04-03"],
+  [6, "2026-04-04"],
+]);
+
+function buildLocalizedWeekdayLabels() {
+  return [1, 2, 3, 4, 5, 6, 0].map((day) =>
+    new Intl.DateTimeFormat(state.locale, { weekday: "short" }).format(
+      new Date(`${WEEKDAY_SAMPLE_DATES.get(day)}T12:00:00`),
+    ),
+  );
+}
+
+function formatUserRole(value) {
+  if (value === "owner") return "소유자";
+  if (value === "admin") return "관리자";
+  if (value === "member") return "구성원";
+  return String(value || "");
+}
+
+function formatUserStatus(value) {
+  if (value === "active") return "활성";
+  if (value === "blocked") return "차단";
+  if (value === "inactive") return "비활성";
+  return String(value || "");
+}
+
 function trackingOption(value, currentValue) {
   return `<option value="${value}" ${value === currentValue ? "selected" : ""}>${esc(trackingTypeLabel(value))}</option>`;
 }
 
 function trackingTypeLabel(value) {
-  if (value === "count") return tx("typeCount", "Count");
-  if (value === "time") return tx("typeTime", "Time");
-  return tx("typeBinary", "Check");
+  if (value === "count") return tx("typeCount", "횟수");
+  if (value === "time") return tx("typeTime", "시간");
+  return tx("typeBinary", "체크");
 }
 
 function resolveMilestone(rate) {
-  if (rate >= 1) return tx("milestone100", "Perfect day");
-  if (rate >= 0.75) return tx("milestone75", "Almost there");
-  if (rate >= 0.5) return tx("milestone50", "Momentum");
-  if (rate >= 0.25) return tx("milestone25", "Warm start");
-  return tx("milestone0", "Ready");
+  if (rate >= 1) return tx("milestone100", "완벽한 하루");
+  if (rate >= 0.75) return tx("milestone75", "거의 다 왔어요");
+  if (rate >= 0.5) return tx("milestone50", "탄력이 붙었어요");
+  if (rate >= 0.25) return tx("milestone25", "좋은 시작");
+  return tx("milestone0", "시작할 준비");
+}
+
+function resolveMilestoneEmoji(rate) {
+  if (rate >= 1) return "🏆";
+  if (rate >= 0.75) return "🚀";
+  if (rate >= 0.5) return "🔥";
+  if (rate >= 0.25) return "✨";
+  return "🌱";
+}
+
+function resolveAchievementTier(rate) {
+  if (rate >= 1) return "complete";
+  if (rate >= 0.75) return "surge";
+  if (rate >= 0.5) return "momentum";
+  if (rate >= 0.25) return "warm";
+  return "ready";
 }
 
 function summarizeTodayStreak(habits) {
   const streak = habits.reduce((max, habit) => Math.max(max, Number(habit.streak || 0)), 0);
-  return `${streak}${tx("daysSuffix", "d")}`;
+  return `${streak}${tx("daysSuffix", "일")}`;
 }
 
 function renderEmptyState(copy) {
@@ -1821,7 +2196,7 @@ function renderEmptyState(copy) {
 function formatActiveDays(activeDays) {
   const values = [...new Set(activeDays ?? [])];
   if (values.length === 7) {
-    return tx("everyday", "Every day");
+    return tx("everyday", "매일");
   }
   const labelsByDay = new Map([
     [0, "2026-03-29"],
@@ -1913,7 +2288,7 @@ function tx(key, fallback = "") {
 function resolveMessage(message) {
   const normalized = String(message || "").trim();
   if (!normalized) {
-    return tx("actionFailed", "Failed to process the request.");
+    return tx("actionFailed", "요청을 처리하지 못했습니다.");
   }
   if (normalized in (MESSAGES[state.locale] || {}) || normalized in (MESSAGES.en || {})) {
     return tx(normalized, normalized);

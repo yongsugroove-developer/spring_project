@@ -141,11 +141,14 @@ export class PlannerService {
 
   async createHabit(input: HabitInput) {
     const data = await this.repository.read();
+    const timestamp = this.now().toISOString();
     const habit = this.buildHabit(input, data.habits.length + 1);
     data.habits.push(habit);
     data.habits = sortHabits(data.habits);
     if (data.routineModes.length === 0) {
-      data.routineModes = [buildDefaultMode(data.habits, this.now().toISOString())];
+      data.routineModes = [buildDefaultMode(data.habits, timestamp)];
+    } else {
+      appendHabitToDefaultMode(data.routineModes, habit.id, timestamp);
     }
     await this.repository.write(data);
     return habit;
@@ -280,7 +283,9 @@ export class PlannerService {
       };
 
     if (habit.trackingType === "time") {
-      if (input.action === "append-time") {
+      if (typeof input.completed === "boolean") {
+        checkin.timeEntries = input.completed ? [checkin.timeEntries.at(-1) ?? timestamp] : [];
+      } else if (input.action === "append-time") {
         checkin.timeEntries = [...checkin.timeEntries, timestamp];
       } else if (input.action === "remove-time") {
         if (!Number.isInteger(input.entryIndex) || (input.entryIndex ?? -1) < 0) {
@@ -687,4 +692,13 @@ function buildDefaultMode(habits: Habit[], timestamp: string): RoutineMode {
     createdAt: timestamp,
     updatedAt: timestamp,
   };
+}
+
+function appendHabitToDefaultMode(modes: RoutineMode[], habitId: string, timestamp: string) {
+  const defaultMode = modes.find((mode) => mode.id === "mode-default");
+  if (!defaultMode || defaultMode.habitIds.includes(habitId)) {
+    return;
+  }
+  defaultMode.habitIds = [...defaultMode.habitIds, habitId];
+  defaultMode.updatedAt = timestamp;
 }

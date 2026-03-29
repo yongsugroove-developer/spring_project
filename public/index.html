@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Planner</title>
-    <meta name="description" content="My Planner" />
+    <title>마이 플래너</title>
+    <meta name="description" content="마이 플래너" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -13,6 +13,14 @@
     />
     <link rel="stylesheet" href="/styles.css" />
     <script type="module" src="/app.js"></script>
+    <script>
+      if (["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)) {
+        const agentationBridge = document.createElement("script");
+        agentationBridge.type = "module";
+        agentationBridge.src = "/dev-agentation-bridge.js";
+        document.head.append(agentationBridge);
+      }
+    </script>
   </head>
   <body>
     <main class="app-shell planner-app">
@@ -25,7 +33,7 @@
               type="button"
               data-action="go-home"
             >
-              My Planner
+              마이 플래너
             </button>
           </div>
           <div class="app-utility-actions">
@@ -38,10 +46,10 @@
                 aria-haspopup="menu"
                 aria-expanded="false"
               >
-                <span id="account-menu-name">Account</span>
-                <small id="account-menu-meta">Account / Settings / Stats</small>
+                <span id="account-menu-name">계정</span>
+                <small id="account-menu-meta">계정 / 모드 / 설정 / 통계</small>
               </button>
-              <div class="account-menu-panel" role="menu" aria-label="Account menu">
+              <div class="account-menu-panel" role="menu" aria-label="계정 메뉴">
                 <button
                   id="tab-button-account"
                   class="account-menu-link"
@@ -49,7 +57,16 @@
                   data-route="/account"
                   data-label-key="accountMenu"
                 >
-                  Account
+                  계정
+                </button>
+                <button
+                  id="tab-button-modes"
+                  class="account-menu-link"
+                  type="button"
+                  data-route="/modes"
+                  data-label-key="modesMenu"
+                >
+                  모드 설정
                 </button>
                 <button
                   id="tab-button-settings"
@@ -58,7 +75,7 @@
                   data-route="/settings"
                   data-label-key="settingsMenu"
                 >
-                  Display Settings
+                  보기 설정
                 </button>
                 <button
                   id="tab-button-stats"
@@ -67,7 +84,7 @@
                   data-route="/stats"
                   data-label-key="stats"
                 >
-                  Stats
+                  통계
                 </button>
               </div>
             </div>
@@ -77,9 +94,8 @@
 
       <header class="planner-topbar">
         <div class="planner-topbar-copy">
-          <p id="screen-label" class="eyebrow">my planner</p>
-          <h1 id="screen-title" class="planner-screen-title">My Planner</h1>
-          <p id="screen-copy" class="planner-screen-copy">Personal planner</p>
+          <h1 id="screen-title" class="planner-screen-title">마이 플래너</h1>
+          <p id="screen-copy" class="planner-screen-copy">개인 플래너</p>
         </div>
       </header>
 
@@ -87,6 +103,7 @@
 
       <section id="tab-today" class="tab-panel is-active" role="tabpanel"></section>
       <section id="tab-account" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-account" hidden></section>
+      <section id="tab-modes" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-modes" hidden></section>
       <section id="tab-habits" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-habits" hidden></section>
       <section id="tab-tasks" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-tasks" hidden></section>
       <section id="tab-routines" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-routines" hidden></section>
@@ -94,21 +111,21 @@
       <section id="tab-stats" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-stats" hidden></section>
       <section id="tab-settings" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-settings" hidden></section>
 
-      <nav class="mobile-tab-bar" aria-label="Primary navigation">
+      <nav class="mobile-tab-bar" aria-label="주요 탐색">
         <button id="tab-button-today" class="mobile-tab-button" type="button" data-route="/today" data-label-key="today">
-          Home
+          홈
         </button>
         <button id="tab-button-habits" class="mobile-tab-button" type="button" data-route="/habits" data-label-key="habitsMenu">
-          Habits
+          습관
         </button>
         <button id="tab-button-tasks" class="mobile-tab-button" type="button" data-route="/tasks" data-label-key="tasksMenu">
-          Tasks
+          작업
         </button>
         <button id="tab-button-routines" class="mobile-tab-button" type="button" data-route="/routines" data-label-key="routinesMenu">
-          Routines
+          루틴
         </button>
         <button id="tab-button-calendar" class="mobile-tab-button" type="button" data-route="/calendar" data-label-key="calendar">
-          Calendar
+          캘린더
         </button>
       </nav>
     </main>

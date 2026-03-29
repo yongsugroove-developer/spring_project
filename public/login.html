@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Planner</title>
-    <meta name="description" content="My Planner" />
+    <title>마이 플래너</title>
+    <meta name="description" content="마이 플래너" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -13,11 +13,19 @@
     />
     <link rel="stylesheet" href="/styles.css" />
     <script type="module" src="/login.js"></script>
+    <script>
+      if (["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)) {
+        const agentationBridge = document.createElement("script");
+        agentationBridge.type = "module";
+        agentationBridge.src = "/dev-agentation-bridge.js";
+        document.head.append(agentationBridge);
+      }
+    </script>
   </head>
   <body class="login-page">
     <main class="login-shell">
       <section class="panel section">
-        <p class="eyebrow">my planner</p>
+        <p class="eyebrow">마이 플래너</p>
         <div id="login-root"></div>
       </section>
     </main>

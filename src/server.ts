@@ -30,48 +30,72 @@ function setStaticAssetHeaders(res: express.Response, filePath: string) {
 type ServerLocale = "ko" | "en" | "ja";
 type ServerMessageKey =
   | "routineNotFound"
+  | "habitNotFound"
   | "routineItemNotFound"
   | "routineSetNotFound"
   | "todoNotFound"
+  | "taskNotFound"
+  | "userNotFound"
   | "monthRequired"
   | "apiRouteNotFound"
   | "internalServerError"
   | "authenticationRequired"
-  | "authUnavailable";
+  | "authUnavailable"
+  | "adminAccessRequired"
+  | "routineModeCreateFailed"
+  | "routineCreateFailed";
 
 const SERVER_MESSAGES: Record<ServerLocale, Record<ServerMessageKey, string>> = {
   ko: {
     routineNotFound: "루틴을 찾을 수 없습니다.",
+    habitNotFound: "습관을 찾을 수 없습니다.",
     routineItemNotFound: "루틴 항목을 찾을 수 없습니다.",
     routineSetNotFound: "루틴 세트를 찾을 수 없습니다.",
     todoNotFound: "투두를 찾을 수 없습니다.",
+    taskNotFound: "작업을 찾을 수 없습니다.",
+    userNotFound: "사용자를 찾을 수 없습니다.",
     monthRequired: "month 쿼리가 필요합니다.",
     apiRouteNotFound: "API 경로를 찾을 수 없습니다.",
     internalServerError: "서버 내부 오류가 발생했습니다.",
     authenticationRequired: "로그인이 필요합니다.",
     authUnavailable: "인증 기능을 아직 사용할 수 없습니다.",
+    adminAccessRequired: "관리자 권한이 필요합니다.",
+    routineModeCreateFailed: "모드를 만들지 못했습니다.",
+    routineCreateFailed: "루틴을 만들지 못했습니다.",
   },
   en: {
     routineNotFound: "Routine not found",
+    habitNotFound: "Habit not found",
     routineItemNotFound: "Routine item not found",
     routineSetNotFound: "Routine set not found",
     todoNotFound: "Todo not found",
+    taskNotFound: "Task not found",
+    userNotFound: "User not found",
     monthRequired: "month query is required",
     apiRouteNotFound: "API route not found",
     internalServerError: "Internal server error",
     authenticationRequired: "Authentication required",
     authUnavailable: "Authentication is not available",
+    adminAccessRequired: "Admin access is required",
+    routineModeCreateFailed: "Failed to create routine mode",
+    routineCreateFailed: "Failed to create routine",
   },
   ja: {
     routineNotFound: "ルーティンが見つかりません。",
+    habitNotFound: "習慣が見つかりません。",
     routineItemNotFound: "ルーティン項目が見つかりません。",
     routineSetNotFound: "ルーティンセットが見つかりません。",
     todoNotFound: "Todoが見つかりません。",
+    taskNotFound: "作業が見つかりません。",
+    userNotFound: "ユーザーが見つかりません。",
     monthRequired: "month クエリが必要です。",
     apiRouteNotFound: "API ルートが見つかりません。",
     internalServerError: "サーバー内部エラーが発生しました。",
     authenticationRequired: "ログインが必要です。",
     authUnavailable: "認証機能はまだ利用できません。",
+    adminAccessRequired: "管理者権限が必要です。",
+    routineModeCreateFailed: "モードを作成できませんでした。",
+    routineCreateFailed: "ルーティンを作成できませんでした。",
   },
 };
 
@@ -246,7 +270,7 @@ export function createApp(options: AppOptions = {}) {
     try {
       await auditLogService.record(entry);
     } catch (error) {
-      console.error("Failed to record activity log", error);
+      console.error("활동 로그를 기록하지 못했습니다.", error);
     }
   }
 
@@ -260,7 +284,7 @@ export function createApp(options: AppOptions = {}) {
       throw new HttpError(401, messageFor(req, "authenticationRequired"));
     }
     if (!isAdminRole(actor.user?.role)) {
-      throw new HttpError(403, "Admin access is required");
+      throw new HttpError(403, messageFor(req, "adminAccessRequired"));
     }
     return actor;
   }
@@ -297,7 +321,7 @@ export function createApp(options: AppOptions = {}) {
         targetUserId: result.user.id,
         scope: "auth",
         eventType: "register",
-        message: "User account registered",
+        message: "사용자 계정을 등록했습니다.",
         details: { email: result.user.email },
       });
       res.status(201).json({
@@ -322,7 +346,7 @@ export function createApp(options: AppOptions = {}) {
         targetUserId: result.user.id,
         scope: "auth",
         eventType: "login",
-        message: "User logged in",
+        message: "사용자가 로그인했습니다.",
       });
       res.json({
         ok: true,
@@ -349,7 +373,7 @@ export function createApp(options: AppOptions = {}) {
         targetUserId: actor.userId,
         scope: "auth",
         eventType: "logout",
-        message: "User logged out",
+        message: "사용자가 로그아웃했습니다.",
       });
       res.status(204).send();
     } catch (error) {
@@ -403,7 +427,7 @@ export function createApp(options: AppOptions = {}) {
         targetUserId: actor.userId,
         scope: "billing",
         eventType: "activate-manual-subscription",
-        message: "User activated a billing plan",
+        message: "사용자가 요금제를 활성화했습니다.",
         details: { planCode },
       });
       res.json(result);
@@ -448,7 +472,7 @@ export function createApp(options: AppOptions = {}) {
         },
       );
       if (!updated) {
-        res.status(404).json({ ok: false, message: "User not found" });
+        res.status(404).json({ ok: false, message: messageFor(req, "userNotFound") });
         return;
       }
       await auditLogService.record({
@@ -457,7 +481,7 @@ export function createApp(options: AppOptions = {}) {
         targetUserId: updated.id,
         scope: "admin.accounts",
         eventType: "update-user-access",
-        message: "Admin updated a user account",
+        message: "관리자가 사용자 계정을 수정했습니다.",
         details: { role: updated.role, status: updated.status },
       });
       res.json({ ok: true, user: updated });
@@ -478,7 +502,7 @@ export function createApp(options: AppOptions = {}) {
         targetUserId: req.params.id,
         scope: "admin.billing",
         eventType: "assign-user-plan",
-        message: "Admin assigned a billing plan",
+        message: "관리자가 사용자 요금제를 지정했습니다.",
         details: { planCode },
       });
       res.json(result);
@@ -546,7 +570,7 @@ export function createApp(options: AppOptions = {}) {
         targetUserId: actor.userId,
         scope: "planner.habits",
         eventType: "create-habit",
-        message: "User created a habit",
+        message: "사용자가 습관을 만들었습니다.",
         details: { habitId: habit.id, trackingType: habit.trackingType },
       });
       res.status(201).json({ ok: true, habit });
@@ -560,7 +584,7 @@ export function createApp(options: AppOptions = {}) {
       const actor = await resolveActor(req);
       const habit = await plannerFor(actor.userId).updateHabit(req.params.id, req.body);
       if (!habit) {
-        res.status(404).json({ ok: false, message: "Habit not found" });
+        res.status(404).json({ ok: false, message: messageFor(req, "habitNotFound") });
         return;
       }
       await recordServerActivity({
@@ -569,7 +593,7 @@ export function createApp(options: AppOptions = {}) {
         targetUserId: actor.userId,
         scope: "planner.habits",
         eventType: "update-habit",
-        message: "User updated a habit",
+        message: "사용자가 습관을 수정했습니다.",
         details: { habitId: habit.id, trackingType: habit.trackingType },
       });
       res.json({ ok: true, habit });
@@ -583,7 +607,7 @@ export function createApp(options: AppOptions = {}) {
       const actor = await resolveActor(req);
       const deleted = await plannerFor(actor.userId).deleteHabit(req.params.id);
       if (!deleted) {
-        res.status(404).json({ ok: false, message: "Habit not found" });
+        res.status(404).json({ ok: false, message: messageFor(req, "habitNotFound") });
         return;
       }
       await recordServerActivity({
@@ -592,7 +616,7 @@ export function createApp(options: AppOptions = {}) {
         targetUserId: actor.userId,
         scope: "planner.habits",
         eventType: "delete-habit",
-        message: "User deleted a habit",
+        message: "사용자가 습관을 삭제했습니다.",
         details: { habitId: req.params.id },
       });
       res.status(204).send();
@@ -613,7 +637,7 @@ export function createApp(options: AppOptions = {}) {
         targetUserId: actor.userId,
         scope: "planner.habits",
         eventType: "reorder-habits",
-        message: "User reordered habits",
+        message: "사용자가 습관 순서를 변경했습니다.",
         details: { habitCount: result.habits.length },
       });
       res.json(result);
@@ -644,7 +668,7 @@ export function createApp(options: AppOptions = {}) {
         entryIndex: Number.isInteger(req.body?.entryIndex) ? req.body.entryIndex : undefined,
       });
       if (!habit) {
-        res.status(404).json({ ok: false, message: "Habit not found" });
+        res.status(404).json({ ok: false, message: messageFor(req, "habitNotFound") });
         return;
       }
       await recordServerActivity({
@@ -653,7 +677,7 @@ export function createApp(options: AppOptions = {}) {
         targetUserId: actor.userId,
         scope: "planner.habit-checkins",
         eventType: "upsert-habit-checkin",
-        message: "User updated habit progress",
+        message: "사용자가 습관 진행 상황을 수정했습니다.",
         details: {
           date: req.params.date,
           habitId: habit.id,
@@ -681,7 +705,7 @@ export function createApp(options: AppOptions = {}) {
       const actor = await resolveActor(req);
       const mode = await plannerFor(actor.userId).createRoutineMode(req.body);
       if (!mode) {
-        throw new Error("Failed to create routine mode");
+        throw new Error(messageFor(req, "routineModeCreateFailed"));
       }
       await recordServerActivity({
         actorUserId: actor.userId,
@@ -689,7 +713,7 @@ export function createApp(options: AppOptions = {}) {
         targetUserId: actor.userId,
         scope: "planner.routine-modes",
         eventType: "create-routine-mode",
-        message: "User created a routine mode",
+        message: "사용자가 모드를 만들었습니다.",
         details: { modeId: mode.id, routineCount: mode.routines.length, habitCount: mode.habits.length },
       });
       res.status(201).json({ ok: true, mode });
@@ -712,7 +736,7 @@ export function createApp(options: AppOptions = {}) {
         targetUserId: actor.userId,
         scope: "planner.routine-modes",
         eventType: "update-routine-mode",
-        message: "User updated a routine mode",
+        message: "사용자가 모드를 수정했습니다.",
         details: { modeId: mode.id, routineCount: mode.routines.length, habitCount: mode.habits.length },
       });
       res.json({ ok: true, mode });
@@ -735,7 +759,7 @@ export function createApp(options: AppOptions = {}) {
         targetUserId: actor.userId,
         scope: "planner.routine-modes",
         eventType: "delete-routine-mode",
-        message: "User deleted a routine mode",
+        message: "사용자가 모드를 삭제했습니다.",
         details: { modeId: req.params.id },
       });
       res.status(204).send();
@@ -757,7 +781,7 @@ export function createApp(options: AppOptions = {}) {
         targetUserId: actor.userId,
         scope: "planner.routine-mode-overrides",
         eventType: "upsert-routine-mode-override",
-        message: "User updated a routine mode override",
+        message: "사용자가 모드 예약을 수정했습니다.",
         details: { date: req.params.date, modeId: result.override?.modeId ?? null },
       });
       res.json(result);
@@ -780,7 +804,7 @@ export function createApp(options: AppOptions = {}) {
       const actor = await resolveActor(req);
       const routine = await plannerFor(actor.userId).createRoutine(req.body);
       if (!routine) {
-        throw new Error("Failed to create routine");
+        throw new Error(messageFor(req, "routineCreateFailed"));
       }
       await recordServerActivity({
         actorUserId: actor.userId,
@@ -788,7 +812,7 @@ export function createApp(options: AppOptions = {}) {
         targetUserId: actor.userId,
         scope: "planner.routines",
         eventType: "create-routine",
-        message: "User created a routine",
+        message: "사용자가 루틴을 만들었습니다.",
         details: { routineId: routine.id, habitCount: routine.habits.length },
       });
       res.status(201).json({ ok: true, routine });
@@ -811,7 +835,7 @@ export function createApp(options: AppOptions = {}) {
         targetUserId: actor.userId,
         scope: "planner.routines",
         eventType: "update-routine",
-        message: "User updated a routine",
+        message: "사용자가 루틴을 수정했습니다.",
         details: {
           routineId: routine.id,
           habitCount: routine.habits.length,
@@ -838,7 +862,7 @@ export function createApp(options: AppOptions = {}) {
         targetUserId: actor.userId,
         scope: "planner.routines",
         eventType: "delete-routine",
-        message: "User deleted a routine",
+        message: "사용자가 루틴을 삭제했습니다.",
         details: { routineId: req.params.id },
       });
       res.status(204).send();
@@ -866,7 +890,7 @@ export function createApp(options: AppOptions = {}) {
         targetUserId: actor.userId,
         scope: "planner.tasks",
         eventType: "create-task",
-        message: "User created a task",
+        message: "사용자가 작업을 만들었습니다.",
         details: { taskId: task.id, dueDate: task.dueDate, status: task.status },
       });
       res.status(201).json({ ok: true, task });
@@ -880,7 +904,7 @@ export function createApp(options: AppOptions = {}) {
       const actor = await resolveActor(req);
       const task = await plannerFor(actor.userId).updateTask(req.params.id, req.body);
       if (!task) {
-        res.status(404).json({ ok: false, message: "Task not found" });
+        res.status(404).json({ ok: false, message: messageFor(req, "taskNotFound") });
         return;
       }
       await recordServerActivity({
@@ -889,7 +913,7 @@ export function createApp(options: AppOptions = {}) {
         targetUserId: actor.userId,
         scope: "planner.tasks",
         eventType: "update-task",
-        message: "User updated a task",
+        message: "사용자가 작업을 수정했습니다.",
         details: { taskId: task.id, dueDate: task.dueDate, status: task.status },
       });
       res.json({ ok: true, task });
@@ -903,7 +927,7 @@ export function createApp(options: AppOptions = {}) {
       const actor = await resolveActor(req);
       const deleted = await plannerFor(actor.userId).deleteTask(req.params.id);
       if (!deleted) {
-        res.status(404).json({ ok: false, message: "Task not found" });
+        res.status(404).json({ ok: false, message: messageFor(req, "taskNotFound") });
         return;
       }
       await recordServerActivity({
@@ -912,7 +936,7 @@ export function createApp(options: AppOptions = {}) {
         targetUserId: actor.userId,
         scope: "planner.tasks",
         eventType: "delete-task",
-        message: "User deleted a task",
+        message: "사용자가 작업을 삭제했습니다.",
         details: { taskId: req.params.id },
       });
       res.status(204).send();
@@ -994,6 +1018,6 @@ const port = Number(process.env.PORT ?? 3000);
 if (process.env.NODE_ENV !== "test" && process.env.VITEST !== "true") {
   const app = createApp();
   app.listen(port, () => {
-    console.log(`Server started on http://localhost:${port}`);
+    console.log(`서버를 시작했습니다: http://localhost:${port}`);
   });
 }
