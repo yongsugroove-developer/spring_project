@@ -1544,6 +1544,16 @@ function renderTasksPage() {
   </div>`;
 }
 
+renderTasksPage = function () {
+  return `<div class="route-screen-layout route-screen-layout--library">
+    <section class="content-card">
+      <div class="route-list-stack">
+        ${state.tasks.length ? state.tasks.map(renderTaskCard).join("") : `<p class="muted">${esc(tx("noTasks", ""))}</p>`}
+      </div>
+    </section>
+  </div>`;
+};
+
 function renderRoutinesPage() {
   const visibleRoutines = getVisibleRoutines();
   return `<div class="route-screen-layout route-screen-layout--library">
