@@ -34,6 +34,10 @@ describe("planner API", () => {
     ]);
     expect(today.body.summary.totalHabits).toBe(3);
     expect(today.body.todos).toBeUndefined();
+    expect(today.body.dailyNote).toEqual({
+      note: null,
+      updatedAt: null,
+    });
 
     const selectedDate = await request(app).get("/api/today").query({ date: "2026-03-20" });
     expect(selectedDate.status).toBe(200);
@@ -46,6 +50,38 @@ describe("planner API", () => {
     const invalidDate = await request(app).get("/api/today").query({ date: "2026-03-99" });
     expect(invalidDate.status).toBe(400);
     expect(invalidDate.body.ok).toBe(false);
+  });
+
+  it("stores date memos and returns them through today payloads", async () => {
+    const temp = await createTempPlannerFile(createDefaultPlannerData());
+    cleanups.push(temp.cleanup);
+    const app = createApp({
+      dataFile: temp.filePath,
+      now: () => new Date("2026-03-27T09:00:00+09:00"),
+    });
+
+    const saveNote = await request(app)
+      .put("/api/daily-notes/2026-03-27")
+      .send({ note: "오후에는 산책 먼저 하기" });
+    expect(saveNote.status).toBe(200);
+    expect(saveNote.body.dailyNote).toMatchObject({
+      note: "오후에는 산책 먼저 하기",
+    });
+
+    const today = await request(app).get("/api/today").query({ date: "2026-03-27" });
+    expect(today.status).toBe(200);
+    expect(today.body.dailyNote).toMatchObject({
+      note: "오후에는 산책 먼저 하기",
+    });
+
+    const clearNote = await request(app)
+      .put("/api/daily-notes/2026-03-27")
+      .send({ note: "" });
+    expect(clearNote.status).toBe(200);
+    expect(clearNote.body.dailyNote).toEqual({
+      note: null,
+      updatedAt: null,
+    });
   });
 
   it("supports habit CRUD, reorder, and checkin updates", async () => {
@@ -175,6 +211,11 @@ describe("planner API", () => {
     ]);
 
     const modeId = createMode.body.mode.id as string;
+    const recurringToday = await request(app).get("/api/today").query({ date: "2026-03-22" });
+    expect(recurringToday.status).toBe(200);
+    expect(recurringToday.body.activeMode).toMatchObject({ id: modeId, name: "Weekend mode" });
+    expect(recurringToday.body.habits.map((habit: { id: string }) => habit.id)).toEqual(["habit-water"]);
+
     const updateOverride = await request(app)
       .put("/api/routine-mode-overrides/2026-03-22")
       .send({ modeId });
@@ -203,6 +244,39 @@ describe("planner API", () => {
       "habit-plan",
       "habit-focus",
     ]);
+  });
+
+  it("supports date-only modes that are activated by reserved dates", async () => {
+    const temp = await createTempPlannerFile();
+    cleanups.push(temp.cleanup);
+    const app = createApp({
+      dataFile: temp.filePath,
+      now: () => new Date("2026-03-24T09:00:00+09:00"),
+    });
+
+    const createMode = await request(app).post("/api/routine-modes").send({
+      name: "Travel mode",
+      routineIds: [],
+      habitIds: ["habit-focus"],
+      activeDays: [],
+    });
+    expect(createMode.status).toBe(201);
+    expect(createMode.body.mode.activeDays).toEqual([]);
+
+    const beforeOverride = await request(app).get("/api/today").query({ date: "2026-03-24" });
+    expect(beforeOverride.status).toBe(200);
+    expect(beforeOverride.body.activeMode).toMatchObject({ id: "mode-default" });
+
+    const modeId = createMode.body.mode.id as string;
+    const reserveMode = await request(app)
+      .put("/api/routine-mode-overrides/2026-03-24")
+      .send({ modeId });
+    expect(reserveMode.status).toBe(200);
+
+    const reservedToday = await request(app).get("/api/today").query({ date: "2026-03-24" });
+    expect(reservedToday.status).toBe(200);
+    expect(reservedToday.body.activeMode).toMatchObject({ id: modeId, name: "Travel mode" });
+    expect(reservedToday.body.habits.map((habit: { id: string }) => habit.id)).toEqual(["habit-focus"]);
   });
 
   it("round-trips emoji fields for habits and tasks", async () => {

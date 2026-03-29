@@ -11,6 +11,7 @@ export function createDefaultPlannerData(): PlannerData {
     routines: [],
     routineModes: [],
     routineModeOverrides: [],
+    dailyNotes: [],
     tasks: [],
   };
 }
@@ -140,6 +141,7 @@ export function createSamplePlannerData(): PlannerData {
       },
     ],
     routineModeOverrides: [],
+    dailyNotes: [],
     tasks: [
       {
         id: "task-groceries",

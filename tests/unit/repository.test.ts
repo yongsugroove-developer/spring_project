@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -152,5 +152,23 @@ describe("json planner repository", () => {
     const data = await repository.read();
 
     expect(data).toEqual(createDefaultPlannerData());
+  });
+
+  it("adds an empty daily note collection when older current-format data is missing it", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "my-planner-current-"));
+    const filePath = path.join(directory, "planner-data.json");
+    cleanups.push(async () => rm(directory, { recursive: true, force: true }));
+
+    const currentData = createSamplePlannerData() as unknown as Record<string, unknown>;
+    delete currentData.dailyNotes;
+    await writeFile(filePath, JSON.stringify(currentData, null, 2), "utf8");
+
+    const repository = new JsonPlannerRepository(filePath);
+    const data = await repository.read();
+
+    expect(data.dailyNotes).toEqual([]);
+
+    const persisted = JSON.parse(await readFile(filePath, "utf8")) as { dailyNotes?: unknown };
+    expect(persisted.dailyNotes).toEqual([]);
   });
 });

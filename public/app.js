@@ -46,6 +46,8 @@ const PRESET_COLORS = [
   "#1f2937",
 ];
 
+const MODE_ROUTINE_PREFIX = "[[mode-routine]]";
+
 const ROUTE_META = {
   "/today": { tab: "today", titleKey: "homeTitle", copyKey: "homeCopy" },
   "/account": { tab: "account", titleKey: "accountTitle", copyKey: "accountCopy" },
@@ -85,6 +87,8 @@ const state = {
   modeDateDrafts: {},
   modeDatePicker: null,
   habitPicker: null,
+  modeDetailsOpen: {},
+  homeNoteOpen: true,
   homePanel: "habits",
   homeTaskFilter: "scheduled",
   draggedHabitId: "",
@@ -139,6 +143,7 @@ function bindEvents() {
     const action = target.dataset.action;
     if (action) {
       event.preventDefault();
+      rememberOpenModeDetails(target);
       void handleAction(action, target);
     }
   });
@@ -147,12 +152,14 @@ function bindEvents() {
     const form = event.target;
     if (!(form instanceof HTMLFormElement)) return;
     event.preventDefault();
+    rememberOpenModeDetails(form);
     void handleSubmit(form);
   });
 
   document.addEventListener("change", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
+    rememberOpenModeDetails(target);
     if (target.id === "settings-locale" && target instanceof HTMLSelectElement) {
       state.locale = target.value in MESSAGES ? target.value : "ko";
       globalThis.localStorage?.setItem(LOCALE_KEY, state.locale);
@@ -170,6 +177,16 @@ function bindEvents() {
       state.density = target.value;
       setStoredOption(DENSITY_KEY, state.density);
       applyPreferences();
+      render();
+      return;
+    }
+    if (
+      target instanceof HTMLInputElement &&
+      target.name === "scheduleType" &&
+      target.form instanceof HTMLFormElement &&
+      (target.form.dataset.form === "mode-create" || target.form.dataset.form === "mode-update")
+    ) {
+      captureRouteFormDraft(target.form);
       render();
     }
   });
@@ -319,7 +336,9 @@ async function handleAction(action, target) {
     return;
   }
   if (action === "delete-mode") {
-    await request(`/api/routine-modes/${target.dataset.deleteId}`, { method: "DELETE" });
+    const modeId = target.dataset.deleteId ?? "";
+    await request(`/api/routine-modes/${modeId}`, { method: "DELETE" });
+    await deleteModeOwnedRoutines(modeId);
     await refreshAll();
     return;
   }
@@ -365,17 +384,30 @@ async function handleAction(action, target) {
     render();
     return;
   }
+  if (action === "set-mode-schedule") {
+    captureVisibleRouteFormDrafts();
+    const formKey = target.dataset.formKey ?? "";
+    const scheduleType = target.dataset.scheduleType ?? "";
+    if (!formKey || !["everyday", "dates", "weekdays", "weekends"].includes(scheduleType)) return;
+    state.routeFormDrafts[formKey] = {
+      ...(getRouteFormDraft(formKey) ?? {}),
+      scheduleType,
+    };
+    if (scheduleType === "dates") {
+      openModeDatePicker(formKey);
+      return;
+    }
+    if (state.modeDatePicker?.formKey === formKey) {
+      state.modeDatePicker = null;
+    }
+    render();
+    return;
+  }
   if (action === "open-mode-date-picker") {
     captureVisibleRouteFormDrafts();
     const formKey = target.dataset.formKey ?? "";
     if (!formKey) return;
-    const currentDates = getModeReservedDates(formKey, getRouteFormDraft(formKey)?.reservedDates ?? []);
-    state.modeDatePicker = {
-      formKey,
-      month: (currentDates[0] ?? state.selectedHomeDate ?? dateKeyLocal()).slice(0, 7),
-      dates: [...currentDates],
-    };
-    render();
+    openModeDatePicker(formKey);
     return;
   }
   if (action === "shift-mode-date-month") {
@@ -516,8 +548,27 @@ async function handleSubmit(form) {
       return;
     }
     if (kind === "mode-create") {
+      const modePayload = buildModeFormPayload(data);
       const reservedDates = readReservedDates(data);
-      const created = await request("/api/routine-modes", { method: "POST", body: serializeModeForm(data) });
+      const created = await request("/api/routine-modes", {
+        method: "POST",
+        body: { name: modePayload.name, routineIds: [], habitIds: [], activeDays: modePayload.activeDays },
+      });
+      const nextModeState = await syncModeRoutineSelections(
+        created.mode.id,
+        modePayload.name,
+        modePayload.routineSelections,
+        modePayload.habitIds,
+      );
+      await request(`/api/routine-modes/${created.mode.id}`, {
+        method: "PATCH",
+        body: {
+          name: modePayload.name,
+          routineIds: nextModeState.routineIds,
+          habitIds: nextModeState.habitIds,
+          activeDays: modePayload.activeDays,
+        },
+      });
       await syncModeReservations(created.mode.id, [], reservedDates);
       clearRouteFormDraft(formKey);
       delete state.modeDateDrafts[formKey];
@@ -527,13 +578,37 @@ async function handleSubmit(form) {
     }
     if (kind === "mode-update") {
       const modeId = form.dataset.id ?? "";
+      const modePayload = buildModeFormPayload(data, modeId);
       const reservedDates = readReservedDates(data);
       const previousDates = state.modes.find((entry) => entry.id === modeId)?.reservedDates ?? [];
-      await request(`/api/routine-modes/${modeId}`, { method: "PATCH", body: serializeModeForm(data) });
+      const nextModeState = await syncModeRoutineSelections(
+        modeId,
+        modePayload.name,
+        modePayload.routineSelections,
+        modePayload.habitIds,
+      );
+      await request(`/api/routine-modes/${modeId}`, {
+        method: "PATCH",
+        body: {
+          name: modePayload.name,
+          routineIds: nextModeState.routineIds,
+          habitIds: nextModeState.habitIds,
+          activeDays: modePayload.activeDays,
+        },
+      });
       await syncModeReservations(modeId, previousDates, reservedDates);
       clearRouteFormDraft(formKey);
       delete state.modeDateDrafts[formKey];
       await refreshAll();
+      return;
+    }
+    if (kind === "daily-note-save") {
+      await request(`/api/daily-notes/${state.selectedHomeDate}`, {
+        method: "PUT",
+        body: { note: String(data.get("note") || "") },
+      });
+      await refreshTodayOnly();
+      showFeedback(tx("saveDone", "저장했습니다."));
       return;
     }
     if (kind === "mode-override") {
@@ -584,8 +659,10 @@ function serializeRoutineForm(data) {
 function serializeModeForm(data) {
   return {
     name: String(data.get("name") || ""),
-    routineIds: data.getAll("routineIds").map(String),
-    habitIds: data.getAll("habitIds").map(String),
+    routineIds: [],
+    habitIds: orderedSelectedIds(data.getAll("habitIds").map(String), state.habits),
+    activeDays: readModeActiveDays(data, ""),
+    routineSelections: collectModeRoutineSelections(data),
   };
 }
 
@@ -602,6 +679,172 @@ function orderedSelectedIds(values, items) {
   return items.map((item) => item.id).filter((id) => selected.has(id));
 }
 
+function createModeRoutineName(modeId, sourceRoutineId, displayName) {
+  return `${MODE_ROUTINE_PREFIX}${encodeURIComponent(modeId)}|${encodeURIComponent(sourceRoutineId)}|${encodeURIComponent(displayName)}`;
+}
+
+function parseModeRoutineName(name) {
+  const text = String(name || "");
+  if (!text.startsWith(MODE_ROUTINE_PREFIX)) {
+    return null;
+  }
+  const raw = text.slice(MODE_ROUTINE_PREFIX.length);
+  const [modeId, sourceRoutineId, displayName] = raw.split("|");
+  if (!modeId || !sourceRoutineId || displayName === undefined) {
+    return null;
+  }
+  return {
+    modeId: decodeURIComponent(modeId),
+    sourceRoutineId: decodeURIComponent(sourceRoutineId),
+    displayName: decodeURIComponent(displayName),
+  };
+}
+
+function getRoutineDisplayName(routine) {
+  if (!routine) {
+    return "";
+  }
+  return parseModeRoutineName(routine.name)?.displayName ?? String(routine.name || "");
+}
+
+function isModeOwnedRoutine(routine) {
+  return Boolean(parseModeRoutineName(routine?.name));
+}
+
+function getVisibleRoutines() {
+  return state.routines.filter((routine) => !isModeOwnedRoutine(routine));
+}
+
+function getModeOwnedRoutines(modeId) {
+  return state.routines.filter((routine) => parseModeRoutineName(routine.name)?.modeId === modeId);
+}
+
+function getRoutineHabitIds(routine) {
+  const sourceIds =
+    Array.isArray(routine?.habits) && routine.habits.length
+      ? routine.habits.map((habit) => habit.id)
+      : Array.isArray(routine?.habitIds)
+        ? routine.habitIds
+        : [];
+  const selected = new Set(sourceIds.map(String));
+  return state.habits.map((habit) => habit.id).filter((habitId) => selected.has(habitId));
+}
+
+function areSameIds(left, right) {
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every((value, index) => value === right[index]);
+}
+
+function getModeScheduleType(activeDays = [], modeId = "") {
+  const normalized = [...new Set((activeDays ?? []).map(Number))].sort((left, right) => left - right);
+  if (areSameIds(normalized, [0, 1, 2, 3, 4, 5, 6])) {
+    return "everyday";
+  }
+  if (areSameIds(normalized, [1, 2, 3, 4, 5])) {
+    return "weekdays";
+  }
+  if (areSameIds(normalized, [0, 6])) {
+    return "weekends";
+  }
+  return modeId === "mode-default" ? "everyday" : "dates";
+}
+
+function readModeActiveDays(data, modeId = "") {
+  const scheduleType = String(data.get("scheduleType") || "");
+  if (scheduleType === "weekdays") {
+    return [1, 2, 3, 4, 5];
+  }
+  if (scheduleType === "weekends") {
+    return [0, 6];
+  }
+  if (scheduleType === "everyday" || modeId === "mode-default") {
+    return [0, 1, 2, 3, 4, 5, 6];
+  }
+  return [];
+}
+
+function formatModeScheduleSummary(activeDays, reservedDates, modeId = "") {
+  const scheduleType = getModeScheduleType(activeDays, modeId);
+  if (scheduleType === "weekdays") {
+    return tx("weeklyWeekdays", "매주 주중");
+  }
+  if (scheduleType === "weekends") {
+    return tx("weeklyWeekends", "매주 주말");
+  }
+  if (scheduleType === "everyday") {
+    return tx("everyday", "매일");
+  }
+  return formatReservedDatesSummary(reservedDates);
+}
+
+function formatModeScheduleBadge(activeDays, reservedDates, modeId = "") {
+  const scheduleType = getModeScheduleType(activeDays, modeId);
+  if (scheduleType === "weekdays") {
+    return tx("modeWeekdaysShort", "주중");
+  }
+  if (scheduleType === "weekends") {
+    return tx("modeWeekendsShort", "주말");
+  }
+  if (scheduleType === "everyday") {
+    return tx("modeEverydayShort", "매일");
+  }
+  return reservedDates?.length ? `${tx("modeDatesShort", "날짜")} ${reservedDates.length}` : tx("modeDatesShort", "날짜");
+}
+
+function collectModeRoutineSelections(data) {
+  const selections = {};
+  for (const routine of getVisibleRoutines()) {
+    const selectedIds = orderedSelectedIds(
+      data.getAll(`routineHabit:${routine.id}`).map(String),
+      Array.isArray(routine.habits) ? routine.habits : [],
+    );
+    if (selectedIds.length) {
+      selections[routine.id] = selectedIds;
+    }
+  }
+  return selections;
+}
+
+function getModeRoutineSelections(mode, draft) {
+  if (draft?.routineSelections && typeof draft.routineSelections === "object") {
+    return Object.fromEntries(
+      Object.entries(draft.routineSelections)
+        .map(([routineId, habitIds]) => {
+          const routine = getVisibleRoutines().find((entry) => entry.id === routineId);
+          if (!routine || !Array.isArray(habitIds)) {
+            return null;
+          }
+          return [routineId, orderedSelectedIds(habitIds.map(String), Array.isArray(routine.habits) ? routine.habits : [])];
+        })
+        .filter((entry) => Array.isArray(entry) && entry[1].length),
+    );
+  }
+
+  const selections = {};
+  for (const routine of getVisibleRoutines()) {
+    const fullHabitIds = getRoutineHabitIds(routine);
+    const directRoutine = mode?.routines?.find((entry) => entry.id === routine.id) ?? null;
+    const derivedRoutine =
+      mode?.routines?.find((entry) => parseModeRoutineName(entry.name)?.sourceRoutineId === routine.id) ?? null;
+    const selectedIds = derivedRoutine ? getRoutineHabitIds(derivedRoutine) : directRoutine ? fullHabitIds : [];
+    if (selectedIds.length) {
+      selections[routine.id] = orderedSelectedIds(selectedIds, Array.isArray(routine.habits) ? routine.habits : []);
+    }
+  }
+  return selections;
+}
+
+function buildModeFormPayload(data, modeId = "") {
+  return {
+    name: String(data.get("name") || ""),
+    habitIds: orderedSelectedIds(data.getAll("habitIds").map(String), state.habits),
+    activeDays: readModeActiveDays(data, modeId),
+    routineSelections: collectModeRoutineSelections(data),
+  };
+}
+
 function getRouteFormDraft(formKey) {
   if (!formKey) {
     return null;
@@ -616,6 +859,28 @@ function clearRouteFormDraft(formKey) {
   delete state.routeFormDrafts[formKey];
 }
 
+function shouldOpenModeDetails(formKey) {
+  if (!formKey) {
+    return false;
+  }
+  return Boolean(state.modeDetailsOpen[formKey] || state.modeDatePicker?.formKey === formKey || state.habitPicker?.formKey === formKey);
+}
+
+function rememberOpenModeDetails(target) {
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+  const details = target.closest("[data-mode-details-key]");
+  if (!(details instanceof HTMLDetailsElement)) {
+    return;
+  }
+  const detailsKey = details.dataset.modeDetailsKey ?? "";
+  if (!detailsKey) {
+    return;
+  }
+  state.modeDetailsOpen[detailsKey] = details.open;
+}
+
 function captureRouteFormDraft(form) {
   if (!(form instanceof HTMLFormElement)) {
     return;
@@ -625,10 +890,23 @@ function captureRouteFormDraft(form) {
     return;
   }
   const data = new FormData(form);
+  if (form.dataset.form === "mode-create" || form.dataset.form === "mode-update") {
+    const modeId = form.dataset.id ?? "";
+    state.routeFormDrafts[formKey] = {
+      name: String(data.get("name") || ""),
+      color: optionalValue(data.get("color")),
+      routineSelections: collectModeRoutineSelections(data),
+      habitIds: orderedSelectedIds(data.getAll("habitIds").map(String), state.habits),
+      reservedDates: readReservedDates(data),
+      activeDays: readModeActiveDays(data, modeId),
+      scheduleType: String(data.get("scheduleType") || getModeScheduleType(readModeActiveDays(data, modeId), modeId)),
+    };
+    return;
+  }
   state.routeFormDrafts[formKey] = {
     name: String(data.get("name") || ""),
     color: optionalValue(data.get("color")),
-    routineIds: orderedSelectedIds(data.getAll("routineIds").map(String), state.routines),
+    routineIds: [],
     habitIds: orderedSelectedIds(data.getAll("habitIds").map(String), state.habits),
     reservedDates: readReservedDates(data),
   };
@@ -638,6 +916,16 @@ function captureVisibleRouteFormDrafts() {
   for (const form of document.querySelectorAll("form[data-form-key]")) {
     captureRouteFormDraft(form);
   }
+}
+
+function openModeDatePicker(formKey) {
+  const currentDates = getModeReservedDates(formKey, getRouteFormDraft(formKey)?.reservedDates ?? []);
+  state.modeDatePicker = {
+    formKey,
+    month: (currentDates[0] ?? state.selectedHomeDate ?? dateKeyLocal()).slice(0, 7),
+    dates: [...currentDates],
+  };
+  render();
 }
 
 function selectedItemsByIds(ids, items) {
@@ -679,6 +967,78 @@ function formatReservedDatesSummary(dates) {
     return formatCompactDate(dates[0]);
   }
   return `${formatCompactDate(dates[0])} +${dates.length - 1}`;
+}
+
+async function deleteModeOwnedRoutines(modeId) {
+  for (const routine of getModeOwnedRoutines(modeId)) {
+    await request(`/api/routines/${routine.id}`, { method: "DELETE" });
+  }
+}
+
+async function syncModeRoutineSelections(modeId, modeName, routineSelections, standaloneHabitIds) {
+  const nextRoutineIds = [];
+  const coveredHabitIds = new Set();
+  const existingDerivedBySourceId = new Map(
+    getModeOwnedRoutines(modeId)
+      .map((routine) => {
+        const meta = parseModeRoutineName(routine.name);
+        return meta ? [meta.sourceRoutineId, routine] : null;
+      })
+      .filter(Boolean),
+  );
+  const usedDerivedIds = new Set();
+
+  for (const routine of getVisibleRoutines()) {
+    const selectedIds = orderedSelectedIds(
+      routineSelections?.[routine.id] ?? [],
+      Array.isArray(routine.habits) ? routine.habits : [],
+    );
+    if (!selectedIds.length) {
+      continue;
+    }
+
+    const fullHabitIds = getRoutineHabitIds(routine);
+    if (areSameIds(selectedIds, fullHabitIds)) {
+      nextRoutineIds.push(routine.id);
+      fullHabitIds.forEach((habitId) => coveredHabitIds.add(habitId));
+      continue;
+    }
+
+    const payload = {
+      name: createModeRoutineName(modeId, routine.id, `${modeName}의 ${getRoutineDisplayName(routine)}`),
+      color: routine.color || null,
+      habitIds: selectedIds,
+      notificationEnabled: false,
+      notificationTime: null,
+      notificationWeekdays: [],
+    };
+    const existingDerived = existingDerivedBySourceId.get(routine.id);
+    if (existingDerived) {
+      await request(`/api/routines/${existingDerived.id}`, { method: "PATCH", body: payload });
+      nextRoutineIds.push(existingDerived.id);
+      usedDerivedIds.add(existingDerived.id);
+    } else {
+      const created = await request("/api/routines", { method: "POST", body: payload });
+      nextRoutineIds.push(created.routine.id);
+    }
+    selectedIds.forEach((habitId) => coveredHabitIds.add(habitId));
+  }
+
+  for (const routine of getModeOwnedRoutines(modeId)) {
+    const meta = parseModeRoutineName(routine.name);
+    if (!meta || usedDerivedIds.has(routine.id) || nextRoutineIds.includes(routine.id)) {
+      continue;
+    }
+    await request(`/api/routines/${routine.id}`, { method: "DELETE" });
+  }
+
+  return {
+    routineIds: nextRoutineIds,
+    habitIds: orderedSelectedIds(
+      standaloneHabitIds.filter((habitId) => !coveredHabitIds.has(habitId)),
+      state.habits,
+    ),
+  };
 }
 
 async function syncModeReservations(modeId, previousDates, nextDates) {
@@ -934,17 +1294,19 @@ function renderTodayPage() {
       </div>
     </section>
 
+    ${renderDailyNoteCard()}
+
     <section class="home-panels">
       <div class="segmented home-panel-tabs">
-        <button class="segment-button ${state.homePanel === "tasks" ? "is-selected" : ""}" type="button" data-action="select-home-panel" data-panel="tasks">${esc(tx("tasksMenu", "작업 보기"))}</button>
+        <button class="segment-button ${state.homePanel === "tasks" ? "is-selected" : ""}" type="button" data-action="select-home-panel" data-panel="tasks">${esc(tx("tasksMenu", "할 일 보기"))}</button>
         <button class="segment-button ${state.homePanel === "habits" ? "is-selected" : ""}" type="button" data-action="select-home-panel" data-panel="habits">${esc(tx("habitsMenu", "습관 보기"))}</button>
       </div>
       <div class="home-carousel" data-home-carousel>
         <section class="content-card home-panel" data-home-panel="tasks">
           <div class="route-inline-head home-panel-head">
             <div>
-              <h3>${esc(tx("tasksMenu", "작업 보기"))}</h3>
-              <p class="muted">${esc(tx("homeTaskCopy", "홈에서 바로 선택 날짜 작업과 보관함 작업을 관리합니다."))}</p>
+              <h3>${esc(tx("tasksMenu", "할 일 보기"))}</h3>
+              <p class="muted">${esc(tx("homeTaskCopy", "메인에서 선택한 날짜의 할 일과 보관함 할 일을 함께 관리합니다."))}</p>
             </div>
             <div class="segmented home-filter-tabs">
               <button class="segment-button ${state.homeTaskFilter === "scheduled" ? "is-selected" : ""}" type="button" data-action="set-home-task-filter" data-filter="scheduled">${esc(tx("scheduledTasks", "선택 날짜"))}</button>
@@ -952,7 +1314,7 @@ function renderTodayPage() {
             </div>
           </div>
           <div class="home-task-list">
-            ${tasks.length ? tasks.map(renderHomeTaskRow).join("") : renderEmptyState(tx("noTasksHome", "이 구역에 표시할 작업이 없습니다."))}
+            ${tasks.length ? tasks.map(renderHomeTaskRow).join("") : renderEmptyState(tx("noTasksHome", "이 구역에 표시할 할 일이 없습니다."))}
           </div>
         </section>
 
@@ -969,7 +1331,7 @@ function renderTodayPage() {
               ${homeHabitGroups.map((group) => renderHomeHabitSection(group)).join("")}
             </div>
           </section>`
-              : renderEmptyState(tx("noHabits", "저장된 습관이 없습니다."))
+              : renderEmptyState(tx("noHabitsHome", "이 날짜에 표시할 습관이 없습니다. 습관을 만들고 루틴이나 모드에 포함하면 메인에 나타납니다."))
           }
         </section>
       </div>
@@ -1035,6 +1397,30 @@ function renderAccountPage() {
         <button class="btn-soft" type="button" data-action="logout">${esc(tx("logout", "로그아웃"))}</button>
       </div>
     </section>
+    <section class="content-card route-guide-card">
+      <div class="route-section-heading">
+        <h3>${esc(tx("plannerGuideTitle", "개념 안내"))}</h3>
+        <p class="muted">${esc(tx("plannerGuideCopy", "할 일, 습관, 루틴, 모드를 같은 기준으로 이해할 수 있게 핵심 차이만 정리했습니다."))}</p>
+      </div>
+      <div class="route-guide-grid">
+        ${renderGuideCard(tx("guideTaskTitle", "할 일"), tx("guideTaskCopy", "할 일은 한 번 처리하고 끝나는 항목입니다."))}
+        ${renderGuideCard(tx("guideHabitTitle", "습관"), tx("guideHabitCopy", "습관은 반복해서 기록하는 기본 단위입니다."))}
+        ${renderGuideCard(tx("guideRoutineTitle", "루틴"), tx("guideRoutineCopy", "루틴은 여러 습관을 함께 다시 쓰기 위한 저장 묶음입니다."))}
+        ${renderGuideCard(tx("guideModeTitle", "모드"), tx("guideModeCopy", "모드는 상황에 따라 루틴과 개별 습관을 조합해 저장한 구성입니다."))}
+      </div>
+    </section>
+    <section class="content-card route-guide-card">
+      <div class="route-section-heading">
+        <h3>${esc(tx("plannerGuideTitle", "개념 안내"))}</h3>
+        <p class="muted">${esc(tx("plannerGuideCopy", "할 일, 습관, 루틴, 모드를 같은 기준으로 이해할 수 있게 핵심 차이만 정리했습니다."))}</p>
+      </div>
+      <div class="route-guide-grid">
+        ${renderGuideCard(tx("guideTaskTitle", "할 일"), tx("guideTaskCopy", "할 일은 한 번 처리하고 끝나는 항목입니다."))}
+        ${renderGuideCard(tx("guideHabitTitle", "습관"), tx("guideHabitCopy", "습관은 반복해서 기록하는 기본 단위입니다."))}
+        ${renderGuideCard(tx("guideRoutineTitle", "루틴"), tx("guideRoutineCopy", "루틴은 여러 습관을 함께 다시 쓰기 위한 저장 묶음입니다."))}
+        ${renderGuideCard(tx("guideModeTitle", "모드"), tx("guideModeCopy", "모드는 상황에 따라 루틴과 개별 습관을 조합해 저장한 구성입니다."))}
+      </div>
+    </section>
   </div>`;
 }
 
@@ -1044,33 +1430,46 @@ function renderHabitsPage() {
       <div class="route-section-heading">
         <h3>${esc(tx("habitsMenu", "습관 보기"))}</h3>
         <p class="muted">${esc(tx("listOnlyHint", "이 화면은 목록에 집중합니다. 새 항목은 홈의 + 버튼에서 추가합니다."))}</p>
+        ${renderGuideText(tx("habitsGuide", "습관은 반복해서 기록하는 가장 작은 단위입니다. 루틴과 모드에서 이 습관을 조합해 사용합니다."))}
       </div>
       <div class="route-list-stack">
-        ${state.habits.length ? state.habits.map(renderHabitCard).join("") : `<p class="muted">${esc(tx("noHabits", "저장된 습관이 없습니다."))}</p>`}
+        ${state.habits.length ? state.habits.map(renderHabitCard).join("") : renderEmptyState(tx("noHabits", "저장된 습관이 없습니다."), [{ route: "/today", label: tx("goHome", "홈으로 이동") }])}
       </div>
     </section>
   </div>`;
 }
 
+renderHabitsPage = function () {
+  return `<div class="route-screen-layout route-screen-layout--library">
+    <section class="content-card">
+      <div class="route-list-stack">
+        ${state.habits.length ? state.habits.map(renderHabitCard).join("") : renderEmptyState(tx("noHabits", ""), [{ route: "/today", label: tx("goHome", "") }])}
+      </div>
+    </section>
+  </div>`;
+};
+
 function renderModesPage() {
+  const createFormKey = modeFormKey();
   return `<div class="route-screen-layout">
     <section class="content-card">
       <div class="route-section-heading">
         <h3>${esc(tx("modesMenu", "모드 설정"))}</h3>
-        <p class="muted">${esc(tx("modesCopy", "모드는 어떤 루틴과 개별 습관을 사용할지 묶어서 관리합니다."))}</p>
+        <p class="muted">${esc(tx("modesCopy", "모드는 여행모드나 약속모드처럼 상황에 맞는 루틴과 개별 습관 묶음입니다."))}</p>
+        ${renderGuideText(tx("modesGuide", "날짜를 고르거나 매주 주중, 매주 주말처럼 예약해 상황별 구성을 빠르게 바꿀 수 있습니다."))}
       </div>
-      <details class="route-list-card route-list-card--collapsible route-list-card--mode route-list-card--mode-create">
+      <details class="route-list-card route-list-card--collapsible route-list-card--mode route-list-card--mode-create" data-mode-details-key="${createFormKey}" ${shouldOpenModeDetails(createFormKey) ? "open" : ""}>
         <summary class="route-list-row route-list-row--wide route-list-summary">
           <div class="route-list-copy route-list-copy--routine">
             <strong>${esc(tx("createMode", "모드 만들기"))}</strong>
-            <span class="routine-inline-empty">${esc(tx("modesCopy", "모드는 어떤 루틴과 개별 습관을 사용할지 묶어서 관리합니다."))}</span>
+            <span class="routine-inline-empty">${esc(tx("modesCopy", "모드는 여행모드나 약속모드처럼 상황에 맞는 루틴과 개별 습관 묶음입니다."))}</span>
           </div>
           <span class="route-list-side">
             <span class="route-list-meta">${esc(tx("modesTitle", "모드"))}</span>
             <span class="route-list-toggle" aria-hidden="true">⌄</span>
           </span>
         </summary>
-        <form class="form-grid route-inline-form" data-form="mode-create" data-form-key="${modeFormKey()}">
+        <form class="form-grid route-inline-form" data-form="mode-create" data-form-key="${createFormKey}">
           ${modeFields("create", null)}
           <div class="actions">
             <button class="btn" type="submit">${esc(tx("createMode", "모드 만들기"))}</button>
@@ -1078,7 +1477,14 @@ function renderModesPage() {
         </form>
       </details>
       <div class="route-list-stack">
-        ${state.modes.length ? state.modes.map(renderModeCard).join("") : `<p class="muted">${esc(tx("noModes", "저장된 모드가 없습니다."))}</p>`}
+        ${
+          state.modes.length
+            ? state.modes.map(renderModeCard).join("")
+            : renderEmptyState(tx("noModes", "저장된 모드가 없습니다."), [
+                { route: "/routines", label: tx("manageRoutines", "루틴 관리") },
+                { route: "/habits", label: tx("manageHabits", "습관 관리") },
+              ])
+        }
       </div>
     </section>
     ${renderModeDatePickerLayer()}
@@ -1086,34 +1492,100 @@ function renderModesPage() {
   </div>`;
 }
 
+renderModesPage = function () {
+  const createFormKey = modeFormKey();
+  return `<div class="route-screen-layout">
+    <section class="content-card">
+      <details class="route-list-card route-list-card--collapsible route-list-card--mode route-list-card--mode-create" data-mode-details-key="${createFormKey}" ${shouldOpenModeDetails(createFormKey) ? "open" : ""}>
+        <summary class="route-list-row route-list-row--wide route-list-summary">
+          <div class="route-list-copy route-list-copy--routine">
+            <strong>${esc(tx("createMode", ""))}</strong>
+            <span class="routine-inline-empty">${esc(tx("modesCopy", ""))}</span>
+          </div>
+          <span class="route-list-side">
+            <span class="route-list-meta">${esc(tx("modesTitle", ""))}</span>
+            <span class="route-list-toggle" aria-hidden="true">⌄</span>
+          </span>
+        </summary>
+        <form class="form-grid route-inline-form" data-form="mode-create" data-form-key="${createFormKey}">
+          ${modeFields("create", null)}
+          <div class="actions">
+            <button class="btn" type="submit">${esc(tx("createMode", ""))}</button>
+          </div>
+        </form>
+      </details>
+      <div class="route-list-stack">
+        ${
+          state.modes.length
+            ? state.modes.map(renderModeCard).join("")
+            : renderEmptyState(tx("noModes", ""), [
+                { route: "/routines", label: tx("manageRoutines", "") },
+                { route: "/habits", label: tx("manageHabits", "") },
+              ])
+        }
+      </div>
+    </section>
+    ${renderModeDatePickerLayer()}
+    ${renderHabitPickerLayer()}
+  </div>`;
+};
+
 function renderTasksPage() {
   return `<div class="route-screen-layout route-screen-layout--library">
     <section class="content-card">
       <div class="route-section-heading">
-        <h3>${esc(tx("tasksMenu", "작업 보기"))}</h3>
+        <h3>${esc(tx("tasksMenu", "할 일 보기"))}</h3>
         <p class="muted">${esc(tx("listOnlyHint", "이 화면은 목록에 집중합니다. 새 항목은 홈의 + 버튼에서 추가합니다."))}</p>
       </div>
       <div class="route-list-stack">
-        ${state.tasks.length ? state.tasks.map(renderTaskCard).join("") : `<p class="muted">${esc(tx("noTasks", "저장된 작업이 없습니다."))}</p>`}
+        ${state.tasks.length ? state.tasks.map(renderTaskCard).join("") : `<p class="muted">${esc(tx("noTasks", "저장된 할 일이 없습니다."))}</p>`}
       </div>
     </section>
   </div>`;
 }
 
 function renderRoutinesPage() {
+  const visibleRoutines = getVisibleRoutines();
   return `<div class="route-screen-layout route-screen-layout--library">
     <section class="content-card">
       <div class="route-section-heading">
         <h3>${esc(tx("routinesMenu", "루틴 보기"))}</h3>
         <p class="muted">${esc(tx("listOnlyHint", "이 화면은 목록에 집중합니다. 새 항목은 홈의 + 버튼에서 추가합니다."))}</p>
+        ${renderGuideText(tx("routinesGuide", "루틴은 저장된 습관 묶음입니다. 원본 습관을 바꾸지 않고 여러 습관을 함께 묶어 씁니다."))}
       </div>
       <div class="route-list-stack">
-        ${state.routines.length ? state.routines.map(renderRoutineCard).join("") : `<p class="muted">${esc(tx("noRoutines", "저장된 루틴이 없습니다."))}</p>`}
+        ${
+          visibleRoutines.length
+            ? visibleRoutines.map(renderRoutineCard).join("")
+            : renderEmptyState(tx("noRoutines", "저장된 루틴이 없습니다."), [
+                { route: "/habits", label: tx("manageHabits", "습관 관리") },
+                { route: "/today", label: tx("goHome", "홈으로 이동") },
+              ])
+        }
       </div>
     </section>
     ${renderHabitPickerLayer()}
   </div>`;
 }
+
+renderRoutinesPage = function () {
+  const visibleRoutines = getVisibleRoutines();
+  return `<div class="route-screen-layout route-screen-layout--library">
+    <section class="content-card">
+      <div class="route-list-stack">
+        ${
+          visibleRoutines.length
+            ? visibleRoutines.map(renderRoutineCard).join("")
+            : renderEmptyState(tx("noRoutines", ""), [
+                { route: "/habits", label: tx("manageHabits", "") },
+                { route: "/today", label: tx("goHome", "") },
+              ])
+        }
+      </div>
+    </section>
+    ${renderHabitPickerLayer()}
+  </div>`;
+};
 
 function renderCalendarPage() {
   const days = state.calendar?.days ?? [];
@@ -1150,6 +1622,41 @@ function renderCalendarPage() {
   </div>`;
 }
 
+renderCalendarPage = function () {
+  const days = state.calendar?.days ?? [];
+  const monthGrid = buildCalendarMonthGrid(state.selectedMonth, days);
+  const monthRate = days.length === 0 ? 0 : days.reduce((sum, day) => sum + Number(day.habitProgressRate || 0), 0) / days.length;
+  return `<div class="route-screen-layout">
+    <section class="content-card calendar-shell">
+      <div class="route-inline-head">
+        <h3>${esc(formatMonthTitle(state.selectedMonth))}</h3>
+        <div class="actions">
+          <button class="btn-soft compact-action" type="button" data-action="shift-month" data-direction="-1">${esc(tx("weekPrevious", ""))}</button>
+          <button class="btn-soft compact-action" type="button" data-action="shift-month" data-direction="1">${esc(tx("weekNext", ""))}</button>
+        </div>
+      </div>
+      <div class="calendar-focus-inline">
+        <article class="calendar-focus-rate" style="--progress:${String(monthRate)};">
+          <div class="calendar-water-pool calendar-water-pool--cell calendar-water-pool--focus" aria-hidden="true">
+            <div class="calendar-water-fill">
+              <span class="calendar-water-wave calendar-water-wave--back"></span>
+              <span class="calendar-water-wave calendar-water-wave--front"></span>
+            </div>
+          </div>
+          <div class="calendar-focus-copy">
+            <span>${esc(tx("homeSummaryRate", ""))}</span>
+            <strong>${esc(percent(monthRate))}</strong>
+          </div>
+        </article>
+      </div>
+      <div class="calendar-grid calendar-grid--month">
+        ${buildLocalizedWeekdayLabels().map((label) => `<span class="weekday">${label}</span>`).join("")}
+        ${monthGrid.length ? monthGrid.map((cell) => renderCalendarMonthCell(cell)).join("") : `<p class="muted">${esc(tx("noCalendarData", ""))}</p>`}
+      </div>
+    </section>
+  </div>`;
+};
+
 function renderStatsPage() {
   const summary = state.stats?.summary;
   return `<div class="route-screen-layout">
@@ -1167,7 +1674,7 @@ function renderStatsPage() {
         ${summaryCard(tx("statsMonthly", "월간 달성률"), percent(summary.monthlyRate))}
         ${summaryCard(tx("statsCurrentStreak", "현재 연속"), String(summary.currentStreak))}
         ${summaryCard(tx("statsBestStreak", "최고 연속"), String(summary.bestStreak))}
-        ${summaryCard(tx("taskCompletion", "작업 완료"), `${summary.taskCompletion.completed}/${summary.taskCompletion.total}`)}
+        ${summaryCard(tx("taskCompletion", "할 일 완료"), `${summary.taskCompletion.completed}/${summary.taskCompletion.total}`)}
       </div>
       <div class="route-list-stack" style="margin-top:16px;">
         ${summary.topHabits.map((habit) => `<article class="route-list-card"><div class="route-list-row"><div class="route-list-copy"><strong>${esc(habit.name)}</strong><span>${habit.completedDays}/${habit.trackedDays}${esc(tx("daysSuffix", "일"))}</span></div><strong>${percent(habit.completionRate)}</strong></div></article>`).join("") || `<p class="muted">${esc(tx("noStatsData", "표시할 통계가 없습니다."))}</p>`}
@@ -1189,6 +1696,218 @@ function renderSettingsPage() {
   </div>`;
 }
 
+renderAccountPage = function () {
+  if (!state.authAvailable) {
+    return `<div class="route-screen-layout route-screen-layout--settings">
+      <section class="content-card">
+        <div class="route-section-heading">
+          <h3>${esc(tx("authUnavailableTitle", "인증을 사용할 수 없습니다."))}</h3>
+          <p class="muted">${esc(tx("authUnavailableCopy", "현재 환경에서는 인증 기능을 제공하지 않습니다."))}</p>
+        </div>
+      </section>
+    </div>`;
+  }
+
+  if (!state.currentUser) {
+    return `<div class="route-screen-layout route-screen-layout--settings">
+      <section class="content-card">
+        <div class="route-section-heading">
+          <h3>${esc(tx("authRequiredTitle", "로그인이 필요합니다."))}</h3>
+          <p class="muted">${esc(tx("authRequiredCopy", "계속하려면 로그인해주세요."))}</p>
+        </div>
+        <div class="actions">
+          <a class="btn" href="/login">${esc(tx("login", "로그인"))}</a>
+        </div>
+      </section>
+    </div>`;
+  }
+
+  return `<div class="route-screen-layout route-screen-layout--settings">
+    <section class="content-card">
+      <div class="route-section-heading">
+        <h3>${esc(tx("accountMenu", "계정"))}</h3>
+        <p class="muted">${esc(tx("accountCopy", "현재 로그인한 계정 정보와 세션 동작을 확인합니다."))}</p>
+      </div>
+      <div class="route-list-stack">
+        <article class="route-list-stack-item">
+          <div class="route-list-row">
+            <div class="route-list-copy">
+              <strong>${esc(state.currentUser.displayName || tx("accountMenu", "계정"))}</strong>
+              <span>${esc(state.currentUser.email || "")}</span>
+            </div>
+            <span class="route-list-meta">${esc(formatUserRole(state.currentUser.role))}</span>
+          </div>
+        </article>
+        <article class="route-list-stack-item">
+          <div class="route-list-row">
+            <div class="route-list-copy">
+              <strong>${esc(tx("status", "상태"))}</strong>
+              <span>${esc(formatUserStatus(state.currentUser.status))}</span>
+            </div>
+          </div>
+        </article>
+      </div>
+      <div class="actions">
+        <button class="btn-soft" type="button" data-action="logout">${esc(tx("logout", "로그아웃"))}</button>
+      </div>
+    </section>
+  </div>`;
+};
+
+renderSettingsPage = function () {
+  return `<div class="route-screen-layout route-screen-layout--settings">
+    <section class="content-card">
+      <div class="route-section-heading"><h3>${esc(tx("displaySettings", "보기 설정"))}</h3></div>
+      <div class="settings-control-list">
+        <label class="settings-control-item"><span>${esc(tx("language", "언어"))}</span><select id="settings-locale">${Object.entries(LANGUAGE_LABELS).map(([value, label]) => `<option value="${value}" ${value === state.locale ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></label>
+        <label class="settings-control-item"><span>${esc(tx("theme", "테마"))}</span><select id="settings-theme">${THEME_OPTIONS.map((option) => `<option value="${option.value}" ${option.value === state.themePreset ? "selected" : ""}>${esc(tx(option.labelKey, option.value))}</option>`).join("")}</select></label>
+        <label class="settings-control-item"><span>${esc(tx("density", "간격"))}</span><select id="settings-density">${DENSITY_OPTIONS.map((option) => `<option value="${option.value}" ${option.value === state.density ? "selected" : ""}>${esc(tx(option.labelKey, option.value))}</option>`).join("")}</select></label>
+      </div>
+    </section>
+    <section class="content-card route-guide-card">
+      <div class="route-section-heading">
+        <h3>${esc(tx("plannerGuideTitle", "개념 안내"))}</h3>
+        <p class="muted">${esc(tx("plannerGuideCopy", "할 일, 습관, 루틴, 모드를 같은 기준으로 이해할 수 있게 핵심 차이만 정리했습니다."))}</p>
+      </div>
+      <div class="route-guide-grid">
+        ${renderGuideCard(tx("guideTaskTitle", "할 일"), tx("guideTaskCopy", "할 일은 한 번 처리하고 끝나는 항목입니다."))}
+        ${renderGuideCard(tx("guideHabitTitle", "습관"), tx("guideHabitCopy", "습관은 반복해서 기록하는 기본 단위입니다."))}
+        ${renderGuideCard(tx("guideRoutineTitle", "루틴"), tx("guideRoutineCopy", "루틴은 여러 습관을 함께 다시 쓰기 위한 저장 묶음입니다."))}
+        ${renderGuideCard(tx("guideModeTitle", "모드"), tx("guideModeCopy", "모드는 상황에 따라 루틴과 개별 습관을 조합해 저장한 구성입니다."))}
+      </div>
+    </section>
+  </div>`;
+};
+
+renderTodayPage = function () {
+  if (!state.today) return "";
+  const rate = Number(state.today.summary.habitRate || 0);
+  const clampedRate = Math.max(0, Math.min(rate, 1));
+  const tasks = getHomeTasks();
+  const homeHabitGroups = getHomeHabitGroups();
+  const achievementTier = resolveAchievementTier(clampedRate);
+  return `<div class="route-screen-layout home-screen">
+    <section class="content-card home-date-card">
+      <h2 class="home-date-month" data-home-month-label>${esc(formatMonthLabel(state.selectedHomeDate))}</h2>
+      <div class="home-date-rail" data-home-date-rail>
+        ${buildHomeRailDates(state.selectedHomeDate).map((date) => renderDateChip(date)).join("")}
+      </div>
+    </section>
+
+    <section class="content-card achievement-card achievement-card--${achievementTier} ${rate >= 1 ? "is-complete" : ""} ${state.achievementPulseUntil > Date.now() ? "is-pulsing" : ""}" style="--achievement-progress:${String(clampedRate)};">
+      <div class="achievement-copy">
+        <div class="achievement-label-row">
+          <p class="eyebrow">${esc(tx("homeSummaryRate", "달성률"))}</p>
+          <span class="achievement-milestone" role="img" aria-label="${esc(resolveMilestone(clampedRate))}" title="${esc(resolveMilestone(clampedRate))}">${esc(resolveMilestoneEmoji(clampedRate))}</span>
+        </div>
+        <h3 data-achievement-number="${String(rate)}">${esc(percent(rate))}</h3>
+      </div>
+      <div class="achievement-stats today-home-summary-row">
+        ${renderAchievementStat(tx("completedHabits", "완료"), `${state.today.summary.completedHabits}/${state.today.summary.totalHabits}`)}
+        ${renderAchievementStat(tx("remainingHabits", "남음"), String(state.today.summary.remainingHabits), "remaining")}
+        ${renderAchievementStat(tx("streak", "연속"), summarizeTodayStreak(state.today.habits))}
+      </div>
+      <div class="achievement-liquid" aria-hidden="true">
+        <span class="achievement-wave achievement-wave--back"></span>
+        <span class="achievement-wave achievement-wave--front"></span>
+        ${
+          clampedRate >= 0.75
+            ? `<span class="achievement-spark achievement-spark--left"></span>
+        <span class="achievement-spark achievement-spark--center"></span>
+        <span class="achievement-spark achievement-spark--right"></span>`
+            : ""
+        }
+        ${rate >= 1 ? `<span class="achievement-confetti"></span>` : ""}
+      </div>
+    </section>
+
+    ${renderDailyNoteCard()}
+
+    <section class="home-panels">
+      <div class="segmented home-panel-tabs">
+        <button class="segment-button ${state.homePanel === "tasks" ? "is-selected" : ""}" type="button" data-action="select-home-panel" data-panel="tasks">${esc(tx("tasksMenu", "할 일 보기"))}</button>
+        <button class="segment-button ${state.homePanel === "habits" ? "is-selected" : ""}" type="button" data-action="select-home-panel" data-panel="habits">${esc(tx("habitsMenu", "습관 보기"))}</button>
+      </div>
+      <div class="home-carousel" data-home-carousel>
+        <section class="content-card home-panel" data-home-panel="tasks">
+          <div class="route-inline-head home-panel-head">
+            <div>
+              <h3>${esc(tx("tasksMenu", "할 일 보기"))}</h3>
+              <p class="muted">${esc(tx("homeTaskCopy", "메인에서 선택한 날짜의 할 일과 보관함 할 일을 함께 관리합니다."))}</p>
+            </div>
+            <div class="segmented home-filter-tabs">
+              <button class="segment-button ${state.homeTaskFilter === "scheduled" ? "is-selected" : ""}" type="button" data-action="set-home-task-filter" data-filter="scheduled">${esc(tx("scheduledTasks", "선택 날짜"))}</button>
+              <button class="segment-button ${state.homeTaskFilter === "inbox" ? "is-selected" : ""}" type="button" data-action="set-home-task-filter" data-filter="inbox">${esc(tx("inbox", "보관함"))}</button>
+            </div>
+          </div>
+          <div class="home-task-list">
+            ${tasks.length ? tasks.map(renderHomeTaskRow).join("") : renderEmptyState(tx("noTasksHome", "이 구역에 표시할 할 일이 없습니다."))}
+          </div>
+        </section>
+
+        <section class="content-card home-panel" data-home-panel="habits">
+          ${
+            homeHabitGroups.length
+              ? `<section class="today-home-board today-home-board--dense home-habit-board">
+            <div class="today-home-board-head">
+              <span>${esc(tx("order", "순서"))}</span>
+              <span>${esc(tx("habitsMenu", "습관 보기"))}</span>
+              <span>${esc(tx("status", "상태"))}</span>
+            </div>
+            <div class="today-home-board-body">
+              ${homeHabitGroups.map((group) => renderHomeHabitSection(group)).join("")}
+            </div>
+          </section>`
+              : renderEmptyState(tx("noHabitsHome", "이 날짜에 표시할 습관이 없습니다. 습관을 만들고 루틴이나 모드에 포함하면 메인에 나타납니다."))
+          }
+        </section>
+      </div>
+    </section>
+
+    ${renderHomeFab()}
+    ${renderQuickCreateLayer()}
+  </div>`;
+};
+
+renderSettingsPage = function () {
+  return `<div class="route-screen-layout route-screen-layout--settings">
+    <section class="content-card">
+      <div class="route-section-heading"><h3>${esc(tx("displaySettings", "보기 설정"))}</h3></div>
+      <div class="settings-control-list">
+        <label class="settings-control-item"><span>${esc(tx("language", "언어"))}</span><select id="settings-locale">${Object.entries(LANGUAGE_LABELS).map(([value, label]) => `<option value="${value}" ${value === state.locale ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></label>
+        <label class="settings-control-item"><span>${esc(tx("theme", "테마"))}</span><select id="settings-theme">${THEME_OPTIONS.map((option) => `<option value="${option.value}" ${option.value === state.themePreset ? "selected" : ""}>${esc(tx(option.labelKey, option.value))}</option>`).join("")}</select></label>
+        <label class="settings-control-item"><span>${esc(tx("density", "간격"))}</span><select id="settings-density">${DENSITY_OPTIONS.map((option) => `<option value="${option.value}" ${option.value === state.density ? "selected" : ""}>${esc(tx(option.labelKey, option.value))}</option>`).join("")}</select></label>
+      </div>
+    </section>
+    <section class="content-card route-guide-card">
+      <div class="route-section-heading">
+        <h3>${esc(tx("plannerGuideTitle", "개념 안내"))}</h3>
+        <p class="muted">${esc(tx("plannerGuideCopy", "할 일, 습관, 루틴, 모드를 같은 기준으로 이해할 수 있게 핵심 차이만 정리했습니다."))}</p>
+      </div>
+      <div class="route-guide-grid">
+        ${renderGuideCard(tx("guideTaskTitle", "할 일"), tx("guideTaskCopy", "할 일은 한 번 처리하고 끝나는 항목입니다."))}
+        ${renderGuideCard(tx("guideHabitTitle", "습관"), tx("guideHabitCopy", "습관은 반복해서 기록하는 기본 단위입니다."))}
+        ${renderGuideCard(tx("guideRoutineTitle", "루틴"), tx("guideRoutineCopy", "루틴은 여러 습관을 함께 다시 쓰기 위한 저장 묶음입니다."))}
+        ${renderGuideCard(tx("guideModeTitle", "모드"), tx("guideModeCopy", "모드는 상황에 따라 루틴과 개별 습관을 조합해 저장한 구성입니다."))}
+      </div>
+    </section>
+    <section class="content-card route-guide-card">
+      <div class="route-section-heading">
+        <h3>${esc(tx("faqTitle", "자주 묻는 질문"))}</h3>
+        <p class="muted">${esc(tx("faqCopy", "할 일, 습관, 루틴, 모드가 비슷해 보일 때 가장 먼저 헷갈리는 질문만 짧게 정리했습니다."))}</p>
+      </div>
+      <div class="route-faq-grid">
+        ${renderFaqItem(tx("faqTaskHabitQ", "할 일과 습관은 무엇이 다른가요?"), tx("faqTaskHabitA", "할 일은 한 번 처리하고 끝나는 항목이고, 습관은 날짜를 기준으로 반복해서 기록하는 항목입니다."))}
+        ${renderFaqItem(tx("faqRoutineModeQ", "루틴과 모드는 무엇이 다른가요?"), tx("faqRoutineModeA", "루틴은 습관 묶음을 다시 쓰기 위한 저장본이고, 모드는 상황에 따라 루틴과 개별 습관을 함께 조합한 구성입니다."))}
+        ${renderFaqItem(tx("faqModeScheduleQ", "날짜 예약, 주중, 주말은 언제 쓰면 되나요?"), tx("faqModeScheduleA", "날짜 예약은 여행이나 약속처럼 특정 기간에만 쓰고, 주중과 주말은 반복되는 생활 흐름을 나눌 때 씁니다."))}
+        ${renderFaqItem(tx("faqTimeLogQ", "시간 기록 습관은 어디에서 확인하나요?"), tx("faqTimeLogA", "메인 습관 보기에서 해당 습관을 누르면 시간이 기록되고, 최근 기록 시간이 같은 줄에 바로 표시됩니다."))}
+        ${renderFaqItem(tx("faqDailyNoteQ", "날짜 메모는 어디에 쓰나요?"), tx("faqDailyNoteA", "날짜 메모는 선택한 날짜에만 붙는 짧은 기록입니다. 일정 메모, 컨디션 기록, 하루 회고를 간단히 남길 때 쓰면 됩니다."))}
+        ${renderFaqItem(tx("faqAchievementQ", "달성률은 어떻게 계산되나요?"), tx("faqAchievementA", "선택한 날짜에 노출된 습관 중 완료된 습관의 비율로 계산됩니다."))}
+      </div>
+    </section>
+  </div>`;
+};
+
 function renderDateChip(date) {
   const weekday = new Intl.DateTimeFormat(state.locale, { weekday: "short" }).format(new Date(`${date}T12:00:00`));
   const selected = date === state.selectedHomeDate;
@@ -1205,6 +1924,53 @@ function renderAchievementStat(label, value, extraClass = "") {
     <strong>${esc(value)}</strong>
   </article>`;
 }
+
+function renderDailyNoteCard() {
+  const dailyNote = state.today?.dailyNote ?? { note: null, updatedAt: null };
+  const meta = dailyNote.updatedAt
+    ? `${tx("dailyNoteUpdatedAt", "마지막 저장")} ${formatDateTime(dailyNote.updatedAt)}`
+    : tx("dailyNoteMetaEmpty", "이 날짜에 저장된 메모가 아직 없습니다.");
+  return `<form class="content-card home-note-card" data-form="daily-note-save">
+    <div class="route-inline-head home-note-head">
+      <div>
+        <h3>${esc(tx("dailyNoteTitle", "날짜 메모"))}</h3>
+        <p class="muted">${esc(tx("dailyNoteCopy", "선택한 날짜에 짧은 메모를 남기고 나중에 다시 확인합니다."))}</p>
+      </div>
+      <span class="home-note-date">${esc(formatCompactDate(state.selectedHomeDate))}</span>
+    </div>
+    <textarea name="note" rows="4" aria-label="${esc(tx("dailyNoteTitle", "날짜 메모"))}" placeholder="${esc(tx("dailyNotePlaceholder", "이 날짜에 남길 짧은 메모를 적어 주세요."))}">${esc(dailyNote.note || "")}</textarea>
+    <div class="actions home-note-actions">
+      <span class="home-note-meta muted">${esc(meta)}</span>
+      <button class="btn" type="submit">${esc(tx("save", "저장"))}</button>
+    </div>
+  </form>`;
+}
+
+renderDailyNoteCard = function () {
+  const dailyNote = state.today?.dailyNote ?? { note: null, updatedAt: null };
+  const meta = dailyNote.updatedAt
+    ? `${tx("dailyNoteUpdatedAt", "")} ${formatDateTime(dailyNote.updatedAt)}`
+    : tx("dailyNoteMetaEmpty", "");
+  return `<details class="content-card home-note-card home-note-card--collapsible" data-home-note-details ${state.homeNoteOpen ? "open" : ""}>
+    <summary class="home-note-summary">
+      <div class="home-note-summary-copy">
+        <h3>${esc(tx("dailyNoteTitle", ""))}</h3>
+        <p class="muted">${esc(tx("dailyNoteCopy", ""))}</p>
+      </div>
+      <span class="home-note-summary-side">
+        <span class="home-note-date">${esc(formatCompactDate(state.selectedHomeDate))}</span>
+        <span class="home-note-toggle" aria-hidden="true">⌄</span>
+      </span>
+    </summary>
+    <form class="home-note-form" data-form="daily-note-save">
+      <textarea name="note" rows="4" aria-label="${esc(tx("dailyNoteTitle", ""))}" placeholder="${esc(tx("dailyNotePlaceholder", ""))}">${esc(dailyNote.note || "")}</textarea>
+      <div class="actions home-note-actions">
+        <span class="home-note-meta muted">${esc(meta)}</span>
+        <button class="btn" type="submit">${esc(tx("save", ""))}</button>
+      </div>
+    </form>
+  </details>`;
+};
 
 function renderHomeTaskRow(task) {
   const done = task.status === "done";
@@ -1350,7 +2116,7 @@ function renderRoutineCard(routine) {
   return `<details class="route-list-card route-list-card--collapsible route-list-card--routine" style="--routine-card-accent:${esc(accentColor)};">
     <summary class="route-list-row route-list-row--wide route-list-summary">
       <div class="route-list-copy route-list-copy--routine">
-        <strong>${esc(routine.name)}</strong>
+        <strong>${esc(getRoutineDisplayName(routine))}</strong>
         <span class="routine-inline-list" title="${esc(
           previewItems.length ? previewItems.map((habit) => habit.name).join(", ") : tx("noHabitsSelected", "선택한 습관이 없습니다."),
         )}">
@@ -1382,11 +2148,11 @@ function renderRoutineCard(routine) {
 }
 
 function renderModeCard(mode) {
-  const reservationSummary = formatReservedDatesSummary(mode.reservedDates ?? []);
+  const reservationSummary = formatModeScheduleBadge(mode.activeDays ?? [], mode.reservedDates ?? [], mode.id);
   const previewItems = [
     ...(Array.isArray(mode.routines)
       ? mode.routines.map((routine) => ({
-          name: routine.name,
+          name: getRoutineDisplayName(routine),
           color: routine.color || routine.habits?.[0]?.color || "#6366f1",
         }))
       : []),
@@ -1412,7 +2178,8 @@ function renderModeCard(mode) {
             )
             .join("")
         : `<span class="routine-inline-empty">${esc(tx("noHabitsSelected", "선택한 습관이 없습니다."))}</span>`;
-  return `<details class="route-list-card route-list-card--collapsible route-list-card--mode" style="--routine-card-accent:${esc(accentColor)};">
+  const formKey = modeFormKey(mode.id);
+  return `<details class="route-list-card route-list-card--collapsible route-list-card--mode" style="--routine-card-accent:${esc(accentColor)};" data-mode-details-key="${formKey}" ${shouldOpenModeDetails(formKey) ? "open" : ""}>
     <summary class="route-list-row route-list-row--wide route-list-summary route-list-summary--mode">
       <div class="route-list-copy route-list-copy--routine route-list-copy--mode">
         <div class="mode-card-title-row">
@@ -1423,10 +2190,10 @@ function renderModeCard(mode) {
         <span class="routine-inline-list routine-inline-list--mode" title="${esc(previewTitle)}">
           ${previewMarkup}
         </span>
-        <span class="mode-card-meta">${esc(`${mode.routines.length} ${tx("routines", "루틴")} · ${mode.habits.length} ${tx("habits", "습관")}`)}</span>
+        <span class="mode-card-meta">${esc(`${tx("routines", "루틴")} ${mode.routines.length} · ${tx("habits", "습관")} ${mode.habits.length}`)}</span>
       </div>
     </summary>
-    <form class="form-grid route-inline-form" data-form="mode-update" data-id="${mode.id}" data-form-key="${modeFormKey(mode.id)}">
+    <form class="form-grid route-inline-form" data-form="mode-update" data-id="${mode.id}" data-form-key="${formKey}">
       ${modeFields(mode)}
       <div class="actions">
         <button class="btn" type="submit">${esc(tx("save", "저장"))}</button>
@@ -1530,25 +2297,73 @@ function modeFields(modeOrKind = null, maybeMode = null) {
   const formScope = typeof modeOrKind === "string" ? modeOrKind : "create";
   const formKey = mode?.id ? modeFormKey(mode.id) : modeFormKey("", formScope);
   const draft = getRouteFormDraft(formKey);
-  const selectedRoutineIds = new Set(orderedSelectedIds(draft?.routineIds ?? mode?.routineIds ?? mode?.routines?.map((routine) => routine.id) ?? [], state.routines));
-  const selectedHabitIds = orderedSelectedIds(draft?.habitIds ?? mode?.habitIds ?? mode?.habits?.map((habit) => habit.id) ?? [], state.habits);
+  const selectedHabitIds = orderedSelectedIds(draft?.habitIds ?? mode?.habits?.map((habit) => habit.id) ?? [], state.habits);
+  const routineSelections = getModeRoutineSelections(mode, draft);
+  const visibleRoutines = getVisibleRoutines();
   const reservedDates = getModeReservedDates(formKey, draft?.reservedDates ?? mode?.reservedDates ?? []);
+  const scheduleType = draft?.scheduleType ?? getModeScheduleType(draft?.activeDays ?? mode?.activeDays ?? [], mode?.id ?? "");
+  const scheduleSummary = formatModeScheduleSummary(draft?.activeDays ?? mode?.activeDays ?? [], reservedDates, mode?.id ?? "");
   return `
     <label>
       <span>${esc(tx("name", "이름"))}</span>
       <input name="name" type="text" required value="${esc(draft?.name ?? mode?.name ?? "")}" />
     </label>
+    <p class="helper-text muted" style="grid-column:1 / -1;">${esc(tx("modeScheduleGuide", "이 모드를 날짜로 직접 예약하거나 매주 주중, 주말 반복으로 적용할 수 있습니다."))}</p>
+    <fieldset class="mode-schedule-field" style="grid-column:1 / -1;">
+      <legend>${esc(tx("modeSchedule", "적용 방식"))}</legend>
+      <div class="mode-schedule-list">
+        ${
+          mode?.id === "mode-default"
+            ? `<label class="choice-item">
+          <input type="radio" name="scheduleType" value="everyday" checked />
+          <span>${esc(tx("everyday", "매일"))}</span>
+        </label>`
+            : ""
+        }
+        <label class="choice-item">
+          <input type="radio" name="scheduleType" value="dates" ${scheduleType === "dates" ? "checked" : ""} />
+          <span>${esc(tx("specificDates", "날짜 선택"))}</span>
+        </label>
+        <label class="choice-item">
+          <input type="radio" name="scheduleType" value="weekdays" ${scheduleType === "weekdays" ? "checked" : ""} />
+          <span>${esc(tx("weeklyWeekdays", "매주 주중"))}</span>
+        </label>
+        <label class="choice-item">
+          <input type="radio" name="scheduleType" value="weekends" ${scheduleType === "weekends" ? "checked" : ""} />
+          <span>${esc(tx("weeklyWeekends", "매주 주말"))}</span>
+        </label>
+      </div>
+    </fieldset>
+    <p class="helper-text muted" style="grid-column:1 / -1;">${esc(tx("modeRoutineGuide", "루틴 전체를 쓰거나 루틴 안의 일부 습관만 골라 이 모드에 담을 수 있습니다."))}</p>
     <fieldset style="grid-column:1 / -1;">
       <legend>${esc(tx("routines", "루틴"))}</legend>
       <div class="choice-list--stacked">
         ${
-          state.routines.length
-            ? state.routines
+          visibleRoutines.length
+            ? visibleRoutines
                 .map(
-                  (routine) => `<label class="choice-item">
-              <input type="checkbox" name="routineIds" value="${routine.id}" ${selectedRoutineIds.has(routine.id) ? "checked" : ""} />
-              <span>${esc(routine.name)}</span>
-            </label>`,
+                  (routine) => `<article class="route-list-card route-list-card--actionable">
+              <div class="route-list-row route-list-row--wide">
+                <div class="route-list-copy">
+                  <strong>${esc(getRoutineDisplayName(routine))}</strong>
+                  <span>${esc(`${(routine.habits ?? []).length} ${tx("habits", "습관")}`)}</span>
+                </div>
+              </div>
+              <div class="choice-list--stacked">
+                ${
+                  Array.isArray(routine.habits) && routine.habits.length
+                    ? routine.habits
+                        .map(
+                          (habit) => `<label class="choice-item">
+                    <input type="checkbox" name="routineHabit:${routine.id}" value="${habit.id}" ${(routineSelections[routine.id] ?? []).includes(habit.id) ? "checked" : ""} />
+                    <span>${esc(habit.name)}</span>
+                  </label>`,
+                        )
+                        .join("")
+                    : `<p class="muted">${esc(tx("noHabits", "저장된 습관이 없습니다."))}</p>`
+                }
+              </div>
+            </article>`,
                 )
                 .join("")
             : `<p class="muted">${esc(tx("noRoutines", "저장된 루틴이 없습니다."))}</p>`
@@ -1559,19 +2374,186 @@ function modeFields(modeOrKind = null, maybeMode = null) {
     <fieldset style="grid-column:1 / -1;">
       <legend>${esc(tx("reservedDates", "예약 날짜"))}</legend>
       <div class="mode-date-field-row">
-        <button class="btn-soft" type="button" data-action="open-mode-date-picker" data-form-key="${formKey}">${esc(tx("dateSettings", "날짜 설정"))}</button>
-        <span class="route-list-meta">${esc(formatReservedDatesSummary(reservedDates))}</span>
+        <button class="btn-soft" type="button" data-action="open-mode-date-picker" data-form-key="${formKey}" ${scheduleType === "dates" ? "" : "disabled"}>${esc(tx("dateSettings", "날짜 설정"))}</button>
+        <span class="route-list-meta">${esc(scheduleSummary)}</span>
       </div>
       <div class="mode-date-chip-list">
         ${
-          reservedDates.length
+          scheduleType !== "dates"
+            ? `<span class="pill">${esc(scheduleSummary)}</span>`
+            : reservedDates.length
             ? reservedDates.map((date) => `<span class="pill">${esc(formatCompactDate(date))}</span>`).join("")
             : `<span class="muted">${esc(tx("noReservedDates", "예약된 날짜가 없습니다."))}</span>`
         }
       </div>
-      ${reservedDates.map((date) => `<input type="hidden" name="reservedDates" value="${esc(date)}" />`).join("")}
+      ${scheduleType === "dates" ? reservedDates.map((date) => `<input type="hidden" name="reservedDates" value="${esc(date)}" />`).join("") : ""}
     </fieldset>`;
 }
+
+modeFields = function (modeOrKind = null, maybeMode = null) {
+  const mode =
+    modeOrKind && typeof modeOrKind === "object" && !Array.isArray(modeOrKind) ? modeOrKind : maybeMode;
+  const formScope = typeof modeOrKind === "string" ? modeOrKind : "create";
+  const formKey = mode?.id ? modeFormKey(mode.id) : modeFormKey("", formScope);
+  const draft = getRouteFormDraft(formKey);
+  const selectedHabitIds = orderedSelectedIds(draft?.habitIds ?? mode?.habits?.map((habit) => habit.id) ?? [], state.habits);
+  const routineSelections = getModeRoutineSelections(mode, draft);
+  const visibleRoutines = getVisibleRoutines();
+  const reservedDates = getModeReservedDates(formKey, draft?.reservedDates ?? mode?.reservedDates ?? []);
+  const scheduleType = draft?.scheduleType ?? getModeScheduleType(draft?.activeDays ?? mode?.activeDays ?? [], mode?.id ?? "");
+  const scheduleSummary =
+    scheduleType === "everyday"
+      ? tx("everyday", "매일")
+      : scheduleType === "weekdays"
+        ? tx("weeklyWeekdays", "매주 주중")
+        : scheduleType === "weekends"
+          ? tx("weeklyWeekends", "매주 주말")
+          : formatReservedDatesSummary(reservedDates);
+  return `
+    <label>
+      <span>${esc(tx("name", "이름"))}</span>
+      <input name="name" type="text" required value="${esc(draft?.name ?? mode?.name ?? "")}" />
+    </label>
+    <p class="helper-text muted" style="grid-column:1 / -1;">${esc(tx("modeScheduleGuide", "이 모드를 날짜로 직접 예약하거나 매주 주중, 주말 반복으로 적용할 수 있습니다."))}</p>
+    <fieldset class="mode-schedule-field" style="grid-column:1 / -1;">
+      <legend>${esc(tx("reservedDates", "예약 날짜"))}</legend>
+      <input type="hidden" name="scheduleType" value="${esc(scheduleType)}" />
+      <div class="segmented mode-schedule-segment">
+        <button class="segment-button ${scheduleType === "everyday" ? "is-selected" : ""}" type="button" data-action="set-mode-schedule" data-form-key="${formKey}" data-schedule-type="everyday">${esc(tx("everyday", "매일"))}</button>
+        <button class="segment-button ${scheduleType === "dates" ? "is-selected" : ""}" type="button" data-action="set-mode-schedule" data-form-key="${formKey}" data-schedule-type="dates">${esc(tx("specificDates", "날짜로 예약"))}</button>
+        <button class="segment-button ${scheduleType === "weekdays" ? "is-selected" : ""}" type="button" data-action="set-mode-schedule" data-form-key="${formKey}" data-schedule-type="weekdays">${esc(tx("weeklyWeekdays", "매주 주중"))}</button>
+        <button class="segment-button ${scheduleType === "weekends" ? "is-selected" : ""}" type="button" data-action="set-mode-schedule" data-form-key="${formKey}" data-schedule-type="weekends">${esc(tx("weeklyWeekends", "매주 주말"))}</button>
+      </div>
+      <div class="mode-schedule-summary">
+        <span class="pill">${esc(scheduleSummary)}</span>
+        ${scheduleType === "dates" ? `<button class="btn-soft" type="button" data-action="open-mode-date-picker" data-form-key="${formKey}">${esc(tx("dateSettings", "날짜 설정"))}</button>` : ""}
+      </div>
+      <div class="mode-date-chip-list">
+        ${
+          scheduleType !== "dates"
+            ? ""
+            : reservedDates.length
+              ? reservedDates.map((date) => `<span class="pill">${esc(formatCompactDate(date))}</span>`).join("")
+              : `<span class="muted">${esc(tx("noReservedDates", "예약된 날짜가 없습니다."))}</span>`
+        }
+      </div>
+      ${scheduleType === "dates" ? reservedDates.map((date) => `<input type="hidden" name="reservedDates" value="${esc(date)}" />`).join("") : ""}
+    </fieldset>
+    <p class="helper-text muted" style="grid-column:1 / -1;">${esc(tx("modeRoutineGuide", "루틴 전체를 쓰거나 루틴 안의 일부 습관만 골라 이 모드에 넣을 수 있습니다."))}</p>
+    <fieldset style="grid-column:1 / -1;">
+      <legend>${esc(tx("routines", "루틴"))}</legend>
+      <div class="choice-list--stacked">
+        ${
+          visibleRoutines.length
+            ? visibleRoutines
+                .map(
+                  (routine) => `<article class="route-list-card route-list-card--actionable">
+              <div class="route-list-row route-list-row--wide">
+                <div class="route-list-copy">
+                  <strong>${esc(getRoutineDisplayName(routine))}</strong>
+                  <span>${esc(`${(routine.habits ?? []).length} ${tx("habits", "습관")}`)}</span>
+                </div>
+              </div>
+              <div class="choice-list--stacked">
+                ${
+                  Array.isArray(routine.habits) && routine.habits.length
+                    ? routine.habits
+                        .map(
+                          (habit) => `<label class="choice-item">
+                    <input type="checkbox" name="routineHabit:${routine.id}" value="${habit.id}" ${(routineSelections[routine.id] ?? []).includes(habit.id) ? "checked" : ""} />
+                    <span>${esc(habit.name)}</span>
+                  </label>`,
+                        )
+                        .join("")
+                    : `<p class="muted">${esc(tx("noHabits", "저장된 습관이 없습니다."))}</p>`
+                }
+              </div>
+            </article>`,
+                )
+                .join("")
+            : `<p class="muted">${esc(tx("noRoutines", "저장된 루틴이 없습니다."))}</p>`
+        }
+      </div>
+    </fieldset>
+    ${renderHabitPickerField(formKey, selectedHabitIds)}`;
+};
+
+modeFields = function (modeOrKind = null, maybeMode = null) {
+  const mode =
+    modeOrKind && typeof modeOrKind === "object" && !Array.isArray(modeOrKind) ? modeOrKind : maybeMode;
+  const formScope = typeof modeOrKind === "string" ? modeOrKind : "create";
+  const formKey = mode?.id ? modeFormKey(mode.id) : modeFormKey("", formScope);
+  const draft = getRouteFormDraft(formKey);
+  const selectedHabitIds = orderedSelectedIds(draft?.habitIds ?? mode?.habits?.map((habit) => habit.id) ?? [], state.habits);
+  const routineSelections = getModeRoutineSelections(mode, draft);
+  const visibleRoutines = getVisibleRoutines();
+  const reservedDates = getModeReservedDates(formKey, draft?.reservedDates ?? mode?.reservedDates ?? []);
+  const scheduleType = draft?.scheduleType ?? getModeScheduleType(draft?.activeDays ?? mode?.activeDays ?? [], mode?.id ?? "");
+  const scheduleSummary =
+    scheduleType === "everyday"
+      ? tx("everyday", "")
+      : scheduleType === "weekdays"
+        ? tx("weeklyWeekdays", "")
+        : scheduleType === "weekends"
+          ? tx("weeklyWeekends", "")
+          : formatReservedDatesSummary(reservedDates);
+  return `
+    <label>
+      <span>${esc(tx("name", ""))}</span>
+      <input name="name" type="text" required value="${esc(draft?.name ?? mode?.name ?? "")}" />
+    </label>
+    <fieldset class="mode-schedule-field" style="grid-column:1 / -1;">
+      <legend>${esc(tx("reservedDates", ""))}</legend>
+      <input type="hidden" name="scheduleType" value="${esc(scheduleType)}" />
+      <div class="segmented mode-schedule-segment">
+        <button class="segment-button ${scheduleType === "everyday" ? "is-selected" : ""}" type="button" data-action="set-mode-schedule" data-form-key="${formKey}" data-schedule-type="everyday">${esc(tx("everyday", ""))}</button>
+        <button class="segment-button ${scheduleType === "dates" ? "is-selected" : ""}" type="button" data-action="set-mode-schedule" data-form-key="${formKey}" data-schedule-type="dates">${esc(tx("specificDates", ""))}</button>
+        <button class="segment-button ${scheduleType === "weekdays" ? "is-selected" : ""}" type="button" data-action="set-mode-schedule" data-form-key="${formKey}" data-schedule-type="weekdays">${esc(tx("weeklyWeekdays", ""))}</button>
+        <button class="segment-button ${scheduleType === "weekends" ? "is-selected" : ""}" type="button" data-action="set-mode-schedule" data-form-key="${formKey}" data-schedule-type="weekends">${esc(tx("weeklyWeekends", ""))}</button>
+      </div>
+      <div class="mode-schedule-summary">
+        <span class="pill">${esc(scheduleSummary)}</span>
+      </div>
+      ${scheduleType === "dates" ? reservedDates.map((date) => `<input type="hidden" name="reservedDates" value="${esc(date)}" />`).join("") : ""}
+    </fieldset>
+    <p class="helper-text muted" style="grid-column:1 / -1;">${esc(tx("modeRoutineGuide", ""))}</p>
+    <fieldset style="grid-column:1 / -1;">
+      <legend>${esc(tx("routines", ""))}</legend>
+      <div class="choice-list--stacked">
+        ${
+          visibleRoutines.length
+            ? visibleRoutines
+                .map(
+                  (routine) => `<article class="route-list-card route-list-card--actionable">
+              <div class="route-list-row route-list-row--wide">
+                <div class="route-list-copy">
+                  <strong>${esc(getRoutineDisplayName(routine))}</strong>
+                  <span>${esc(`${(routine.habits ?? []).length} ${tx("habits", "")}`)}</span>
+                </div>
+              </div>
+              <div class="choice-list--stacked">
+                ${
+                  Array.isArray(routine.habits) && routine.habits.length
+                    ? routine.habits
+                        .map(
+                          (habit) => `<label class="choice-item">
+                    <input type="checkbox" name="routineHabit:${routine.id}" value="${habit.id}" ${(routineSelections[routine.id] ?? []).includes(habit.id) ? "checked" : ""} />
+                    <span>${esc(habit.name)}</span>
+                  </label>`,
+                        )
+                        .join("")
+                    : `<p class="muted">${esc(tx("noHabits", ""))}</p>`
+                }
+              </div>
+            </article>`,
+                )
+                .join("")
+            : `<p class="muted">${esc(tx("noRoutines", ""))}</p>`
+        }
+      </div>
+    </fieldset>
+    ${renderHabitPickerField(formKey, selectedHabitIds)}`;
+};
 
 function renderHabitPickerField(formKey, selectedHabitIds) {
   const selectedHabits = selectedItemsByIds(selectedHabitIds, state.habits);
@@ -1688,7 +2670,7 @@ function renderHomeFab() {
     ${state.homeQuickActionsOpen ? `<button class="home-fab-backdrop" type="button" data-action="close-home-fab" aria-label="${esc(tx("closeMenu", "추가 메뉴 닫기"))}"></button>` : ""}
     <div class="home-fab-menu">
     <button class="btn home-fab-option" type="button" data-action="open-quick-create" data-kind="habit">${esc(tx("createHabit", "습관 만들기"))}</button>
-    <button class="btn home-fab-option" type="button" data-action="open-quick-create" data-kind="task">${esc(tx("createTask", "작업 만들기"))}</button>
+    <button class="btn home-fab-option" type="button" data-action="open-quick-create" data-kind="task">${esc(tx("createTask", "할 일 만들기"))}</button>
     <button class="btn home-fab-option" type="button" data-action="open-quick-create" data-kind="routine">${esc(tx("createRoutine", "루틴 만들기"))}</button>
     </div>
     <button class="home-fab-trigger" type="button" data-action="toggle-home-fab" aria-label="${esc(state.homeQuickActionsOpen ? tx("closeMenu", "추가 메뉴 닫기") : tx("addMenu", "추가 메뉴 열기"))}">${state.homeQuickActionsOpen ? "\u00D7" : "+"}</button>
@@ -1710,8 +2692,8 @@ function renderQuickCreateLayer() {
     },
     task: {
       cardClass: "quick-create-card quick-create-card--task content-card",
-      title: tx("createTask", "작업 만들기"),
-      copy: tx("quickCreateTaskCopy", "탭을 바꾸지 않고 바로 단일 작업을 추가합니다."),
+      title: tx("createTask", "할 일 만들기"),
+      copy: tx("quickCreateTaskCopy", "탭을 바꾸지 않고 바로 할 일을 추가합니다."),
       form: "task-create",
       fields: taskFields({ dueDate: state.homeTaskFilter === "scheduled" ? state.selectedHomeDate : "" }),
     },
@@ -1811,6 +2793,26 @@ function applyShellText() {
 }
 
 function wireDynamicBehaviors() {
+  const homeNoteDetails = document.querySelector("[data-home-note-details]");
+  if (homeNoteDetails instanceof HTMLDetailsElement) {
+    homeNoteDetails.addEventListener("toggle", () => {
+      state.homeNoteOpen = homeNoteDetails.open;
+    });
+  }
+
+  for (const details of document.querySelectorAll("[data-mode-details-key]")) {
+    if (!(details instanceof HTMLDetailsElement)) {
+      continue;
+    }
+    const detailsKey = details.dataset.modeDetailsKey ?? "";
+    if (!detailsKey) {
+      continue;
+    }
+    details.addEventListener("toggle", () => {
+      state.modeDetailsOpen[detailsKey] = details.open;
+    });
+  }
+
   const carousel = document.querySelector("[data-home-carousel]");
   if (carousel instanceof HTMLElement) {
     carousel.addEventListener("scroll", handleHomeCarouselScroll, { passive: true });
@@ -2004,7 +3006,7 @@ function getHomeHabitGroups() {
   const sourceRoutines =
     Array.isArray(activeMode?.routines) && activeMode.routines.length
       ? activeMode.routines
-      : state.routines.filter((routine) => Array.isArray(routine?.habitIds) && routine.habitIds.length);
+      : getVisibleRoutines().filter((routine) => Array.isArray(routine?.habitIds) && routine.habitIds.length);
   const groups = [];
   const groupedHabitIds = new Set();
 
@@ -2022,7 +3024,7 @@ function getHomeHabitGroups() {
     routineHabits.forEach((habit) => groupedHabitIds.add(habit.id));
     groups.push({
       key: `routine-${routine.id}`,
-      title: routine.name,
+      title: getRoutineDisplayName(routine),
       accentColor: routine.color || routineHabits[0]?.color || "#6366f1",
       habits: routineHabits,
     });
@@ -2189,8 +3191,35 @@ function summarizeTodayStreak(habits) {
   return `${streak}${tx("daysSuffix", "일")}`;
 }
 
-function renderEmptyState(copy) {
-  return `<article class="route-list-card route-list-card--empty"><p class="muted">${esc(copy)}</p></article>`;
+function renderEmptyState(copy, actions = []) {
+  return `<article class="route-list-card route-list-card--empty">
+    <p class="muted">${esc(copy)}</p>
+    ${
+      actions.length
+        ? `<div class="route-empty-actions">${actions
+            .map((action) => `<button class="btn-soft" type="button" data-route="${esc(action.route)}">${esc(action.label)}</button>`)
+            .join("")}</div>`
+        : ""
+    }
+  </article>`;
+}
+
+function renderGuideText(copy) {
+  return `<p class="helper-text muted">${esc(copy)}</p>`;
+}
+
+function renderGuideCard(title, copy) {
+  return `<article class="route-guide-item">
+    <strong>${esc(title)}</strong>
+    <p class="muted">${esc(copy)}</p>
+  </article>`;
+}
+
+function renderFaqItem(question, answer) {
+  return `<article class="route-faq-item">
+    <strong>${esc(question)}</strong>
+    <p class="muted">${esc(answer)}</p>
+  </article>`;
 }
 
 function formatActiveDays(activeDays) {
@@ -2241,6 +3270,19 @@ function formatCompactDate(dateKey) {
     month: "short",
     day: "numeric",
   }).format(new Date(`${dateKey}T12:00:00`));
+}
+
+function formatDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value || "");
+  }
+  return new Intl.DateTimeFormat(state.locale, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
 }
 
 function detectLocale() {

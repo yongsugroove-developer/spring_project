@@ -28,6 +28,8 @@
 - AC-09: Achievement feedback is treated as a first-class UX surface with animated count-up, liquid fill, milestone messaging, pulse feedback, and reduced-motion fallback.
 - AC-10: Emoji fields continue to round-trip through storage and APIs for future extensibility, but emoji input and display are removed from the current browser UI.
 - AC-11: Browser UI text still supports Korean, English, and Japanese with Korean as the default browser-facing locale.
+- AC-12: Users can save or clear a short date memo for the selected day, and the memo round-trips through `/api/today` plus a dedicated save API without breaking older planner data.
+- AC-13: Settings expose a concise FAQ section that explains the difference between tasks, habits, routines, modes, date reservations, time logs, and completion-rate calculation.
 
 ## Runtime Commands
 - Build: `npm run build`
@@ -40,4 +42,5 @@
 - Validate the date rail touch scroll on `360x800`, `390x844`, and `412x915`.
 - Validate the home task/habit carousel swipe behavior and direct task completion from the task panel.
 - Validate achievement animation behavior for partial progress and 100% completion.
+- Validate date memo save and clear behavior on the home screen for the selected date.
 - Validate mode override selection and clearing from the home date area.

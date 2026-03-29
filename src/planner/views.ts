@@ -1,6 +1,7 @@
-import { addDays, eachDateInRange } from "./date.js";
+import { addDays, eachDateInRange, getDayOfWeek } from "./date.js";
 import { clampProgressValue, sortTasks } from "./validation.js";
 import type {
+  ActiveDay,
   CalendarDaySummary,
   Habit,
   HabitWithStats,
@@ -69,6 +70,7 @@ export function buildTodayResponse(data: PlannerData, date: string): TodayRespon
   const completedHabits = habits.filter((habit) => habit.isComplete).length;
   const totalHabits = habits.length;
   const activeMode = getActiveMode(data, date);
+  const dailyNote = getDailyNote(data, date);
 
   return {
     ok: true,
@@ -81,6 +83,10 @@ export function buildTodayResponse(data: PlannerData, date: string): TodayRespon
       remainingHabits: totalHabits - completedHabits,
     },
     habits,
+    dailyNote: {
+      note: dailyNote?.note ?? null,
+      updatedAt: dailyNote?.updatedAt ?? null,
+    },
   };
 }
 
@@ -295,8 +301,14 @@ export function getActiveMode(data: PlannerData, date: string): RoutineMode | nu
   if (override) {
     return override.modeId ? (modeMap.get(override.modeId) ?? null) : null;
   }
-
-  return [...data.routineModes].sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0] ?? null;
+  const weekday = getDayOfWeek(date) as ActiveDay;
+  const sortedModes = [...data.routineModes].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  const recurringMode =
+    sortedModes.find((mode) => mode.id !== "mode-default" && mode.activeDays.includes(weekday)) ?? null;
+  if (recurringMode) {
+    return recurringMode;
+  }
+  return sortedModes.find((mode) => mode.id === "mode-default" || mode.activeDays.includes(weekday)) ?? null;
 }
 
 export function getScheduledHabits(data: PlannerData, date: string): Habit[] {
@@ -327,6 +339,10 @@ export function getScheduledHabits(data: PlannerData, date: string): Habit[] {
 
 function getHabitCheckin(data: PlannerData, habitId: string, date: string) {
   return data.habitCheckins.find((entry) => entry.habitId === habitId && entry.date === date);
+}
+
+function getDailyNote(data: PlannerData, date: string) {
+  return data.dailyNotes.find((entry) => entry.date === date) ?? null;
 }
 
 function isHabitScheduledForDate(data: PlannerData, habitId: string, date: string) {

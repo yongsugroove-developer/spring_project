@@ -551,6 +551,33 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  app.put("/api/daily-notes/:date", async (req, res, next) => {
+    try {
+      const actor = await resolveActor(req);
+      const result = await plannerFor(actor.userId).upsertDailyNote(req.params.date, {
+        note:
+          typeof req.body?.note === "string" || req.body?.note === null
+            ? req.body.note
+            : undefined,
+      });
+      await recordServerActivity({
+        actorUserId: actor.userId,
+        actorRole: actor.user?.role,
+        targetUserId: actor.userId,
+        scope: "planner.daily-notes",
+        eventType: "upsert-daily-note",
+        message: "사용자가 날짜 메모를 저장했습니다.",
+        details: {
+          date: req.params.date,
+          hasNote: Boolean(result.dailyNote.note),
+        },
+      });
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get("/api/habits", async (req, res, next) => {
     try {
       const actor = await resolveActor(req);

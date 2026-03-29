@@ -23,6 +23,7 @@ function createSeed(): PlannerData {
     routines: [],
     routineModes: [],
     routineModeOverrides: [],
+    dailyNotes: [],
     tasks: [],
   };
 }
