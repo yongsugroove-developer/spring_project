@@ -9,16 +9,25 @@
 - Lint: `npm run lint`
 - Unit: `npm run test:unit`
 - Integration: `npm run test:integration`
+- Capacitor sync: `npm run mobile:android:sync`
+- Android release build: `npm run mobile:android:release`
 - Frontend syntax: `node --check public/app.js`
-- Frontend syntax: `node --check public/translations.js`
+- Frontend syntax: `node --check public/login.js`
+- Frontend syntax: `node --check public/sw.js`
+- Frontend syntax: `node --check public/shared/preferences.js`
+- Frontend syntax: `node --check public/shared/jsonApi.js`
+- Frontend syntax: `node --check public/shared/pwa.js`
+- Frontend syntax: `node --check public/shared/html.js`
 
 ## Result
-- Build: Passed on 2026-03-28
-- Lint: Passed on 2026-03-28
-- Unit: Passed on 2026-03-28
-- Integration: Passed on 2026-03-28
-- Frontend syntax: Passed on 2026-03-28
+- Build: Passed on 2026-03-31
+- Lint: Passed on 2026-03-31
+- Unit: Passed on 2026-03-31
+- Integration: Passed on 2026-03-31
+- Capacitor sync: Passed on 2026-03-31
+- Frontend syntax: Passed on 2026-03-31
 
 ## Verdict
 - Verdict: Pass
-- Recommendation: The planner now runs on a habit-first domain model, with habits on the home timetable, routines reduced to habit bundles with notification metadata, and one-off work moved to renamed task APIs and screens. The calendar screen now renders as a real month grid and has been simplified to achievement-rate-only cells, with each date card using a rising-water animation and subtle wave motion instead of a direct progress bar or habit/task count detail copy. The home screen has been tightened into a denser summary plus timetable layout, and creation actions on home now live behind a floating + menu instead of occupying the top summary area. Those floating actions now open in-place quick-create layer popups for habits, tasks, and routines, which reduces tab changes during entry. Bottom navigation is back as a fixed footer with Home, Habits, Tasks, Routines, and Calendar, while account, display settings, and stats now sit under a top-right account dropdown that also shows the current signed-in user summary. The home timetable board now reserves more vertical space, keeps row height fixed, and scrolls internally without showing a scrollbar so longer lists do not keep pushing the page down. Binary habit status now uses a centered touch area that only reveals a check emoji when complete, and count/time habits use narrower single-tap count chips. Home drag-and-drop now targets the full habit card instead of the inner row, and reorder persistence is computed from the visible timetable order before syncing to the stored master order. Mobile quick-create cards now shrink and scroll within the card, with sticky action buttons so submit controls remain reachable. Habit, task, and routine list screens expose explicit View, Edit, and Delete actions. Frontend action result copy is hidden from the page and sent only to console/system logs. The MySQL planner snapshot path now also handles JSON columns whether mysql2 returns them as raw strings or parsed objects. Automated verification passed. Manual browser validation is still required for drag-and-drop ordering, mobile layout density, account dropdown behavior, footer navigation ergonomics, quick-create layer usability, and the new calendar water animation balance on small screens.
+- Recommendation: The planner now ships an installable PWA shell with manifest metadata, a service worker, cached static assets, and an offline fallback page while keeping `/api/*` requests network-only. Browser settings, auth token persistence, and JSON API request logic are now shared across the main app and login shell instead of duplicated inline. A Capacitor Android project is present and syncs successfully against the current remote-server configuration, so the next manual step is device-side validation with a reachable `CAPACITOR_SERVER_URL`. Automated verification passed. Manual browser validation is still required for PWA install behavior, standalone launch feel, offline fallback UX, and Android emulator or device connectivity to the configured server host.
+- Recommendation: The public-distribution path now adds deploy-time health metadata, hides placeholder billing on the login shell, serves a dedicated `/install` guide, and supports Android release signing plus version injection. Automated verification still cannot prove the real deployed domain, release keystore, Android non-dev install flow, or iPhone Safari home-screen behavior. Those remain manual checks.

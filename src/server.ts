@@ -22,7 +22,7 @@ function setNoCacheHeaders(res: express.Response) {
 }
 
 function setStaticAssetHeaders(res: express.Response, filePath: string) {
-  if (/\.(html|js|css)$/i.test(filePath)) {
+  if (/\.(html|js|css|webmanifest)$/i.test(filePath)) {
     setNoCacheHeaders(res);
   }
 }
@@ -303,6 +303,8 @@ export function createApp(options: AppOptions = {}) {
         storageDriver: config.storageDriver,
         authAvailable: config.storageDriver === "mysql",
         authRequired: config.auth.required,
+        publicBillingEnabled: config.publicUi.billingEnabled,
+        installGuidePath: config.publicUi.installGuidePath,
       };
       res.json(payload);
     } catch (error) {
@@ -1009,6 +1011,11 @@ export function createApp(options: AppOptions = {}) {
   app.get("/login", (_req, res) => {
     setNoCacheHeaders(res);
     res.sendFile(path.resolve(publicDir, "login.html"));
+  });
+
+  app.get("/install", (_req, res) => {
+    setNoCacheHeaders(res);
+    res.sendFile(path.resolve(publicDir, "install.html"));
   });
 
   app.use("/api", (req, res) => {
