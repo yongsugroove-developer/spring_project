@@ -26,6 +26,10 @@ export interface AppConfig {
     provider: "manual";
     currency: string;
   };
+  publicUi: {
+    billingEnabled: boolean;
+    installGuidePath: string;
+  };
 }
 
 function envNumber(value: string | undefined, fallback: number) {
@@ -64,6 +68,10 @@ export function loadConfig(defaultDataFile: string): AppConfig {
     billing: {
       provider: "manual",
       currency: process.env.BILLING_CURRENCY || "KRW",
+    },
+    publicUi: {
+      billingEnabled: envBoolean(process.env.PUBLIC_BILLING_ENABLED, false),
+      installGuidePath: process.env.PUBLIC_INSTALL_GUIDE_PATH || "/install",
     },
   };
 }

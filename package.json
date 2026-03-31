@@ -8,11 +8,18 @@
     "dev": "tsx src/server.ts",
     "db:mysql:start": "powershell -ExecutionPolicy Bypass -File scripts/start-local-mysql.ps1",
     "db:mysql:stop": "powershell -ExecutionPolicy Bypass -File scripts/stop-local-mysql.ps1",
+    "mobile:android:add": "npx cap add android",
+    "mobile:android:release": "powershell -ExecutionPolicy Bypass -File scripts/build-android-release.ps1",
+    "mobile:android:sync": "npx cap sync android",
+    "mobile:android:open": "npx cap open android",
+    "deploy:verify:public": "powershell -ExecutionPolicy Bypass -File scripts/verify-public-deploy.ps1",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
     "lint": "eslint src tests --ext .ts"
   },
   "dependencies": {
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
     "bcryptjs": "^3.0.3",
     "dotenv": "^16.6.1",
     "express": "^4.21.2",
@@ -22,6 +29,7 @@
     "nodemailer": "^7.0.10"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.3.0",
     "@eslint/js": "^9.35.0",
     "@types/express": "^5.0.3",
     "@types/jsonwebtoken": "^9.0.10",
