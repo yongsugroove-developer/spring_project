@@ -4,3 +4,11 @@ dist/
 coverage/
 data/
 
+# Android wrapper and build artifacts
+android/
+*.apk
+*.aab
+*.ap_
+*.jks
+*.keystore
+
