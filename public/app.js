@@ -90,6 +90,7 @@ const state = {
   accountMenuOpen: false,
   homeQuickActionsOpen: false,
   quickCreateKind: "",
+  quickCreateSource: "",
   routeFormDrafts: {},
   modeDateDrafts: {},
   modeDatePicker: null,
@@ -105,6 +106,7 @@ const state = {
 
 let feedbackTimer = 0;
 let achievementAnimationFrame = 0;
+let pendingScrollRestore = null;
 const request = createJsonApiClient({
   getAuthToken: () => state.authToken,
   getLocale: () => state.locale,
@@ -334,6 +336,16 @@ async function handleAction(action, target) {
     await refreshAll();
     return;
   }
+  if (action === "bring-task-to-today") {
+    const task = state.tasks.find((entry) => entry.id === target.dataset.taskId);
+    if (!task) return;
+    await request(`/api/tasks/${task.id}`, {
+      method: "PATCH",
+      body: { dueDate: state.selectedHomeDate || dateKeyLocal(), status: "pending" },
+    });
+    await refreshAll();
+    return;
+  }
   if (action === "delete-habit") {
     await request(`/api/habits/${target.dataset.deleteId}`, { method: "DELETE" });
     await refreshAll();
@@ -385,6 +397,7 @@ async function handleAction(action, target) {
     const kind = target.dataset.kind ?? "";
     if (!["habit", "task", "routine"].includes(kind)) return;
     state.homeQuickActionsOpen = false;
+    state.quickCreateSource = target.dataset.origin === "mode" ? "mode" : "home";
     state.quickCreateKind = kind;
     render();
     return;
@@ -427,6 +440,7 @@ async function handleAction(action, target) {
   if (action === "shift-mode-date-month") {
     captureVisibleRouteFormDrafts();
     if (!state.modeDatePicker) return;
+    preserveScrollPosition(".mode-date-card");
     state.modeDatePicker.month = shiftMonthKey(state.modeDatePicker.month, Number(target.dataset.direction || "0"));
     render();
     return;
@@ -434,6 +448,7 @@ async function handleAction(action, target) {
   if (action === "toggle-mode-date") {
     captureVisibleRouteFormDrafts();
     if (!state.modeDatePicker) return;
+    preserveScrollPosition(".mode-date-card");
     const date = target.dataset.date ?? "";
     if (!isValidDateKey(date)) return;
     const dates = new Set(state.modeDatePicker.dates);
@@ -474,6 +489,7 @@ async function handleAction(action, target) {
   }
   if (action === "toggle-habit-picker-choice") {
     if (!state.habitPicker) return;
+    preserveScrollPosition(".habit-picker-list");
     const habitId = target.dataset.habitId ?? "";
     if (!habitId) return;
     const selectedIds = new Set(state.habitPicker.selectedIds);
@@ -587,6 +603,7 @@ async function handleSubmit(form) {
       clearRouteFormDraft(formKey);
       delete state.modeDateDrafts[formKey];
       form.reset();
+      closeModeDetails(formKey);
       await refreshAll();
       return;
     }
@@ -613,6 +630,7 @@ async function handleSubmit(form) {
       await syncModeReservations(modeId, previousDates, reservedDates);
       clearRouteFormDraft(formKey);
       delete state.modeDateDrafts[formKey];
+      closeModeDetails(formKey);
       await refreshAll();
       return;
     }
@@ -873,6 +891,19 @@ function clearRouteFormDraft(formKey) {
   delete state.routeFormDrafts[formKey];
 }
 
+function closeModeDetails(formKey) {
+  if (!formKey) {
+    return;
+  }
+  state.modeDetailsOpen[formKey] = false;
+  if (state.modeDatePicker?.formKey === formKey) {
+    state.modeDatePicker = null;
+  }
+  if (state.habitPicker?.formKey === formKey) {
+    state.habitPicker = null;
+  }
+}
+
 function shouldOpenModeDetails(formKey) {
   if (!formKey) {
     return false;
@@ -1113,6 +1144,7 @@ function resetTransientUiState() {
   state.accountMenuOpen = false;
   state.homeQuickActionsOpen = false;
   state.quickCreateKind = "";
+  state.quickCreateSource = "";
   state.modeDatePicker = null;
   state.habitPicker = null;
 }
@@ -1211,13 +1243,14 @@ function render() {
   renderShellOnly();
   renderPanels();
   wireDynamicBehaviors();
+  restorePreservedScrollPosition();
 }
 
 function renderShellOnly() {
   applyPreferences();
   applyShellText();
   document.documentElement.lang = state.locale;
-  document.title = `마이 플래너 | ${tx(ROUTE_META[state.routePath].titleKey, "마이 플래너")}`;
+  document.title = `루틴 로그 | ${tx(ROUTE_META[state.routePath].titleKey, "루틴 로그")}`;
   document.querySelector(".account-menu-shell")?.classList.toggle("is-open", state.accountMenuOpen);
   const accountTrigger = document.getElementById("account-menu-trigger");
   if (accountTrigger instanceof HTMLElement) {
@@ -1312,41 +1345,25 @@ function renderTodayPage() {
 
     <section class="home-panels">
       <div class="segmented home-panel-tabs">
-        <button class="segment-button ${state.homePanel === "tasks" ? "is-selected" : ""}" type="button" data-action="select-home-panel" data-panel="tasks">${esc(tx("tasksMenu", "할 일 보기"))}</button>
-        <button class="segment-button ${state.homePanel === "habits" ? "is-selected" : ""}" type="button" data-action="select-home-panel" data-panel="habits">${esc(tx("habitsMenu", "습관 보기"))}</button>
+        <button class="segment-button ${state.homePanel === "tasks" ? "is-selected" : ""}" type="button" data-action="select-home-panel" data-panel="tasks">${esc(tx("tasksMenu", "할일 관리"))}</button>
+        <button class="segment-button ${state.homePanel === "habits" ? "is-selected" : ""}" type="button" data-action="select-home-panel" data-panel="habits">${esc(tx("habitsMenu", "습관 관리"))}</button>
       </div>
       <div class="home-carousel" data-home-carousel>
         <section class="content-card home-panel" data-home-panel="tasks">
           <div class="route-inline-head home-panel-head">
             <div>
-              <h3>${esc(tx("tasksMenu", "할 일 보기"))}</h3>
-              <p class="muted">${esc(tx("homeTaskCopy", "메인에서 선택한 날짜의 할 일과 보관함 할 일을 함께 관리합니다."))}</p>
+              <h3>${esc(tx("tasksMenu", "할일 관리"))}</h3>
             </div>
             <div class="segmented home-filter-tabs">
-              <button class="segment-button ${state.homeTaskFilter === "scheduled" ? "is-selected" : ""}" type="button" data-action="set-home-task-filter" data-filter="scheduled">${esc(tx("scheduledTasks", "선택 날짜"))}</button>
-              <button class="segment-button ${state.homeTaskFilter === "inbox" ? "is-selected" : ""}" type="button" data-action="set-home-task-filter" data-filter="inbox">${esc(tx("inbox", "보관함"))}</button>
+              <button class="segment-button ${state.homeTaskFilter === "scheduled" ? "is-selected" : ""}" type="button" data-action="set-home-task-filter" data-filter="scheduled">${esc(tx("homeTaskFilterToday", "오늘의 할 일"))}</button>
+              <button class="segment-button ${state.homeTaskFilter === "inbox" ? "is-selected" : ""}" type="button" data-action="set-home-task-filter" data-filter="inbox">${esc(tx("homeTaskFilterPending", "미완료된 할 일"))}</button>
             </div>
           </div>
-          <div class="home-task-list">
-            ${tasks.length ? tasks.map(renderHomeTaskRow).join("") : renderEmptyState(tx("noTasksHome", "이 구역에 표시할 할 일이 없습니다."))}
-          </div>
+          ${renderHomeTaskBoard(tasks)}
         </section>
 
         <section class="content-card home-panel" data-home-panel="habits">
-          ${
-            homeHabitGroups.length
-              ? `<section class="today-home-board today-home-board--dense home-habit-board">
-            <div class="today-home-board-head">
-              <span>${esc(tx("order", "순서"))}</span>
-              <span>${esc(tx("habitsMenu", "습관 보기"))}</span>
-              <span>${esc(tx("status", "상태"))}</span>
-            </div>
-            <div class="today-home-board-body">
-              ${homeHabitGroups.map((group) => renderHomeHabitSection(group)).join("")}
-            </div>
-          </section>`
-              : renderEmptyState(tx("noHabitsHome", "이 날짜에 표시할 습관이 없습니다. 습관을 만들고 루틴이나 모드에 포함하면 메인에 나타납니다."))
-          }
+          ${renderHomeHabitBoard(homeHabitGroups)}
         </section>
       </div>
     </section>
@@ -1442,7 +1459,7 @@ function renderHabitsPage() {
   return `<div class="route-screen-layout route-screen-layout--library">
     <section class="content-card">
       <div class="route-section-heading">
-        <h3>${esc(tx("habitsMenu", "습관 보기"))}</h3>
+        <h3>${esc(tx("habitsMenu", "습관 관리"))}</h3>
         <p class="muted">${esc(tx("listOnlyHint", "이 화면은 목록에 집중합니다. 새 항목은 홈의 + 버튼에서 추가합니다."))}</p>
         ${renderGuideText(tx("habitsGuide", "습관은 반복해서 기록하는 가장 작은 단위입니다. 루틴과 모드에서 이 습관을 조합해 사용합니다."))}
       </div>
@@ -1508,13 +1525,14 @@ function renderModesPage() {
 
 renderModesPage = function () {
   const createFormKey = modeFormKey();
+  const modesCopy = tx("modesCopy", "").trim();
   return `<div class="route-screen-layout">
     <section class="content-card">
       <details class="route-list-card route-list-card--collapsible route-list-card--mode route-list-card--mode-create" data-mode-details-key="${createFormKey}" ${shouldOpenModeDetails(createFormKey) ? "open" : ""}>
         <summary class="route-list-row route-list-row--wide route-list-summary">
           <div class="route-list-copy route-list-copy--routine">
             <strong>${esc(tx("createMode", ""))}</strong>
-            <span class="routine-inline-empty">${esc(tx("modesCopy", ""))}</span>
+            ${modesCopy ? `<span class="routine-inline-empty">${esc(modesCopy)}</span>` : ""}
           </div>
           <span class="route-list-side">
             <span class="route-list-meta">${esc(tx("modesTitle", ""))}</span>
@@ -1540,6 +1558,7 @@ renderModesPage = function () {
       </div>
     </section>
     ${renderModeDatePickerLayer()}
+    ${renderQuickCreateLayer()}
     ${renderHabitPickerLayer()}
   </div>`;
 };
@@ -1548,7 +1567,7 @@ function renderTasksPage() {
   return `<div class="route-screen-layout route-screen-layout--library">
     <section class="content-card">
       <div class="route-section-heading">
-        <h3>${esc(tx("tasksMenu", "할 일 보기"))}</h3>
+        <h3>${esc(tx("tasksMenu", "할일 관리"))}</h3>
         <p class="muted">${esc(tx("listOnlyHint", "이 화면은 목록에 집중합니다. 새 항목은 홈의 + 버튼에서 추가합니다."))}</p>
       </div>
       <div class="route-list-stack">
@@ -1849,41 +1868,25 @@ renderTodayPage = function () {
 
     <section class="home-panels">
       <div class="segmented home-panel-tabs">
-        <button class="segment-button ${state.homePanel === "tasks" ? "is-selected" : ""}" type="button" data-action="select-home-panel" data-panel="tasks">${esc(tx("tasksMenu", "할 일 보기"))}</button>
-        <button class="segment-button ${state.homePanel === "habits" ? "is-selected" : ""}" type="button" data-action="select-home-panel" data-panel="habits">${esc(tx("habitsMenu", "습관 보기"))}</button>
+        <button class="segment-button ${state.homePanel === "tasks" ? "is-selected" : ""}" type="button" data-action="select-home-panel" data-panel="tasks">${esc(tx("tasksMenu", "할일 관리"))}</button>
+        <button class="segment-button ${state.homePanel === "habits" ? "is-selected" : ""}" type="button" data-action="select-home-panel" data-panel="habits">${esc(tx("habitsMenu", "습관 관리"))}</button>
       </div>
       <div class="home-carousel" data-home-carousel>
         <section class="content-card home-panel" data-home-panel="tasks">
           <div class="route-inline-head home-panel-head">
             <div>
-              <h3>${esc(tx("tasksMenu", "할 일 보기"))}</h3>
-              <p class="muted">${esc(tx("homeTaskCopy", "메인에서 선택한 날짜의 할 일과 보관함 할 일을 함께 관리합니다."))}</p>
+              <h3>${esc(tx("tasksMenu", "할일 관리"))}</h3>
             </div>
             <div class="segmented home-filter-tabs">
-              <button class="segment-button ${state.homeTaskFilter === "scheduled" ? "is-selected" : ""}" type="button" data-action="set-home-task-filter" data-filter="scheduled">${esc(tx("scheduledTasks", "선택 날짜"))}</button>
-              <button class="segment-button ${state.homeTaskFilter === "inbox" ? "is-selected" : ""}" type="button" data-action="set-home-task-filter" data-filter="inbox">${esc(tx("inbox", "보관함"))}</button>
+              <button class="segment-button ${state.homeTaskFilter === "scheduled" ? "is-selected" : ""}" type="button" data-action="set-home-task-filter" data-filter="scheduled">${esc(tx("homeTaskFilterToday", "오늘의 할 일"))}</button>
+              <button class="segment-button ${state.homeTaskFilter === "inbox" ? "is-selected" : ""}" type="button" data-action="set-home-task-filter" data-filter="inbox">${esc(tx("homeTaskFilterPending", "미완료된 할 일"))}</button>
             </div>
           </div>
-          <div class="home-task-list">
-            ${tasks.length ? tasks.map(renderHomeTaskRow).join("") : renderEmptyState(tx("noTasksHome", "이 구역에 표시할 할 일이 없습니다."))}
-          </div>
+          ${renderHomeTaskBoard(tasks)}
         </section>
 
         <section class="content-card home-panel" data-home-panel="habits">
-          ${
-            homeHabitGroups.length
-              ? `<section class="today-home-board today-home-board--dense home-habit-board">
-            <div class="today-home-board-head">
-              <span>${esc(tx("order", "순서"))}</span>
-              <span>${esc(tx("habitsMenu", "습관 보기"))}</span>
-              <span>${esc(tx("status", "상태"))}</span>
-            </div>
-            <div class="today-home-board-body">
-              ${homeHabitGroups.map((group) => renderHomeHabitSection(group)).join("")}
-            </div>
-          </section>`
-              : renderEmptyState(tx("noHabitsHome", "이 날짜에 표시할 습관이 없습니다. 습관을 만들고 루틴이나 모드에 포함하면 메인에 나타납니다."))
-          }
+          ${renderHomeHabitBoard(homeHabitGroups)}
         </section>
       </div>
     </section>
@@ -1924,7 +1927,7 @@ renderSettingsPage = function () {
         ${renderFaqItem(tx("faqTaskHabitQ", "할 일과 습관은 무엇이 다른가요?"), tx("faqTaskHabitA", "할 일은 한 번 처리하고 끝나는 항목이고, 습관은 날짜를 기준으로 반복해서 기록하는 항목입니다."))}
         ${renderFaqItem(tx("faqRoutineModeQ", "루틴과 모드는 무엇이 다른가요?"), tx("faqRoutineModeA", "루틴은 습관 묶음을 다시 쓰기 위한 저장본이고, 모드는 상황에 따라 루틴과 개별 습관을 함께 조합한 구성입니다."))}
         ${renderFaqItem(tx("faqModeScheduleQ", "날짜 예약, 주중, 주말은 언제 쓰면 되나요?"), tx("faqModeScheduleA", "날짜 예약은 여행이나 약속처럼 특정 기간에만 쓰고, 주중과 주말은 반복되는 생활 흐름을 나눌 때 씁니다."))}
-        ${renderFaqItem(tx("faqTimeLogQ", "시간 기록 습관은 어디에서 확인하나요?"), tx("faqTimeLogA", "메인 습관 보기에서 해당 습관을 누르면 시간이 기록되고, 최근 기록 시간이 같은 줄에 바로 표시됩니다."))}
+        ${renderFaqItem(tx("faqTimeLogQ", "시간 기록 습관은 어디에서 확인하나요?"), tx("faqTimeLogA", "메인 습관 관리에서 해당 습관을 누르면 시간이 기록되고, 최근 기록 시간이 같은 줄에 바로 표시됩니다."))}
         ${renderFaqItem(tx("faqDailyNoteQ", "날짜 메모는 어디에 쓰나요?"), tx("faqDailyNoteA", "날짜 메모는 선택한 날짜에만 붙는 짧은 기록입니다. 일정 메모, 컨디션 기록, 하루 회고를 간단히 남길 때 쓰면 됩니다."))}
         ${renderFaqItem(tx("faqAchievementQ", "달성률은 어떻게 계산되나요?"), tx("faqAchievementA", "선택한 날짜에 노출된 습관 중 완료된 습관의 비율로 계산됩니다."))}
       </div>
@@ -2227,16 +2230,73 @@ function renderModeCard(mode) {
   </details>`;
 }
 
+function renderHomeTaskBoard(tasks) {
+  return `<section class="today-home-board today-home-board--dense home-task-board">
+      <div class="today-home-board-head">
+        <span>${esc(tx("dueDate", "마감일"))}</span>
+        <span>${esc(tx("tasksMenu", "할일 관리"))}</span>
+        <span>${esc(tx("status", "상태"))}</span>
+      </div>
+      <div class="today-home-board-body">
+        ${tasks.length ? tasks.map(renderHomeTaskRow).join("") : renderHomeBoardEmptyRow(tx("noTasksHome", "이 구역에 표시할 할 일이 없습니다."))}
+      </div>
+    </section>`;
+}
+
+function renderHomeHabitBoard(homeHabitGroups) {
+  return `<section class="today-home-board today-home-board--dense home-habit-board">
+      <div class="today-home-board-head">
+        <span>${esc(tx("order", "순서"))}</span>
+        <span>${esc(tx("habitsMenu", "습관 관리"))}</span>
+        <span>${esc(tx("status", "상태"))}</span>
+      </div>
+      <div class="today-home-board-body">
+        ${
+          homeHabitGroups.length
+            ? homeHabitGroups.map((group) => renderHomeHabitSection(group)).join("")
+            : renderHomeBoardEmptyRow(tx("noHabitsHome", "이 날짜에 표시할 습관이 없습니다. 습관을 만들고 루틴이나 모드에 포함하면 메인에 나타납니다."))
+        }
+      </div>
+    </section>`;
+}
+
+function renderHomeBoardEmptyRow(copy) {
+  return `<article class="home-board-group">
+      <div class="home-board-row home-board-row--empty">
+        <div class="home-board-cell">${esc(copy)}</div>
+      </div>
+    </article>`;
+}
+
 renderHomeTaskRow = function (task) {
   const done = task.status === "done";
-  const meta = task.dueDate ? formatCompactDate(task.dueDate) : tx("inbox", "보관함");
-  return `<article class="home-task-row ${done ? "is-done" : ""}">
-    <button class="home-task-toggle ${done ? "is-done" : ""}" type="button" data-action="toggle-task-status" data-task-id="${task.id}" aria-label="${esc(done ? tx("markPending", "미완료로 변경") : tx("markDone", "완료 처리"))}">${esc(done ? tx("doneShort", "완료") : tx("checkShort", "체크"))}</button>
-    <div class="home-task-copy">
-      <strong>${esc(task.title)}</strong>
-      <span>${esc(task.note || meta)}</span>
+  const meta = task.dueDate ? formatCompactDate(task.dueDate) : tx("unscheduled", "미정");
+  const isPendingBoard = state.homeTaskFilter === "inbox";
+  return `<article class="home-board-group">
+    <div class="home-board-row home-board-row--item home-board-row--task ${done ? "is-complete" : ""}">
+      <div class="home-board-cell home-board-cell--index">
+        <span class="state-pill ${done ? "is-success" : ""}">${esc(meta)}</span>
+      </div>
+      <div class="home-board-cell home-board-cell--main">
+        <div class="home-routine-main">
+          <span class="home-routine-accent home-routine-accent--task"></span>
+          <div class="home-item-copy">
+            <strong>${esc(task.title)}</strong>
+            ${task.note ? `<span>${esc(task.note)}</span>` : ""}
+          </div>
+        </div>
+      </div>
+      <div class="home-board-cell home-board-cell--status">
+        <div class="home-task-actions ${isPendingBoard ? "is-pending-board" : ""}">
+          <button class="home-status-toggle home-status-toggle--task ${done ? "is-complete" : ""}" type="button" data-action="toggle-task-status" data-task-id="${task.id}" aria-label="${esc(done ? tx("markPending", "미완료로 변경") : tx("markDone", "완료 처리"))}">${esc(done ? tx("doneShort", "완료") : tx("checkShort", "체크"))}</button>
+          ${
+            isPendingBoard
+              ? `<button class="btn-soft compact-action home-task-bring-button" type="button" data-action="bring-task-to-today" data-task-id="${task.id}" aria-label="${esc(tx("bringTaskToToday", "오늘의 할 일로 가져오기"))}">${esc(tx("bringTaskToTodayShort", "오늘로"))}</button>`
+              : ""
+          }
+        </div>
+      </div>
     </div>
-    <span class="state-pill ${done ? "is-success" : ""}">${esc(meta)}</span>
   </article>`;
 };
 
@@ -2585,7 +2645,10 @@ function renderHabitPickerField(formKey, selectedHabitIds) {
   return `<fieldset class="habit-picker-field" style="grid-column:1 / -1;">
     <legend>${esc(tx("habits", "습관"))}</legend>
     <div class="habit-picker-field-row">
-      <button class="btn-soft habit-picker-trigger" type="button" data-action="open-habit-picker" data-form-key="${esc(formKey)}" ${state.habits.length ? "" : "disabled"}>${esc(tx("selectHabits", "습관 선택"))}</button>
+      <div class="habit-picker-field-actions">
+        <button class="btn-soft habit-picker-trigger" type="button" data-action="open-habit-picker" data-form-key="${esc(formKey)}" ${state.habits.length ? "" : "disabled"}>${esc(tx("selectHabits", "습관 선택"))}</button>
+        <button class="btn-soft" type="button" data-action="open-quick-create" data-kind="habit" data-origin="mode">${esc(tx("createHabit", "습관 만들기"))}</button>
+      </div>
       <span class="route-list-meta">${esc(summary)}</span>
     </div>
     <div class="habit-picker-chip-list">
@@ -2695,7 +2758,6 @@ function renderHomeFab() {
     <div class="home-fab-menu">
     <button class="btn home-fab-option" type="button" data-action="open-quick-create" data-kind="habit">${esc(tx("createHabit", "습관 만들기"))}</button>
     <button class="btn home-fab-option" type="button" data-action="open-quick-create" data-kind="task">${esc(tx("createTask", "할 일 만들기"))}</button>
-    <button class="btn home-fab-option" type="button" data-action="open-quick-create" data-kind="routine">${esc(tx("createRoutine", "루틴 만들기"))}</button>
     </div>
     <button class="home-fab-trigger" type="button" data-action="toggle-home-fab" aria-label="${esc(state.homeQuickActionsOpen ? tx("closeMenu", "추가 메뉴 닫기") : tx("addMenu", "추가 메뉴 열기"))}">${state.homeQuickActionsOpen ? "\u00D7" : "+"}</button>
   </div>`;
@@ -2735,14 +2797,20 @@ function renderQuickCreateLayer() {
     return "";
   }
 
+  const isModeHabitCreate = state.quickCreateSource === "mode" && state.quickCreateKind === "habit";
+  const overlayEyebrow = isModeHabitCreate ? tx("modesMenu", "모드 설정") : tx("today", "홈");
+  const overlayCopy = isModeHabitCreate
+    ? tx("modeInlineHabitCreateCopy", "모드 설정을 닫지 않고 새 습관을 만든 뒤 바로 선택할 수 있습니다.")
+    : config.copy;
+
   return `<div class="quick-create-layer">
     <button class="quick-create-backdrop" type="button" data-action="close-quick-create" aria-label="${esc(tx("cancel", "취소"))}"></button>
     <section class="${config.cardClass}">
       <div class="quick-create-head">
         <div>
-          <p class="eyebrow">${esc(tx("today", "홈"))}</p>
+          <p class="eyebrow">${esc(overlayEyebrow)}</p>
           <h3>${esc(config.title)}</h3>
-          <p class="muted">${esc(config.copy)}</p>
+          <p class="muted">${esc(overlayCopy)}</p>
         </div>
         <button class="btn-soft quick-create-close" type="button" data-action="close-quick-create" aria-label="${esc(tx("cancel", "취소"))}">\u00D7</button>
       </div>
@@ -2806,14 +2874,47 @@ async function legacyRequest(url, options = {}) {
 
 function applyShellText() {
   const meta = ROUTE_META[state.routePath] || ROUTE_META["/today"];
-  text("app-utility-title", "appTitle", "마이 플래너");
-  text("screen-title", meta.titleKey, "마이 플래너");
-  text("screen-copy", meta.copyKey, "개인 플래너");
+  text("app-utility-title", "appTitle", "루틴 로그");
+  text("screen-title", meta.titleKey, "루틴 로그");
+  const screenCopy = document.getElementById("screen-copy");
+  if (screenCopy instanceof HTMLElement) {
+    const copy = tx(meta.copyKey, "개인 플래너");
+    screenCopy.textContent = copy;
+    screenCopy.hidden = !copy.trim();
+  }
 
   for (const element of document.querySelectorAll("[data-label-key]")) {
     if (!(element instanceof HTMLElement)) continue;
     element.textContent = tx(element.dataset.labelKey || "", element.textContent || "");
   }
+}
+
+function preserveScrollPosition(selector) {
+  const element = document.querySelector(selector);
+  if (!(element instanceof HTMLElement)) {
+    return;
+  }
+  pendingScrollRestore = {
+    selector,
+    top: element.scrollTop,
+    left: element.scrollLeft,
+  };
+}
+
+function restorePreservedScrollPosition() {
+  if (!pendingScrollRestore) {
+    return;
+  }
+  const restore = pendingScrollRestore;
+  pendingScrollRestore = null;
+  requestAnimationFrame(() => {
+    const element = document.querySelector(restore.selector);
+    if (!(element instanceof HTMLElement)) {
+      return;
+    }
+    element.scrollTop = restore.top;
+    element.scrollLeft = restore.left;
+  });
 }
 
 function wireDynamicBehaviors() {
@@ -2878,7 +2979,7 @@ function handleHomeCarouselScroll(event) {
   const styles = getComputedStyle(carousel);
   const gap = Number.parseFloat(styles.columnGap || styles.gap || "0") || 0;
   const panelWidth = carousel.firstElementChild instanceof HTMLElement ? carousel.firstElementChild.offsetWidth + gap : carousel.clientWidth;
-  const nextPanel = carousel.scrollLeft >= panelWidth * 0.5 ? "habits" : "tasks";
+  const nextPanel = carousel.scrollLeft >= panelWidth * 0.5 ? "tasks" : "habits";
   if (nextPanel !== state.homePanel) {
     state.homePanel = nextPanel;
     updateHomePanelTabs();
@@ -2902,7 +3003,7 @@ function syncHomeCarouselPosition(animate) {
   const styles = getComputedStyle(carousel);
   const gap = Number.parseFloat(styles.columnGap || styles.gap || "0") || 0;
   const panelWidth = carousel.firstElementChild instanceof HTMLElement ? carousel.firstElementChild.offsetWidth + gap : carousel.clientWidth;
-  const left = state.homePanel === "habits" ? panelWidth : 0;
+  const left = state.homePanel === "tasks" ? panelWidth : 0;
   carousel.scrollTo({ left, behavior: animate ? "smooth" : "auto" });
 }
 
@@ -2973,6 +3074,7 @@ function closeQuickCreate() {
     }
   }
   state.quickCreateKind = "";
+  state.quickCreateSource = "";
   state.homeQuickActionsOpen = false;
   render();
 }
@@ -2983,7 +3085,9 @@ function markAchievementPulse() {
 
 function getHomeTasks() {
   const filtered = state.tasks.filter((task) =>
-    state.homeTaskFilter === "inbox" ? task.dueDate === null : task.dueDate === state.selectedHomeDate,
+    state.homeTaskFilter === "inbox"
+      ? task.status === "pending" && task.dueDate !== state.selectedHomeDate
+      : task.dueDate === state.selectedHomeDate,
   );
   return [...filtered].sort((left, right) => {
     if (left.status !== right.status) {
@@ -2997,29 +3101,11 @@ function getHomeTasks() {
 }
 
 function getHomeHabits() {
-  const todayHabits = new Map((state.today?.habits ?? []).map((habit) => [habit.id, habit]));
-  const selectedDate = state.selectedHomeDate || state.today?.date || "";
-  return state.habits.map((habit) => {
-    const todayHabit = todayHabits.get(habit.id);
-    if (todayHabit) {
-      return {
-        ...todayHabit,
-        isScheduledToday: true,
-        startsLater: false,
-      };
-    }
-    return {
-      ...habit,
-      currentValue: 0,
-      isComplete: false,
-      progressRate: 0,
-      streak: Number(habit.currentStreak || 0),
-      timeEntries: [],
-      latestTimeEntry: null,
-      isScheduledToday: false,
-      startsLater: Boolean(selectedDate && habit.startDate > selectedDate),
-    };
-  });
+  return (state.today?.habits ?? []).map((habit) => ({
+    ...habit,
+    isScheduledToday: true,
+    startsLater: false,
+  }));
 }
 
 function getHomeHabitGroups() {

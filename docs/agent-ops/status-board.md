@@ -26,7 +26,9 @@
 - [x] Localhost pages now mount a local-only Agentation bridge so manual UI annotations can sync to the local MCP server without enabling the toolbar on deployed hosts
 - [x] Routine and mode habit assignment now uses a button-triggered overlay picker instead of always-expanded checkbox lists, while keeping create/update drafts stable during overlay interactions
 - [x] The habit picker overlay now removes redundant explanatory copy, uses a home-list-inspired row layout, and separates the list from the cancel/apply actions with clearer spacing
-- [x] The home habit panel now keeps saved habits visible even when they are not scheduled for the selected day, while labeling inactive items instead of dropping them from the list
+- [x] Mode forms now collapse after a successful save, expose inline habit creation via a layer popup from the habit picker field, and the mobile tab bar redistributes evenly across four slots after routine-tab removal
+- [x] The browser UI now serves the locally hosted `SUIT Variable` font as its default typeface, replacing the previous Google-font mix with a softer commercial-use-friendly UI font stack
+- [x] The home habit panel now shows only habits assigned to the selected day, hiding unscheduled habits instead of rendering inactive rows
 - [x] The achievement card now uses milestone badges and tier-based celebration styling so high completion states feel more rewarding without overwhelming low-progress states
 - [x] New habits now auto-attach to `mode-default` when that default mode already exists, preventing freshly created standalone habits from appearing as unscheduled by default
 - [x] The achievement milestone badge now uses emoji-first visual cues with localized accessible labels instead of text-only copy

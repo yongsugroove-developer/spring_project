@@ -299,7 +299,7 @@ export function createApp(options: AppOptions = {}) {
       const payload: HealthResponse & { storageDriver: StorageDriver } = {
         ok: true,
         project: "my-planner",
-        productName: "마이 플래너",
+        productName: "루틴 로그",
         storageDriver: config.storageDriver,
         authAvailable: config.storageDriver === "mysql",
         authRequired: config.auth.required,

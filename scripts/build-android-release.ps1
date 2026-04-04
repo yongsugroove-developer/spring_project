@@ -11,6 +11,19 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $androidStudioJbr = "C:\Program Files\Android\Android Studio\jbr"
 $keystorePropsPath = Join-Path $repoRoot "android\keystore.properties"
 
+function Get-AnyEnvValue {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Name
+  )
+
+  return (
+    [Environment]::GetEnvironmentVariable($Name, "Process"),
+    [Environment]::GetEnvironmentVariable($Name, "User"),
+    [Environment]::GetEnvironmentVariable($Name, "Machine")
+  ) | Where-Object { $_ } | Select-Object -First 1
+}
+
 if (-not $ServerUrl) {
   throw "Set CAPACITOR_SERVER_URL to the deployed HTTPS domain before building a public APK."
 }
@@ -47,10 +60,11 @@ if (-not (Test-Path $keystorePropsPath)) {
   )
 
   foreach ($name in $requiredEnv) {
-    $value = [Environment]::GetEnvironmentVariable($name)
+    $value = Get-AnyEnvValue -Name $name
     if (-not $value) {
       throw "Release signing is missing. Create android/keystore.properties or set $name."
     }
+    Set-Item -Path "Env:$name" -Value $value
   }
 }
 

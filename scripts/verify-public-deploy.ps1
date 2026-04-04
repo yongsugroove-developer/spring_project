@@ -50,7 +50,7 @@ function Invoke-JsonRequest {
     if ($response -and $response.GetResponseStream()) {
       $reader = New-Object System.IO.StreamReader($response.GetResponseStream())
       $bodyText = $reader.ReadToEnd()
-      throw "Request failed for $Path: $bodyText"
+      throw "Request failed for ${Path}: $bodyText"
     }
     throw
   }
