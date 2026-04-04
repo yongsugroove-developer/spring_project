@@ -4440,13 +4440,13 @@ body.is-overlay-open {
 
 .planner-topbar {
   display: grid;
-  gap: 0.3rem;
-  margin: 0 0.1rem 0.85rem;
+  gap: 0.2rem;
+  margin: 0 0.1rem 0.65rem;
 }
 
 .planner-topbar-copy {
   display: grid;
-  gap: 0.2rem;
+  gap: 0.1rem;
 }
 
 .planner-screen-title {
@@ -4466,25 +4466,28 @@ body.is-overlay-open {
 
 .account-menu-trigger {
   display: grid;
-  gap: 0.12rem;
-  min-height: 48px;
-  min-width: min(220px, calc(100vw - 120px));
-  padding: 0.62rem 0.82rem;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: 999px;
   background: rgba(255, 255, 255, 0.92);
-  box-shadow: var(--shadow-md);
-  text-align: right;
+  box-shadow: var(--shadow-sm);
+  text-align: center;
 }
 
-.account-menu-trigger span {
-  font-weight: 700;
-  color: var(--ink);
-}
-
-.account-menu-trigger small {
-  color: var(--muted);
-  font-size: 0.76rem;
+.account-menu-avatar {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 18%, white), rgba(255, 255, 255, 0.96));
+  color: var(--accent-strong);
+  font-size: 0.96rem;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .account-menu-panel {
@@ -4599,9 +4602,8 @@ body.is-overlay-open {
 
 @media (max-width: 720px) {
   .account-menu-trigger {
-    min-width: 0;
-    width: min(190px, calc(100vw - 118px));
-    padding-inline: 0.8rem;
+    width: 46px;
+    height: 46px;
   }
 
   .route-list-side--actions {
@@ -4616,7 +4618,7 @@ body.is-overlay-open {
 
 @media (max-width: 560px) {
   .planner-topbar {
-    margin-bottom: 0.7rem;
+    margin-bottom: 0.55rem;
   }
 
   .planner-screen-title {
@@ -4628,10 +4630,11 @@ body.is-overlay-open {
   }
 
   .account-menu-trigger {
-    width: min(168px, calc(100vw - 112px));
-    min-height: 48px;
-    border-radius: 16px;
-    padding: 0.65rem 0.8rem;
+    width: 42px;
+    height: 42px;
+    min-height: 42px;
+    border-radius: 999px;
+    padding: 0;
   }
 
   .account-menu-panel {
@@ -5238,7 +5241,7 @@ body.is-overlay-open {
 }
 
 .home-screen {
-  gap: 1rem;
+  gap: 0.72rem;
 }
 
 .home-date-card,
@@ -5250,8 +5253,8 @@ body.is-overlay-open {
 
 .home-date-card {
   display: grid;
-  gap: 0.9rem;
-  padding: 1rem 1rem 0.95rem;
+  gap: 0.58rem;
+  padding: 0.76rem 0.82rem 0.72rem;
 }
 
 .home-date-head {
@@ -5263,7 +5266,7 @@ body.is-overlay-open {
 
 .home-date-month {
   margin: 0.12rem 0 0.22rem;
-  font-size: clamp(1.4rem, 2.6vw, 1.9rem);
+  font-size: clamp(1.22rem, 2.2vw, 1.58rem);
   line-height: 1.05;
 }
 
@@ -5294,9 +5297,9 @@ body.is-overlay-open {
 
 .home-date-rail {
   display: flex;
-  gap: 0.7rem;
+  gap: 0.55rem;
   overflow-x: auto;
-  padding: 0.15rem 0.1rem 0.3rem;
+  padding: 0.08rem 0.08rem 0.18rem;
   scroll-snap-type: x mandatory;
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -5308,14 +5311,14 @@ body.is-overlay-open {
 
 .home-date-chip {
   flex: 0 0 auto;
-  min-width: 76px;
+  min-width: 64px;
   border: 1px solid var(--line);
-  border-radius: 20px;
-  padding: 0.72rem 0.82rem;
+  border-radius: 18px;
+  padding: 0.5rem 0.58rem;
   background: rgba(255, 255, 255, 0.9);
   color: var(--ink);
   display: grid;
-  gap: 0.18rem;
+  gap: 0.12rem;
   justify-items: center;
   scroll-snap-align: center;
   box-shadow: var(--shadow-sm);
@@ -5323,13 +5326,13 @@ body.is-overlay-open {
 
 .home-date-chip span {
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: 0.66rem;
   font-weight: 700;
   text-transform: uppercase;
 }
 
 .home-date-chip strong {
-  font-size: 1.08rem;
+  font-size: 0.96rem;
 }
 
 .home-date-chip.is-selected {
@@ -5344,11 +5347,11 @@ body.is-overlay-open {
 
 .achievement-card {
   --achievement-progress: 0;
-  min-height: 200px;
+  min-height: 176px;
   display: grid;
-  gap: 0.85rem;
+  gap: 0.75rem;
   align-content: start;
-  padding: 1rem 1rem 0.95rem;
+  padding: 0.84rem 0.88rem 0.8rem;
   isolation: isolate;
 }
 
@@ -5367,7 +5370,7 @@ body.is-overlay-open {
 
 .achievement-card h3 {
   margin: 0.1rem 0 0.35rem;
-  font-size: clamp(1.95rem, 4.2vw, 2.8rem);
+  font-size: clamp(1.72rem, 3.7vw, 2.45rem);
   line-height: 0.95;
 }
 
@@ -5375,13 +5378,13 @@ body.is-overlay-open {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 34px;
-  min-width: 34px;
-  padding: 0.35rem;
+  min-height: 30px;
+  min-width: 30px;
+  padding: 0.28rem;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.78);
   color: var(--muted-strong);
-  font-size: 1.05rem;
+  font-size: 0.96rem;
   line-height: 1;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
 }
@@ -5389,14 +5392,14 @@ body.is-overlay-open {
 .achievement-stats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.65rem;
+  gap: 0.5rem;
 }
 
 .achievement-stat {
   display: grid;
   gap: 0.2rem;
-  padding: 0.74rem 0.78rem;
-  border-radius: 18px;
+  padding: 0.64rem 0.68rem;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.84);
   backdrop-filter: blur(10px);
   box-shadow: var(--shadow-sm);
@@ -5404,12 +5407,12 @@ body.is-overlay-open {
 
 .achievement-stat span {
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 700;
 }
 
 .achievement-stat strong {
-  font-size: 0.98rem;
+  font-size: 0.92rem;
 }
 
 .achievement-stat--remaining strong {
@@ -5479,17 +5482,83 @@ body.is-overlay-open {
 
 .home-panels {
   display: grid;
-  gap: 0.8rem;
+  gap: 0.72rem;
   order: 1;
 }
 
 .home-panel-tabs,
 .home-filter-tabs {
-  width: fit-content;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+  min-width: 0;
+  justify-self: stretch;
+}
+
+.home-panel-tabs .segment-button,
+.home-filter-tabs .segment-button {
+  width: 100%;
+  min-width: 0;
+}
+
+.home-panel-tabs {
+  background: linear-gradient(180deg, rgba(148, 163, 184, 0.12), rgba(226, 232, 240, 0.2));
+  border-color: rgba(148, 163, 184, 0.24);
+  gap: 5px;
+  padding: 4px;
+}
+
+.home-panel-tabs .segment-button {
+  min-height: 36px;
+  padding: 0.42rem 0.68rem;
+  font-size: 0.86rem;
+  border-radius: 13px;
 }
 
 .home-panel-tabs [data-panel="habits"] {
   order: -1;
+  color: #0f4c5c;
+}
+
+.home-panel-tabs [data-panel="habits"].is-selected {
+  color: #0f766e;
+  border-color: rgba(20, 184, 166, 0.2);
+  background: linear-gradient(180deg, rgba(204, 251, 241, 0.92), rgba(255, 255, 255, 0.98));
+  box-shadow: 0 8px 18px rgba(15, 118, 110, 0.12);
+}
+
+.home-panel-tabs [data-panel="tasks"] {
+  color: #9a3412;
+}
+
+.home-panel-tabs [data-panel="tasks"].is-selected {
+  color: #ea580c;
+  border-color: rgba(249, 115, 22, 0.2);
+  background: linear-gradient(180deg, rgba(255, 237, 213, 0.92), rgba(255, 255, 255, 0.98));
+  box-shadow: 0 8px 18px rgba(234, 88, 12, 0.12);
+}
+
+.home-filter-tabs {
+  background: linear-gradient(180deg, rgba(186, 230, 253, 0.3), rgba(219, 234, 254, 0.22));
+  border-color: rgba(125, 211, 252, 0.3);
+}
+
+.home-filter-tabs .segment-button {
+  color: #334155;
+}
+
+.home-filter-tabs [data-filter="scheduled"].is-selected {
+  color: #0f4c81;
+  border-color: rgba(59, 130, 246, 0.2);
+  background: linear-gradient(180deg, rgba(219, 234, 254, 0.98), rgba(255, 255, 255, 0.98));
+  box-shadow: 0 8px 18px rgba(59, 130, 246, 0.12);
+}
+
+.home-filter-tabs [data-filter="inbox"].is-selected {
+  color: #155e75;
+  border-color: rgba(6, 182, 212, 0.18);
+  background: linear-gradient(180deg, rgba(207, 250, 254, 0.98), rgba(255, 255, 255, 0.98));
+  box-shadow: 0 8px 18px rgba(6, 182, 212, 0.12);
 }
 
 .home-carousel {
@@ -5509,9 +5578,9 @@ body.is-overlay-open {
 
 .home-panel {
   display: grid;
-  gap: 0.9rem;
+  gap: 0.72rem;
   scroll-snap-align: start;
-  min-height: 320px;
+  min-height: 300px;
 }
 
 .home-panel[data-home-panel="habits"] {
@@ -5842,8 +5911,7 @@ body.is-overlay-open {
 }
 
 @media (max-width: 720px) {
-  .home-date-head,
-  .home-panel-head {
+  .home-date-head {
     flex-direction: column;
     align-items: stretch;
   }
@@ -5917,41 +5985,45 @@ body.is-overlay-open {
 
 .home-screen {
   display: grid;
-  gap: 1rem;
+  gap: 0.82rem;
 }
 
 .home-date-card {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 1rem;
-  padding: 1rem 1.1rem;
+  gap: 0.72rem;
+  width: min(720px, 100%);
+  justify-self: start;
+  padding: 0.8rem 0.88rem;
 }
 
 .home-date-month {
   margin: 0;
-  font-size: clamp(1.32rem, 2.6vw, 1.72rem);
+  font-size: clamp(1.14rem, 2.1vw, 1.42rem);
   line-height: 1.05;
   white-space: nowrap;
 }
 
 .home-date-rail {
   min-width: 0;
-  padding: 0.05rem 0 0.15rem;
+  gap: 0.5rem;
+  padding: 0.04rem 0 0.12rem;
 }
 
 .achievement-card {
-  grid-template-columns: minmax(120px, 170px) minmax(0, 1fr);
+  grid-template-columns: minmax(112px, 156px) minmax(0, 1fr);
   align-items: center;
-  gap: 0.85rem;
+  gap: 0.72rem;
+  width: 100%;
   min-height: 0;
-  padding: 0.9rem 0.95rem;
+  padding: 0.82rem 0.9rem;
 }
 
 .home-note-card {
   display: grid;
   gap: 0.65rem;
-  padding: 0.9rem 1rem;
+  padding: 0.76rem 0.84rem;
   order: 2;
 }
 
@@ -6055,17 +6127,17 @@ body.is-overlay-open {
 
 .achievement-card h3 {
   margin: 0;
-  font-size: clamp(1.78rem, 3.8vw, 2.55rem);
+  font-size: clamp(1.56rem, 3.2vw, 2.2rem);
 }
 
 .achievement-stats {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.55rem;
+  gap: 0.44rem;
 }
 
 .achievement-stat {
   gap: 0.14rem;
-  padding: 0.72rem 0.8rem;
+  padding: 0.58rem 0.62rem;
 }
 
 .home-panel {
@@ -6073,51 +6145,54 @@ body.is-overlay-open {
 }
 
 .home-panel[data-home-panel="habits"] {
-  min-height: clamp(620px, 78vh, 840px);
+  min-height: clamp(520px, 68vh, 700px);
+}
+
+.home-panel[data-home-panel="tasks"] {
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: start;
 }
 
 .home-panel-head {
-  align-items: center;
+  width: 100%;
 }
 
-.home-panel-head > div:first-child {
-  display: flex;
-  align-items: baseline;
-  gap: 0.55rem;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-
-.home-panel-head > div:first-child p {
-  margin: 0;
-}
-
-.home-panel[data-home-panel="tasks"] .home-panel-head {
-  display: grid;
-  align-items: stretch;
-  justify-content: flex-start;
-  gap: 0.55rem;
-}
-
-.home-panel[data-home-panel="tasks"] .home-panel-head > div:first-child {
+.home-panel-head--tasks {
   display: block;
-}
-
-.home-panel[data-home-panel="tasks"] .home-panel-head > div:first-child h3 {
-  margin-top: 0;
-}
-
-.home-panel[data-home-panel="tasks"] .home-filter-tabs {
   align-self: start;
-  gap: 6px;
-  padding: 4px;
 }
 
-.home-panel[data-home-panel="tasks"] .home-filter-tabs .segment-button {
-  flex: 0 0 auto;
-  padding: 0.42rem 0.72rem;
+.home-panel[data-home-panel="tasks"] .home-panel-head--tasks {
+  align-items: stretch;
+}
+
+.home-panel[data-home-panel="tasks"] .home-panel-head--tasks .home-filter-tabs {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  inline-size: 100%;
+  min-inline-size: 100%;
+  max-width: none;
+  justify-self: stretch;
+  align-self: stretch;
+  align-items: stretch;
+  gap: 6px;
+  padding: 3px;
+}
+
+.home-panel[data-home-panel="tasks"] .home-panel-head--tasks .home-filter-tabs .segment-button {
+  display: inline-flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  width: 0;
+  min-width: 0;
+  max-width: none;
+  min-height: 34px;
+  white-space: nowrap;
+  padding: 0.38rem 0.66rem;
   border-radius: 12px;
-  line-height: 1.2;
+  line-height: 1;
 }
 
 .today-home-board--dense.home-task-board .home-board-cell--status {
@@ -6126,7 +6201,7 @@ body.is-overlay-open {
 
 .today-home-board--dense.home-task-board .today-home-board-head,
 .today-home-board--dense.home-task-board .home-board-row {
-  grid-template-columns: minmax(104px, 0.9fr) minmax(0, 1.35fr) minmax(132px, 0.92fr);
+  grid-template-columns: minmax(0, 1fr) minmax(148px, 0.46fr);
 }
 
 .home-routine-accent--task {
@@ -6300,11 +6375,13 @@ body.is-overlay-open {
 @media (max-width: 720px) {
   .home-date-card {
     grid-template-columns: minmax(0, 1fr);
-    gap: 0.8rem;
+    width: 100%;
+    gap: 0.66rem;
   }
 
   .achievement-stats {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.4rem;
   }
 
   .home-task-row {
@@ -6312,7 +6389,7 @@ body.is-overlay-open {
   }
 
   .home-panel[data-home-panel="habits"] {
-    min-height: clamp(540px, 70vh, 700px);
+    min-height: clamp(500px, 64vh, 640px);
   }
 
   .today-home-board--dense {
@@ -6331,6 +6408,29 @@ body.is-overlay-open {
 
   .today-home-board--dense .home-board-row--time {
     grid-template-columns: 62px minmax(0, 1fr) minmax(166px, 0.98fr);
+  }
+
+  .today-home-board--dense.home-task-board .today-home-board-head,
+  .today-home-board--dense.home-task-board .home-board-row {
+    grid-template-columns: minmax(0, 1fr) minmax(138px, 0.58fr);
+  }
+
+  .today-home-board--dense.home-task-board .home-board-cell--status {
+    justify-content: flex-end;
+    width: fit-content;
+    justify-self: end;
+  }
+
+  .today-home-board--dense.home-task-board .home-task-actions {
+    justify-content: flex-end;
+    min-width: 0;
+    width: auto;
+  }
+
+  .home-panel-tabs .segment-button {
+    min-height: 34px;
+    padding: 0.38rem 0.6rem;
+    font-size: 0.82rem;
   }
 
   .today-home-board--dense .today-home-board-body {
@@ -6359,32 +6459,52 @@ body.is-overlay-open {
   .home-date-card,
   .achievement-card,
   .home-panel {
-    padding: 0.95rem 0.9rem;
+    padding: 0.74rem 0.74rem;
+  }
+
+  .home-date-card {
+    gap: 0.56rem;
+  }
+
+  .home-date-month {
+    font-size: 1.06rem;
   }
 
   .home-date-chip {
-    min-width: 72px;
-    padding: 0.68rem 0.78rem;
+    min-width: 60px;
+    padding: 0.48rem 0.56rem;
+  }
+
+  .home-date-chip span {
+    font-size: 0.6rem;
   }
 
   .home-date-chip strong {
-    font-size: 1.02rem;
+    font-size: 0.88rem;
   }
 
   .achievement-card {
-    grid-template-columns: 108px minmax(0, 1fr);
+    grid-template-columns: 92px minmax(0, 1fr);
   }
 
   .achievement-card h3 {
-    font-size: 1.9rem;
+    font-size: 1.62rem;
   }
 
   .achievement-stat {
-    padding: 0.68rem 0.6rem;
+    padding: 0.52rem 0.46rem;
+  }
+
+  .achievement-stat span {
+    font-size: 0.58rem;
+  }
+
+  .achievement-stat strong {
+    font-size: 0.8rem;
   }
 
   .home-panel[data-home-panel="habits"] {
-    min-height: clamp(500px, 68vh, 640px);
+    min-height: clamp(420px, 56vh, 520px);
   }
 
   .today-home-board--dense {
@@ -6403,6 +6523,45 @@ body.is-overlay-open {
 
   .today-home-board--dense .home-board-row--time {
     grid-template-columns: 54px minmax(0, 1fr) minmax(148px, 0.92fr);
+  }
+
+  .today-home-board--dense.home-task-board .today-home-board-head,
+  .today-home-board--dense.home-task-board .home-board-row {
+    grid-template-columns: minmax(0, 1fr) minmax(126px, 0.66fr);
+  }
+
+  .today-home-board--dense.home-task-board .home-board-cell--status {
+    justify-content: flex-end;
+    width: fit-content;
+    justify-self: end;
+  }
+
+  .today-home-board--dense.home-task-board .home-task-actions {
+    justify-content: flex-end;
+    min-width: 0;
+    width: auto;
+  }
+
+  .home-panel[data-home-panel="tasks"] .home-filter-tabs {
+    gap: 5px;
+  }
+
+  .home-panel[data-home-panel="tasks"] .home-filter-tabs .segment-button {
+    min-height: 32px;
+    padding: 0.34rem 0.52rem;
+    font-size: 0.8rem;
+  }
+
+  .home-panel-tabs {
+    gap: 4px;
+    padding: 3px;
+  }
+
+  .home-panel-tabs .segment-button {
+    min-height: 32px;
+    padding: 0.34rem 0.52rem;
+    font-size: 0.78rem;
+    border-radius: 11px;
   }
 
   .today-home-board .home-time-trigger {

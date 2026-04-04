@@ -28,11 +28,21 @@
 - [x] The habit picker overlay now removes redundant explanatory copy, uses a home-list-inspired row layout, and separates the list from the cancel/apply actions with clearer spacing
 - [x] Mode forms now collapse after a successful save, expose inline habit creation via a layer popup from the habit picker field, and the mobile tab bar redistributes evenly across four slots after routine-tab removal
 - [x] The browser UI now serves the locally hosted `SUIT Variable` font as its default typeface, replacing the previous Google-font mix with a softer commercial-use-friendly UI font stack
+- [x] Mobile home task boards now use the same dense board geometry as the habit board, so the selected-day and pending filters keep a consistent card layout in both empty and populated states
 - [x] The home habit panel now shows only habits assigned to the selected day, hiding unscheduled habits instead of rendering inactive rows
 - [x] The achievement card now uses milestone badges and tier-based celebration styling so high completion states feel more rewarding without overwhelming low-progress states
 - [x] New habits now auto-attach to `mode-default` when that default mode already exists, preventing freshly created standalone habits from appearing as unscheduled by default
 - [x] The achievement milestone badge now uses emoji-first visual cues with localized accessible labels instead of text-only copy
 - [x] Home time-tracked habits now use a single-slot tap toggle that shows only the latest recorded time and clears on the next tap instead of stacking duplicate chips
+- [x] The today screen now hides the redundant top title/copy block, uses a circular avatar-only account trigger, and trims home-card padding/heights so the first screen occupies less vertical space
+- [x] The home task filter tabs now force a full-width two-column layout, and the upper home panel tabs use distinct habit/task accent colors so the two layers are easier to distinguish
+- [x] The home date card now renders more compactly than the achievement card, with reduced home-card padding and smaller date/achievement typography to lower first-screen visual density
+- [x] The home task board now drops the due-date column entirely, keeping only task content and status actions in the today-panel rows
+- [x] The home task filter buttons are now forced into a horizontal two-button row, and the upper habit/task panel tabs use smaller button and text sizing
+- [x] The task-panel filter header no longer reuses `route-inline-head` wrapping behavior; it now uses a dedicated task header so the two filter buttons stay side-by-side without inherited wrap rules
+- [x] The mobile task panel now pins its header row to content height by using explicit `auto / minmax(0,1fr)` task-panel rows, preventing empty vertical space under the filter tabs
+- [x] The mobile task filter buttons now override the shared segmented min-height so the labels sit vertically centered without extra blank space under the text
+- [x] The lower `오늘의 할 일 / 미완료된 할 일` filter now uses a distinct blue/cyan tone separate from the upper habit/task panel tabs so the two tab layers are visually distinguishable
 - [x] The redundant `습관 보기` heading above the home habit board has been removed
 - [x] The top utility header now stays in normal document flow instead of sticky floating behavior
 - [x] The redundant `마이 플래너` eyebrow above the screen title has been removed
