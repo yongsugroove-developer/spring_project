@@ -17,7 +17,7 @@ describe("PWA assets", () => {
     expect(manifestResponse.status).toBe(200);
     expect(manifestResponse.headers["cache-control"]).toContain("no-store");
     expect(manifestResponse.body).toMatchObject({
-      name: "My Planner",
+      name: "Routine Log",
       display: "standalone",
       start_url: "/",
     });
@@ -43,7 +43,7 @@ describe("PWA assets", () => {
     expect(loginResponse.text).toContain('rel="apple-touch-icon" href="/icons/app-icon-192.svg"');
 
     expect(installResponse.status).toBe(200);
-    expect(installResponse.text).toContain("<title>마이 플래너 설치 안내</title>");
+    expect(installResponse.text).toContain("<title>루틴 로그 설치 안내</title>");
     expect(installResponse.text).toContain('rel="manifest" href="/manifest.webmanifest"');
   });
 });

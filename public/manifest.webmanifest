@@ -1,6 +1,6 @@
 {
-  "name": "My Planner",
-  "short_name": "Planner",
+  "name": "Routine Log",
+  "short_name": "Routine",
   "description": "Installable planner shell for habits, tasks, routines, and calendar flows.",
   "start_url": "/",
   "scope": "/",
