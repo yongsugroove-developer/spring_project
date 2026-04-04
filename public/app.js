@@ -1248,13 +1248,18 @@ function render() {
 
 function renderShellOnly() {
   applyPreferences();
+  const routeMeta = ROUTE_META[state.routePath] || ROUTE_META["/today"];
+  const routeTitle = state.routePath === "/today" ? "" : tx(routeMeta.titleKey, "").trim();
   applyShellText();
   document.documentElement.lang = state.locale;
-  document.title = `루틴 로그 | ${tx(ROUTE_META[state.routePath].titleKey, "루틴 로그")}`;
+  document.title = routeTitle ? `루틴 로그 | ${routeTitle}` : "루틴 로그";
   document.querySelector(".account-menu-shell")?.classList.toggle("is-open", state.accountMenuOpen);
   const accountTrigger = document.getElementById("account-menu-trigger");
+  const accountIdentity = state.currentUser?.displayName || state.currentUser?.email || tx("accountMenu", "계정");
   if (accountTrigger instanceof HTMLElement) {
     accountTrigger.setAttribute("aria-expanded", String(state.accountMenuOpen));
+    accountTrigger.setAttribute("aria-label", accountIdentity);
+    accountTrigger.title = accountIdentity;
   }
   document.body.classList.toggle("is-overlay-open", Boolean(state.quickCreateKind || state.modeDatePicker || state.habitPicker));
 
@@ -1271,13 +1276,9 @@ function renderShellOnly() {
     panel.hidden = !active;
   }
 
-  const accountName = document.getElementById("account-menu-name");
-  const accountMeta = document.getElementById("account-menu-meta");
-  if (accountName instanceof HTMLElement) {
-    accountName.textContent = state.currentUser?.displayName || state.currentUser?.email || tx("accountMenu", "계정");
-  }
-  if (accountMeta instanceof HTMLElement) {
-    accountMeta.textContent = state.currentUser?.email || tx("accountMenuMeta", "계정 / 설정 / 통계");
+  const accountAvatar = document.getElementById("account-menu-avatar");
+  if (accountAvatar instanceof HTMLElement) {
+    accountAvatar.textContent = resolveAccountInitial(accountIdentity);
   }
 }
 
@@ -1350,10 +1351,7 @@ function renderTodayPage() {
       </div>
       <div class="home-carousel" data-home-carousel>
         <section class="content-card home-panel" data-home-panel="tasks">
-          <div class="route-inline-head home-panel-head">
-            <div>
-              <h3>${esc(tx("tasksMenu", "할일 관리"))}</h3>
-            </div>
+          <div class="home-panel-head home-panel-head--tasks">
             <div class="segmented home-filter-tabs">
               <button class="segment-button ${state.homeTaskFilter === "scheduled" ? "is-selected" : ""}" type="button" data-action="set-home-task-filter" data-filter="scheduled">${esc(tx("homeTaskFilterToday", "오늘의 할 일"))}</button>
               <button class="segment-button ${state.homeTaskFilter === "inbox" ? "is-selected" : ""}" type="button" data-action="set-home-task-filter" data-filter="inbox">${esc(tx("homeTaskFilterPending", "미완료된 할 일"))}</button>
@@ -1873,10 +1871,7 @@ renderTodayPage = function () {
       </div>
       <div class="home-carousel" data-home-carousel>
         <section class="content-card home-panel" data-home-panel="tasks">
-          <div class="route-inline-head home-panel-head">
-            <div>
-              <h3>${esc(tx("tasksMenu", "할일 관리"))}</h3>
-            </div>
+          <div class="home-panel-head home-panel-head--tasks">
             <div class="segmented home-filter-tabs">
               <button class="segment-button ${state.homeTaskFilter === "scheduled" ? "is-selected" : ""}" type="button" data-action="set-home-task-filter" data-filter="scheduled">${esc(tx("homeTaskFilterToday", "오늘의 할 일"))}</button>
               <button class="segment-button ${state.homeTaskFilter === "inbox" ? "is-selected" : ""}" type="button" data-action="set-home-task-filter" data-filter="inbox">${esc(tx("homeTaskFilterPending", "미완료된 할 일"))}</button>
@@ -2233,7 +2228,6 @@ function renderModeCard(mode) {
 function renderHomeTaskBoard(tasks) {
   return `<section class="today-home-board today-home-board--dense home-task-board">
       <div class="today-home-board-head">
-        <span>${esc(tx("dueDate", "마감일"))}</span>
         <span>${esc(tx("tasksMenu", "할일 관리"))}</span>
         <span>${esc(tx("status", "상태"))}</span>
       </div>
@@ -2270,13 +2264,9 @@ function renderHomeBoardEmptyRow(copy) {
 
 renderHomeTaskRow = function (task) {
   const done = task.status === "done";
-  const meta = task.dueDate ? formatCompactDate(task.dueDate) : tx("unscheduled", "미정");
   const isPendingBoard = state.homeTaskFilter === "inbox";
   return `<article class="home-board-group">
     <div class="home-board-row home-board-row--item home-board-row--task ${done ? "is-complete" : ""}">
-      <div class="home-board-cell home-board-cell--index">
-        <span class="state-pill ${done ? "is-success" : ""}">${esc(meta)}</span>
-      </div>
       <div class="home-board-cell home-board-cell--main">
         <div class="home-routine-main">
           <span class="home-routine-accent home-routine-accent--task"></span>
@@ -2875,18 +2865,38 @@ async function legacyRequest(url, options = {}) {
 function applyShellText() {
   const meta = ROUTE_META[state.routePath] || ROUTE_META["/today"];
   text("app-utility-title", "appTitle", "루틴 로그");
-  text("screen-title", meta.titleKey, "루틴 로그");
+  const isTodayRoute = state.routePath === "/today";
+  const title = isTodayRoute ? "" : tx(meta.titleKey, "").trim();
+  const copy = isTodayRoute ? "" : tx(meta.copyKey, "").trim();
+  const screenTitle = document.getElementById("screen-title");
   const screenCopy = document.getElementById("screen-copy");
+  const topbar = document.querySelector(".planner-topbar");
+  if (screenTitle instanceof HTMLElement) {
+    screenTitle.textContent = title;
+    screenTitle.hidden = !title;
+  }
   if (screenCopy instanceof HTMLElement) {
-    const copy = tx(meta.copyKey, "개인 플래너");
     screenCopy.textContent = copy;
     screenCopy.hidden = !copy.trim();
+  }
+  if (topbar instanceof HTMLElement) {
+    topbar.hidden = !(title || copy);
   }
 
   for (const element of document.querySelectorAll("[data-label-key]")) {
     if (!(element instanceof HTMLElement)) continue;
     element.textContent = tx(element.dataset.labelKey || "", element.textContent || "");
   }
+}
+
+function resolveAccountInitial(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return "U";
+  }
+  const source = normalized.includes("@") ? normalized.split("@")[0] : normalized;
+  const initial = Array.from(source.trim())[0] || Array.from(normalized)[0] || "U";
+  return initial.toUpperCase();
 }
 
 function preserveScrollPosition(selector) {
