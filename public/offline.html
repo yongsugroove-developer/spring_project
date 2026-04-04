@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Planner Offline</title>
+    <meta
+      name="description"
+      content="My Planner is offline. Reconnect to continue syncing habits, tasks, and routines."
+    />
+    <meta name="theme-color" content="#6366f1" />
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: linear-gradient(180deg, #eef2ff 0%, #f8fafc 100%);
+        --card: rgba(255, 255, 255, 0.92);
+        --ink: #0f172a;
+        --muted: #64748b;
+        --accent: #6366f1;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        font-family: "Noto Sans KR", sans-serif;
+        color: var(--ink);
+        background: var(--bg);
+      }
+
+      main {
+        width: min(100%, 440px);
+        padding: 28px;
+        border-radius: 28px;
+        background: var(--card);
+        box-shadow: 0 24px 64px rgba(15, 23, 42, 0.14);
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: clamp(1.8rem, 4vw, 2.3rem);
+      }
+
+      p {
+        margin: 0;
+        line-height: 1.6;
+        color: var(--muted);
+      }
+
+      a {
+        display: inline-flex;
+        margin-top: 20px;
+        padding: 0.8rem 1rem;
+        border-radius: 999px;
+        text-decoration: none;
+        color: #fff;
+        background: var(--accent);
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Offline</h1>
+      <p>The installed shell is available, but planner data needs a network connection right now.</p>
+      <a href="/">Retry</a>
+    </main>
+  </body>
+</html>

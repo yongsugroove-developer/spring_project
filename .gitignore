@@ -3,6 +3,14 @@ dist/
 .env
 coverage/
 data/
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/keystore.properties
+android/*.jks
+android/*.keystore
+keystores/
 
 # Android wrapper and build artifacts
 android/

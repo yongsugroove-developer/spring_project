@@ -2,19 +2,19 @@
 
 ## Project
 - Requirement ID: RQ-001
-- Project: sns ai 뉴스 수집기
+- Project: my-planner
 - Owner: yongsugroove
 
 ## Quick Checklist
-- [ ] New project credentials issued
-- [ ] Previous project credentials are not reused
-- [ ] Secret storage path defined outside the repository
+- [x] New project credentials issued
+- [x] Previous project credentials are not reused
+- [x] Secret storage path defined outside the repository
 - [ ] Sensitive values are not exposed in logs or responses
 
 ## Evidence Links
-- Credential issue link/path:
+- Credential issue link/path: User-scoped environment variables `ANDROID_KEYSTORE_PATH`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`
 - Revoke/disable log path:
-- Secret storage path:
+- Secret storage path: `%USERPROFILE%\\.my-planner\\android-release`
 
 ## Sign-off
 - Security reset complete: Pending

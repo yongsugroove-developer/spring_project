@@ -5,12 +5,19 @@ import {
   normalizeHashPath,
   parseHashRoute,
 } from "./homeUtils.js";
+import { escapeHtml as esc } from "./shared/html.js";
+import { createJsonApiClient } from "./shared/jsonApi.js";
+import {
+  STORAGE_KEYS,
+  applyPreferences as applyShellPreferences,
+  detectLocale,
+  detectStoredOption,
+  getAuthToken,
+  persistAuthToken,
+  setStoredOption,
+} from "./shared/preferences.js";
+import { registerPwaServiceWorker } from "./shared/pwa.js";
 import { LANGUAGE_LABELS, MESSAGES } from "./translations.js";
-
-const LOCALE_KEY = "my-planner-locale";
-const THEME_KEY = "my-planner-theme";
-const DENSITY_KEY = "my-planner-density";
-const AUTH_TOKEN_KEY = "my-planner-auth-token";
 
 const THEME_OPTIONS = [
   { value: "violet", labelKey: "themeViolet" },
@@ -61,10 +68,10 @@ const ROUTE_META = {
 };
 
 const state = {
-  locale: detectLocale(),
-  themePreset: detectStoredOption(THEME_KEY, THEME_OPTIONS.map((option) => option.value), "violet"),
-  density: detectStoredOption(DENSITY_KEY, DENSITY_OPTIONS.map((option) => option.value), "comfy"),
-  authToken: globalThis.localStorage?.getItem(AUTH_TOKEN_KEY) ?? "",
+  locale: detectLocale(MESSAGES),
+  themePreset: detectStoredOption(STORAGE_KEYS.theme, THEME_OPTIONS.map((option) => option.value), "violet"),
+  density: detectStoredOption(STORAGE_KEYS.density, DENSITY_OPTIONS.map((option) => option.value), "comfy"),
+  authToken: getAuthToken(),
   authAvailable: false,
   authRequired: false,
   currentUser: null,
@@ -98,6 +105,12 @@ const state = {
 
 let feedbackTimer = 0;
 let achievementAnimationFrame = 0;
+const request = createJsonApiClient({
+  getAuthToken: () => state.authToken,
+  getLocale: () => state.locale,
+  translate: (key) => tx(key),
+  resolveMessage,
+});
 
 bootstrap().catch((error) => {
   console.error(error);
@@ -106,6 +119,7 @@ bootstrap().catch((error) => {
 
 async function bootstrap() {
   applyPreferences();
+  void registerPwaServiceWorker();
   bindEvents();
   applyShellText();
   await loadHealth();
@@ -162,20 +176,20 @@ function bindEvents() {
     rememberOpenModeDetails(target);
     if (target.id === "settings-locale" && target instanceof HTMLSelectElement) {
       state.locale = target.value in MESSAGES ? target.value : "ko";
-      globalThis.localStorage?.setItem(LOCALE_KEY, state.locale);
+      setStoredOption(STORAGE_KEYS.locale, state.locale);
       render();
       return;
     }
     if (target.id === "settings-theme" && target instanceof HTMLSelectElement) {
       state.themePreset = target.value;
-      setStoredOption(THEME_KEY, state.themePreset);
+      setStoredOption(STORAGE_KEYS.theme, state.themePreset);
       applyPreferences();
       render();
       return;
     }
     if (target.id === "settings-density" && target instanceof HTMLSelectElement) {
       state.density = target.value;
-      setStoredOption(DENSITY_KEY, state.density);
+      setStoredOption(STORAGE_KEYS.density, state.density);
       applyPreferences();
       render();
       return;
@@ -2752,7 +2766,7 @@ function setPanel(name, html) {
   panel.innerHTML = html;
 }
 
-async function request(url, options = {}) {
+async function legacyRequest(url, options = {}) {
   const headers = new Headers(options.headers || {});
   if (state.authToken) {
     headers.set("Authorization", `Bearer ${state.authToken}`);
@@ -3295,38 +3309,13 @@ function formatDateTime(value) {
   }).format(date);
 }
 
-function detectLocale() {
-  const stored = globalThis.localStorage?.getItem(LOCALE_KEY);
-  if (stored && stored in MESSAGES) {
-    return stored;
-  }
-  const candidates = [globalThis.navigator?.language, ...(globalThis.navigator?.languages ?? [])].filter(Boolean);
-  if (candidates.some((value) => String(value).toLowerCase().startsWith("ja"))) return "ja";
-  if (candidates.some((value) => String(value).toLowerCase().startsWith("en"))) return "en";
-  return "ko";
-}
-
-function detectStoredOption(key, allowedValues, fallbackValue) {
-  const stored = globalThis.localStorage?.getItem(key);
-  return stored && allowedValues.includes(stored) ? stored : fallbackValue;
-}
-
-function setStoredOption(key, value) {
-  globalThis.localStorage?.setItem(key, value);
-}
-
 function setAuthToken(value) {
   state.authToken = value;
-  if (value) {
-    globalThis.localStorage?.setItem(AUTH_TOKEN_KEY, value);
-    return;
-  }
-  globalThis.localStorage?.removeItem(AUTH_TOKEN_KEY);
+  persistAuthToken(value);
 }
 
 function applyPreferences() {
-  document.body.dataset.theme = state.themePreset;
-  document.body.dataset.density = state.density;
+  applyShellPreferences(state);
 }
 
 function t(key, fallback) {
@@ -3353,15 +3342,6 @@ function text(id, key, fallback = "") {
   if (element instanceof HTMLElement) {
     element.textContent = tx(key, fallback);
   }
-}
-
-function esc(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
 }
 
 function optionalValue(value) {

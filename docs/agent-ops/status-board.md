@@ -6,6 +6,10 @@
 - [ ] Validate date memo save/clear and reload behavior on the home screen across route refreshes
 - [ ] Validate the mode override select/clear flow against expected weekday behavior
 - [ ] Confirm the achievement card animation pacing and reduced-motion behavior in a browser
+- [ ] Verify PWA install flow, standalone launch, and offline fallback on a supported browser
+- [ ] Verify the signed Android release APK on a non-dev device against the deployed HTTPS host
+- [ ] Verify iPhone Safari home-screen install and standalone launch against the deployed HTTPS host
+- [ ] Run the public deploy smoke check against the production domain
 - [ ] Collect explicit user approval after manual UX validation
 
 ## in_progress
@@ -38,6 +42,10 @@
 - [x] Today payloads and planner storage now support per-date short memos with backward-compatible `dailyNotes` normalization
 - [x] The home screen now exposes a compact date memo card so the selected date can hold a short reminder or reflection without leaving home
 - [x] Settings now formalize concept help into a short FAQ covering tasks, habits, routines, modes, schedules, time logs, and completion-rate calculation
+- [x] Browser settings/auth/API helpers are now shared across `app.js` and `login.js` instead of duplicated inline
+- [x] The Express-served browser UI now exposes install metadata, a service worker, and an offline fallback as a PWA shell
+- [x] A Capacitor Android project now wraps the existing Express app through a configurable remote server URL for follow-on mobile packaging
+- [x] Public distribution now supports hidden placeholder billing, an `/install` guide page, and Android release signing/version configuration
 
 ## done (user approved only)
 - [ ] Routine-mode home redesign approved by user after manual QA

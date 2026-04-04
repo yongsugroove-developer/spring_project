@@ -206,4 +206,6 @@ export interface HealthResponse {
   storageDriver?: "json" | "mysql";
   authAvailable?: boolean;
   authRequired?: boolean;
+  publicBillingEnabled?: boolean;
+  installGuidePath?: string;
 }

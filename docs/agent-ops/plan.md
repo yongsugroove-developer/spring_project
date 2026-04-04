@@ -15,8 +15,11 @@
 | FE-06 | Add routine mode management UI and home mode override controls | Frontend Worker | done |
 | BE-07 | Add date memo storage plus `/api/today` exposure and a dedicated date-memo save API with backward-compatible data normalization | Backend Worker | done |
 | FE-07 | Add a compact home date-memo card and formalize settings help into short FAQ entries without changing the existing route structure | Frontend Worker | done |
+| FE-08 | Extract shared browser helper modules and add installable PWA assets on top of the existing Express-served UI | Frontend Worker | done |
+| OPS-01 | Scaffold a Capacitor Android shell that loads the existing Express app through a configurable remote server URL | Leader | done |
 | QA-04 | Add regression coverage for routine mode overrides, time-entry append/remove flow, and routine mode CRUD routes | Test Agent | done |
 | QA-05 | Add regression coverage for date-memo persistence and current-format migration when `dailyNotes` is missing | Test Agent | done |
+| QA-06 | Add regression coverage for manifest, service worker, and install metadata delivery | Test Agent | done |
 | DOC-02 | Rewrite planning and QA docs to match the routine-mode home redesign | Leader | done |
 | DOC-03 | Update requirements and status docs for date memo support and FAQ formalization | Leader | done |
 
@@ -29,4 +32,4 @@
 
 ## Exit Conditions
 - Automated verification passes.
-- Remaining work is limited to real-browser manual validation and user approval.
+- Remaining work is limited to real-browser install validation, Android device verification, and user approval.

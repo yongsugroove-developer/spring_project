@@ -1,9 +1,17 @@
+import { escapeHtml as esc } from "./shared/html.js";
+import { createJsonApiClient } from "./shared/jsonApi.js";
+import {
+  STORAGE_KEYS,
+  applyPreferences as applyShellPreferences,
+  detectLocale,
+  detectStoredOption,
+  getAuthToken,
+  persistAuthToken,
+  setStoredOption,
+} from "./shared/preferences.js";
+import { registerPwaServiceWorker } from "./shared/pwa.js";
 import { LANGUAGE_LABELS, MESSAGES } from "./translations.js";
 
-const LOCALE_KEY = "my-planner-locale";
-const THEME_KEY = "my-planner-theme";
-const DENSITY_KEY = "my-planner-density";
-const AUTH_TOKEN_KEY = "my-planner-auth-token";
 const HOME_PATH = "/";
 
 const THEME_PRESET_OPTIONS = [
@@ -17,61 +25,82 @@ const DENSITY_OPTIONS = [
   { value: "compact", labelKey: "densityCompact" },
 ];
 
+const DISTRIBUTION_MESSAGES = {
+  en: {
+    title: "Install",
+    heading: "Use the mobile app",
+    copy: "Android users install the signed APK. iPhone users save the planner to the home screen from Safari.",
+    androidTitle: "Android APK",
+    androidCopy: "Open the install guide from your phone, allow unknown-app installs if prompted, then sign in with your account.",
+    iphoneTitle: "iPhone Safari PWA",
+    iphoneCopy: "Open the planner in Safari, tap Share, then choose Add to Home Screen. Sign in after the shortcut is created.",
+    betaTitle: "Public beta note",
+    betaCopy: "Public signup is enabled. Billing is hidden in this beta while the production payment flow is still a placeholder.",
+    action: "Open install guide",
+  },
+  ko: {
+    title: "설치",
+    heading: "모바일 앱 사용 안내",
+    copy: "안드로이드는 서명된 APK를 설치하고, iPhone은 Safari에서 홈 화면에 추가해 사용합니다.",
+    androidTitle: "Android APK",
+    androidCopy: "모바일에서 설치 안내를 열고 필요하면 알 수 없는 앱 설치를 허용한 뒤 계정으로 로그인하세요.",
+    iphoneTitle: "iPhone Safari PWA",
+    iphoneCopy: "Safari에서 플래너를 연 뒤 공유 버튼을 누르고 홈 화면에 추가를 선택한 다음 로그인하세요.",
+    betaTitle: "공개 베타 안내",
+    betaCopy: "개별 회원가입은 가능하지만 현재 결제 흐름은 placeholder 상태라 공개 앱에서는 노출하지 않습니다.",
+    action: "설치 안내 열기",
+  },
+  ja: {
+    title: "インストール",
+    heading: "モバイル利用案内",
+    copy: "Android は署名済み APK を配布し、iPhone は Safari からホーム画面に追加して使います。",
+    androidTitle: "Android APK",
+    androidCopy: "スマートフォンで案内を開き、必要なら提供元不明アプリの許可後にログインしてください。",
+    iphoneTitle: "iPhone Safari PWA",
+    iphoneCopy: "Safari でプランナーを開き、共有からホーム画面に追加してからログインしてください。",
+    betaTitle: "公開ベータ案内",
+    betaCopy: "個別会員登録は可能ですが、決済はまだ placeholder のため公開アプリでは表示しません。",
+    action: "インストール案内を開く",
+  },
+};
+
 const state = {
-  locale: detectLocale(),
+  locale: detectLocale(MESSAGES),
   themePreset: detectStoredOption(
-    THEME_KEY,
+    STORAGE_KEYS.theme,
     THEME_PRESET_OPTIONS.map((option) => option.value),
     "violet",
   ),
   density: detectStoredOption(
-    DENSITY_KEY,
+    STORAGE_KEYS.density,
     DENSITY_OPTIONS.map((option) => option.value),
     "comfy",
   ),
-  authToken: globalThis.localStorage?.getItem(AUTH_TOKEN_KEY) ?? "",
+  authToken: getAuthToken(),
   authAvailable: false,
   authRequired: false,
+  publicBillingEnabled: false,
+  installGuidePath: "/install",
   authMode: "login",
   billingPlans: [],
   pendingActionId: "",
   inlineFeedback: null,
 };
-
-function detectLocale() {
-  const saved = globalThis.localStorage?.getItem(LOCALE_KEY);
-  if (saved && MESSAGES[saved]) return saved;
-  const candidates = navigator.languages?.length ? navigator.languages : [navigator.language];
-  for (const candidate of candidates) {
-    const normalized = String(candidate ?? "").toLowerCase();
-    if (normalized.startsWith("ko")) return "ko";
-    if (normalized.startsWith("ja")) return "ja";
-    if (normalized.startsWith("en")) return "en";
-  }
-  return "ko";
-}
-
-function detectStoredOption(key, allowedValues, fallback) {
-  const stored = globalThis.localStorage?.getItem(key);
-  return allowedValues.includes(stored) ? stored : fallback;
-}
-
-function setStoredOption(key, value) {
-  globalThis.localStorage?.setItem(key, value);
-}
+const api = createJsonApiClient({
+  getAuthToken: () => state.authToken,
+  onUnauthorized: () => setAuthToken(""),
+  getLocale: () => state.locale,
+  translate: (key) => t(key),
+  resolveMessage,
+});
 
 function applyPreferences() {
-  document.body.dataset.theme = state.themePreset;
-  document.body.dataset.density = state.density;
+  applyShellPreferences(state);
 }
 
 function setAuthToken(token) {
   state.authToken = token;
-  if (token) {
-    globalThis.localStorage?.setItem(AUTH_TOKEN_KEY, token);
-    return;
-  }
-  globalThis.localStorage?.removeItem(AUTH_TOKEN_KEY);
+  persistAuthToken(token);
 }
 
 function t(key, params = {}) {
@@ -86,18 +115,14 @@ function resolveMessage(message) {
   return MESSAGES[state.locale]?.[message] ? t(message) : message;
 }
 
+function distributionText(key) {
+  const bundle = DISTRIBUTION_MESSAGES[state.locale] ?? DISTRIBUTION_MESSAGES.ko;
+  return bundle[key] ?? DISTRIBUTION_MESSAGES.ko[key] ?? key;
+}
+
 function text(id, value) {
   const node = document.getElementById(id);
   if (node) node.textContent = value;
-}
-
-function esc(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
 }
 
 function feedback(message, error = false) {
@@ -241,6 +266,52 @@ function authCardCopy() {
   return state.authAvailable ? t("authRequiredCopy") : t("authUnavailableCopy");
 }
 
+function installGuidePanel() {
+  return `<section class="panel section login-side-panel">
+        <div class="section-head section-head-tight">
+          <div>
+            <p class="section-label">${esc(distributionText("title"))}</p>
+            <h2>${esc(distributionText("heading"))}</h2>
+          </div>
+        </div>
+        <p class="muted auth-copy">${esc(distributionText("copy"))}</p>
+        <div class="stack">
+          <article class="content-card content-card--stat">
+            <strong>${esc(distributionText("androidTitle"))}</strong>
+            <p class="muted">${esc(distributionText("androidCopy"))}</p>
+          </article>
+          <article class="content-card content-card--stat">
+            <strong>${esc(distributionText("iphoneTitle"))}</strong>
+            <p class="muted">${esc(distributionText("iphoneCopy"))}</p>
+          </article>
+          <article class="content-card content-card--stat">
+            <strong>${esc(distributionText("betaTitle"))}</strong>
+            <p class="muted">${esc(distributionText("betaCopy"))}</p>
+          </article>
+          <a class="btn" href="${esc(state.installGuidePath)}">${esc(distributionText("action"))}</a>
+        </div>
+      </section>`;
+}
+
+function billingPanel() {
+  const plans = !state.authAvailable
+    ? `<div class="content-card collapsed-summary"><strong>${t("system")}</strong><p class="muted">${t("authUnavailableCopy")}</p></div>`
+    : state.billingPlans.length
+      ? state.billingPlans.map((plan) => planCard(plan)).join("")
+      : `<div class="content-card collapsed-summary"><strong>${t("billingTitle")}</strong><p class="muted">${t("billingLoading")}</p></div>`;
+
+  return `<section class="panel section login-side-panel">
+        <div class="section-head section-head-tight">
+          <div>
+            <p class="section-label">${t("billingTitle")}</p>
+            <h2>${t("billingPlanExplorer")}</h2>
+          </div>
+        </div>
+        <p class="muted auth-copy">${t("billingGuestCopy")}</p>
+        <div class="stack">${plans}</div>
+      </section>`;
+}
+
 function settingsPanel() {
   return `<div class="login-settings-wrap">
     <details class="settings-panel login-settings-panel">
@@ -277,12 +348,7 @@ function settingsPanel() {
 function renderRoot() {
   const root = document.getElementById("login-root");
   if (!root) return;
-
-  const plans = !state.authAvailable
-    ? `<div class="content-card collapsed-summary"><strong>${t("system")}</strong><p class="muted">${t("authUnavailableCopy")}</p></div>`
-    : state.billingPlans.length
-      ? state.billingPlans.map((plan) => planCard(plan)).join("")
-      : `<div class="content-card collapsed-summary"><strong>${t("billingTitle")}</strong><p class="muted">${t("billingLoading")}</p></div>`;
+  const sidePanel = state.publicBillingEnabled ? billingPanel() : installGuidePanel();
 
   root.innerHTML = `<div class="login-layout">
     <section class="login-card">
@@ -319,16 +385,7 @@ function renderRoot() {
     </section>
 
     <aside class="login-side-stack">
-      <section class="panel section login-side-panel">
-        <div class="section-head section-head-tight">
-          <div>
-            <p class="section-label">${t("billingTitle")}</p>
-            <h2>${t("billingPlanExplorer")}</h2>
-          </div>
-        </div>
-        <p class="muted auth-copy">${t("billingGuestCopy")}</p>
-        <div class="stack">${plans}</div>
-      </section>
+      ${sidePanel}
     </aside>
   </div>`;
 }
@@ -339,7 +396,7 @@ function render() {
   applyStaticText();
 }
 
-async function api(path, options = {}) {
+async function legacyApi(path, options = {}) {
   const {
     headers: customHeaders = {},
     skipAuth = false,
@@ -375,10 +432,12 @@ async function refreshHealth() {
   const health = await api("/api/health", { skipAuth: true, preserveAuthOn401: true });
   state.authAvailable = health?.authAvailable ?? health?.storageDriver === "mysql";
   state.authRequired = Boolean(health?.authRequired);
+  state.publicBillingEnabled = Boolean(health?.publicBillingEnabled);
+  state.installGuidePath = typeof health?.installGuidePath === "string" ? health.installGuidePath : "/install";
 }
 
 async function refreshBillingPlans() {
-  if (!state.authAvailable) {
+  if (!state.authAvailable || !state.publicBillingEnabled) {
     state.billingPlans = [];
     return;
   }
@@ -436,7 +495,7 @@ async function onSubmit(event) {
         method: "POST",
         skipAuth: true,
         preserveAuthOn401: true,
-        body: JSON.stringify(payload),
+        body: payload,
       });
       setAuthToken(result?.session?.token ?? "");
       state.inlineFeedback = null;
@@ -467,20 +526,20 @@ function onChange(event) {
   if (!(target instanceof HTMLSelectElement)) return;
   if (target.id === "language-select" && MESSAGES[target.value]) {
     state.locale = target.value;
-    setStoredOption(LOCALE_KEY, target.value);
+    setStoredOption(STORAGE_KEYS.locale, target.value);
     render();
     return;
   }
   if (target.id === "theme-select") {
     state.themePreset = target.value;
-    setStoredOption(THEME_KEY, target.value);
+    setStoredOption(STORAGE_KEYS.theme, target.value);
     applyPreferences();
     render();
     return;
   }
   if (target.id === "density-select") {
     state.density = target.value;
-    setStoredOption(DENSITY_KEY, target.value);
+    setStoredOption(STORAGE_KEYS.density, target.value);
     applyPreferences();
     render();
   }
@@ -492,6 +551,7 @@ document.addEventListener("change", onChange);
 
 async function initializeLogin() {
   render();
+  void registerPwaServiceWorker();
   try {
     await refreshHealth();
     if (await restoreSession()) {
